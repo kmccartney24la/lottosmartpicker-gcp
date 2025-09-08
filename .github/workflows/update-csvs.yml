@@ -1,0 +1,52 @@
+name: Update CSVs and upload to R2
+
+on:
+  schedule:
+    # 04:45 UTC = 12:45 AM ET (daylight); safe window after GA's 11:34 PM ET draw
+    - cron: '45 4 * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write  # allow commit back to repo if files changed
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Run updater
+        run: node scripts/update_csvs.mjs
+
+      - name: Commit changes (if any)
+        run: |
+          if [[ -n "$(git status --porcelain)" ]]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add public/data/ga/*.csv
+            git commit -m "chore: update CSVs"
+            git push
+          else
+            echo "No CSV changes to commit."
+          fi
+
+      # Upload to Cloudflare R2 using Wrangler
+      - name: Upload Fantasy 5 to R2
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CF_API_TOKEN }}
+          accountId: ${{ secrets.CF_ACCOUNT_ID }}
+          command: r2 object put ${{ secrets.R2_BUCKET }}/ga/fantasy5.csv --file=public/data/ga/fantasy5.csv --force
+
+      - name: Upload Cash4Life to R2
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CF_API_TOKEN }}
+          accountId: ${{ secrets.CF_ACCOUNT_ID }}
+          command: r2 object put ${{ secrets.R2_BUCKET }}/ga/cash4life.csv --file=public/data/ga/cash4life.csv --force
