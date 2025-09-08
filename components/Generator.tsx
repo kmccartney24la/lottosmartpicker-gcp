@@ -10,20 +10,6 @@ import {
   filterRowsForCurrentEra,
 } from '@lib/lotto';
 
-export type GeneratorPreset = {
-  modeMain: 'hot'|'cold';
-  alphaMain: number;
-  modeSpecial: 'hot'|'cold';
-  alphaSpecial: number;
-  label?: string;
-};
-
-export const PRESETS: Record<'balanced'|'hot'|'cold', GeneratorPreset> = {
-  balanced: { modeMain: 'hot', alphaMain: 0.50, modeSpecial: 'hot', alphaSpecial: 0.50, label: 'Balanced (mix of history + random)' },
-  hot:      { modeMain: 'hot', alphaMain: 0.65, modeSpecial: 'hot', alphaSpecial: 0.60, label: 'Hot-lean (favor recent frequent hitters)' },
-  cold:     { modeMain: 'cold', alphaMain: 0.55, modeSpecial: 'cold', alphaSpecial: 0.55, label: 'Cold-lean (favor overdue numbers)' },
-};
-
 export default function Generator({
   game, rowsForGenerator, analysisForGame, anLoading, onEnsureRecommended
 }: {
@@ -33,15 +19,15 @@ export default function Generator({
   anLoading: boolean;
   onEnsureRecommended: () => Promise<{ recMain:{mode:'hot'|'cold';alpha:number}; recSpec:{mode:'hot'|'cold';alpha:number} } | null>;
 }) {
-  // We infer modes from alpha sliders to keep UI minimal:
+  // Modes are inferred from sliders: alpha >= 0.5 => 'hot', else 'cold'
   const [alphaMain, setAlphaMain] = useState(0.6);
   const [alphaSpecial, setAlphaSpecial] = useState(0.6);
   const modeMain: 'hot'|'cold' = alphaMain >= 0.5 ? 'hot' : 'cold';
   const modeSpecial: 'hot'|'cold' = alphaSpecial >= 0.5 ? 'hot' : 'cold';
+
   const [avoidCommon, setAvoidCommon] = useState(true);
   const [num, setNum] = useState(10);
-  // Fantasy 5 has no special → make it optional
-  const [tickets, setTickets] = useState<{ mains: number[]; special?: number }[]>([]);
+  const [tickets, setTickets] = useState<{ mains: number[]; special?: number }[]>([]); // special optional for Fantasy 5
 
   // ---- Era-aware data & stats (always current era) ----
   const eraCfg = useMemo(() => getCurrentEraConfig(game), [game]);
@@ -55,7 +41,6 @@ export default function Generator({
   );
 
   function applyRecommendation(rec: { recMain:{mode:'hot'|'cold';alpha:number}; recSpec:{mode:'hot'|'cold';alpha:number} }) {
-    // Set the alphas; the labels will reflect their inferred mode automatically.
     setAlphaMain(parseFloat(rec.recMain.alpha.toFixed(2)));
     setAlphaSpecial(parseFloat(rec.recSpec.alpha.toFixed(2)));
   }
@@ -72,7 +57,7 @@ export default function Generator({
     const seen = new Set<string>();
     let guard = 0;
     while (out.length < num && guard < num * 50) {
-      const t = generateTicket(rows, game, { modeMain, modeSpecial, alphaMain, alphaSpecial, avoidCommon }, eraCfg);
+      const t = generateTicket(rows, game, { modeMain, modeSpecial, alphaMain, alphaSpecial, avoidCommon }, eraCfg) as { mains:number[]; special?:number };
       const key = `${t.mains.join('-')}:${t.special ?? ''}`;
       if (!seen.has(key)) { seen.add(key); out.push(t); }
       guard++;
@@ -88,15 +73,17 @@ export default function Generator({
     try { await navigator.clipboard.writeText(lines); } catch {}
   }
 
+  const hasSpecial = eraCfg.specialMax > 0;
+
   return (
     <div className="card">
-      {/* Header: no era tooltip here anymore */}
+      {/* Header */}
       <div style={{ fontWeight: 700, marginBottom: 8 }}>Generator</div>
       <div className="hint" style={{ marginBottom: 8 }}>
         Using current era only. Tune weights, then generate unique tickets.
       </div>
 
-      {/* Recommended (no preset buttons) */}
+      {/* Recommended */}
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6, flexWrap: 'wrap' }}>
         <button
           className="btn btn-primary"
@@ -125,7 +112,7 @@ export default function Generator({
         />
       </div>
 
-      {/* Main numbers weighting with explanatory tooltip */}
+      {/* Main numbers weighting */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
         <div style={{ fontWeight: 600 }}>Main numbers weighting</div>
         <Info
@@ -137,10 +124,7 @@ export default function Generator({
           }
         />
       </div>
-      <div style={{ display: 'flex', gap: 8, margin: '6px 0' }}>
-        <button onClick={() => setModeMain('cold')} className="btn btn-ghost" style={{ background: modeMain==='cold' ? 'var(--accent)' : 'transparent', color: modeMain==='cold' ? 'var(--accent-contrast)' : 'inherit' }}>cold</button>
-        <button onClick={() => setModeMain('hot')}  className="btn btn-ghost"  style={{ background: modeMain==='hot'  ? 'var(--accent)' : 'transparent', color: modeMain==='hot'  ? 'var(--accent-contrast)' : 'inherit'  }}>hot</button>
-      </div>
+      {/* (removed old hot/cold toggle buttons) */}
       <input
         aria-label="Main alpha"
         type="range"
@@ -152,20 +136,20 @@ export default function Generator({
       />
       <div className="hint" aria-live="polite">alpha = {alphaMain.toFixed(2)} ({modeMain})</div>
 
-      {/* Special ball weighting with explanatory tooltip (hidden for no-special games) */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12 }}>
-        <div style={{ fontWeight: 600 }}>Special ball weighting</div>
-        <Info
-          tip={
-            'Special ball weighting mirrors mains:\n' +
-            '• hot: weight by frequency; cold: weight by inverse frequency.\n' +
-            '• α blends uniform with history (0 = uniform, 1 = pure hot/cold).\n' +
-            'Domains reflect the current era (e.g., Mega Ball 1–24).'
-          }
-        />
-      </div>
-      {eraCfg.specialMax > 0 && (
+      {/* Special ball weighting (only for games that have a special) */}
+      {hasSpecial && (
         <>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12 }}>
+            <div style={{ fontWeight: 600 }}>Special ball weighting</div>
+            <Info
+              tip={
+                'Special ball weighting mirrors mains:\n' +
+                '• hot: weight by frequency; cold: weight by inverse frequency.\n' +
+                '• α blends uniform with history (0 = uniform, 1 = pure hot/cold).\n' +
+                'Domains reflect the current era.'
+              }
+            />
+          </div>
           <input
             aria-label="Special alpha"
             type="range"
@@ -175,11 +159,11 @@ export default function Generator({
             value={alphaSpecial}
             onChange={(e)=>setAlphaSpecial(parseFloat(e.target.value))}
           />
-+          <div className="hint" aria-live="polite">alpha = {alphaSpecial.toFixed(2)} ({modeSpecial})</div>
+          <div className="hint" aria-live="polite">alpha = {alphaSpecial.toFixed(2)} ({modeSpecial})</div>
         </>
       )}
 
-      {/* Options row with pattern-avoidance tooltip */}
+      {/* Options */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 12 }}>
         <label style={{ fontSize: 14, display: 'flex', alignItems: 'center', gap: 6 }}>
           <input type="checkbox" checked={avoidCommon} onChange={(e)=>setAvoidCommon(e.target.checked)} />
@@ -224,7 +208,7 @@ export default function Generator({
           return (
             <div key={i} className="card" style={{ padding: 8 }}>
               <div className="mono" aria-label={`Ticket ${i+1}`}>
-                {t.mains.join('-')}{eraCfg.specialMax > 0 ? ` | ${t.special}` : ''}
+                {hasSpecial ? `${t.mains.join('-')} | ${t.special}` : t.mains.join('-')}
               </div>
               <div style={{ marginTop: 6 }}>
                 {hints.map((h, j) => (
