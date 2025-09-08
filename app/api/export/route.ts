@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { fetchNY, rowsToCSV, DATASETS } from '@/lib/lotto';
+import { fetchNY, rowsToCSV, DATASETS } from '@lib/lotto';
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
