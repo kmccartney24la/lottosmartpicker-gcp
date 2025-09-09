@@ -2,7 +2,7 @@
 import { NextResponse } from 'next/server';
 import type { GameKey, LottoRow } from '@lib/lotto';
 import { getCurrentEraConfig } from '@lib/lotto';
-import { remoteUrlFor } from '@/lib/server/remotes';
+import { remoteUrlFor } from '@lib/server/remote';
 
 // ---- parse canonical CSV (matches your lib/lotto.ts version) ----
 function parseCanonicalCsv(csv: string, gameDefault: GameKey): LottoRow[] {

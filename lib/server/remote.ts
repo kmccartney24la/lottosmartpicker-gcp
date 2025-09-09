@@ -1,6 +1,6 @@
 // lib/server/remotes.ts
 import 'server-only';
-import type { GameKey } from '@/lib/lotto';
+import type { GameKey } from '@lib/lotto';
 
 export function remoteUrlFor(game: GameKey): string | null {
   switch (game) {

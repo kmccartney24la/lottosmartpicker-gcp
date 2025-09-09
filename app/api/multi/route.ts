@@ -1,7 +1,7 @@
 // app/api/multi/[game]/route.ts
 import { NextResponse } from 'next/server';
 import type { GameKey } from '@lib/lotto';
-import { remoteUrlFor } from '@/lib/server/remotes';
+import { remoteUrlFor } from '@lib/server/remote';
 
 export const runtime = 'nodejs';
 
