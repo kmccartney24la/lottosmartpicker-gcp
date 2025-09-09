@@ -1,20 +1,17 @@
 // app/api/diag/remotes/route.ts
 import { NextResponse } from "next/server";
+// If you renamed to remotes.ts:
 import { remoteFor } from "@lib/server/remotes";
+// If you kept remote.ts (singular), then:
+// import { remoteFor } from "@/lib/server/remote";
 
-export const runtime = "nodejs"; // HEAD to R2 works best on Node
+export const runtime = "nodejs";
 
-const GAMES = [
-  "powerball",
-  "megamillions",
-  "ga_cash4life",
-  "ga_fantasy5",
-] as const;
+const GAMES = ["powerball", "megamillions", "ga_cash4life", "ga_fantasy5"] as const;
 type Game = (typeof GAMES)[number];
 
 async function probe(url: string) {
   try {
-    // Try HEAD first (cheap). If disallowed, fall back to GET with Range: bytes=0-0
     const head = await fetch(url, { method: "HEAD", cache: "no-store" });
     if (head.ok) {
       return {
@@ -47,28 +44,14 @@ async function probe(url: string) {
 }
 
 export async function GET() {
-  const rows: Array<{
-    game: Game;
-    url: string;
-    probe: any;
-  }> = [];
-
+  const results = [];
   for (const game of GAMES) {
-    let url = "";
     try {
-      url = remoteFor(game);
-      rows.push({ game, url, probe: await probe(url) });
+      const url = remoteFor(game);
+      results.push({ game, url, probe: await probe(url) });
     } catch (err: any) {
-      rows.push({ game, url: "", probe: { ok: false, error: String(err?.message ?? err) } });
+      results.push({ game, url: "", probe: { ok: false, error: String(err?.message ?? err) } });
     }
   }
-
-  return NextResponse.json(
-    {
-      now: new Date().toISOString(),
-      count: rows.length,
-      results: rows,
-    },
-    { status: 200 }
-  );
+  return NextResponse.json({ now: new Date().toISOString(), count: results.length, results });
 }

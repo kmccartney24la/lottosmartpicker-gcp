@@ -1,57 +1,47 @@
-// app/api/diag/remotes/route.ts
-import { NextResponse } from "next/server";
-// If you renamed to remotes.ts:
-import { remoteFor } from "@/lib/server/remotes";
-// If you kept remote.ts (singular), then:
-// import { remoteFor } from "@/lib/server/remote";
+// lib/server/remotes.ts  (or rename your file to this exact path)
+import "server-only";
 
-export const runtime = "nodejs";
+export type GameKey =
+  | "powerball"
+  | "megamillions"
+  | "ga_cash4life"
+  | "ga_fantasy5";
 
-const GAMES = ["powerball", "megamillions", "ga_cash4life", "ga_fantasy5"] as const;
-type Game = (typeof GAMES)[number];
-
-async function probe(url: string) {
-  try {
-    const head = await fetch(url, { method: "HEAD", cache: "no-store" });
-    if (head.ok) {
-      return {
-        ok: true,
-        method: "HEAD",
-        status: head.status,
-        contentLength: head.headers.get("content-length"),
-        etag: head.headers.get("etag"),
-        lastModified: head.headers.get("last-modified"),
-        contentType: head.headers.get("content-type"),
-      };
-    }
-    const get = await fetch(url, {
-      method: "GET",
-      headers: { Range: "bytes=0-0" },
-      cache: "no-store",
-    });
-    return {
-      ok: get.ok,
-      method: "GET",
-      status: get.status,
-      contentRange: get.headers.get("content-range"),
-      etag: get.headers.get("etag"),
-      lastModified: get.headers.get("last-modified"),
-      contentType: get.headers.get("content-type"),
-    };
-  } catch (e: any) {
-    return { ok: false, error: String(e?.message ?? e) };
-  }
+function pick<T extends string | undefined>(...candidates: T[]) {
+  return candidates.find(Boolean);
 }
 
-export async function GET() {
-  const results = [];
-  for (const game of GAMES) {
-    try {
-      const url = remoteFor(game);
-      results.push({ game, url, probe: await probe(url) });
-    } catch (err: any) {
-      results.push({ game, url: "", probe: { ok: false, error: String(err?.message ?? err) } });
-    }
+function required(name: string, ...candidates: Array<string | undefined>): string {
+  const v = pick(...candidates);
+  if (!v) throw new Error(`[remotes] Missing remote URL env for ${name}. Set LOTTO_REMOTE_CSV_URL_* or legacy key.`);
+  return v;
+}
+
+export function remoteFor(game: GameKey): string {
+  switch (game) {
+    case "powerball":
+      return required(
+        "powerball",
+        process.env.LOTTO_REMOTE_CSV_URL_POWERBALL,
+        process.env.MULTI_POWERBALL_REMOTE_CSV_URL
+      );
+    case "megamillions":
+      return required(
+        "megamillions",
+        process.env.LOTTO_REMOTE_CSV_URL_MEGAMILLIONS,
+        process.env.MULTI_MEGAMILLIONS_REMOTE_CSV_URL
+      );
+    case "ga_cash4life":
+      return required(
+        "ga_cash4life",
+        process.env.LOTTO_REMOTE_CSV_URL_GA_CASH4LIFE,
+        process.env.GA_CASH4LIFE_REMOTE_CSV_URL
+      );
+    case "ga_fantasy5":
+      return required(
+        "ga_fantasy5",
+        process.env.LOTTO_REMOTE_CSV_URL_GA_FANTASY5,
+        process.env.GA_FANTASY5_REMOTE_CSV_URL
+      );
   }
-  return NextResponse.json({ now: new Date().toISOString(), count: results.length, results });
 }

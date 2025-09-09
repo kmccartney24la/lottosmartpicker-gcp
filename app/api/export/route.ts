@@ -2,7 +2,7 @@
 import { NextResponse } from 'next/server';
 import type { GameKey, LottoRow } from '@lib/lotto';
 import { getCurrentEraConfig } from '@lib/lotto';
-import { remoteUrlFor } from '@lib/server/remotes';
+import { remoteFor } from '@lib/server/remotes';
 
 // ---- parse canonical CSV (matches your lib/lotto.ts version) ----
 function parseCanonicalCsv(csv: string, gameDefault: GameKey): LottoRow[] {
@@ -67,7 +67,7 @@ export async function GET(req: Request) {
   const latestOnly = ['1','true'].includes((searchParams.get('latestOnly')||'').toLowerCase());
 
   const since = sinceParam ?? getCurrentEraConfig(game).start;
-  const remote = remoteUrlFor(game);
+  const remote = remoteFor(game);
   if (!remote) return NextResponse.json({ error: `No remote URL configured for ${game}` }, { status: 500 });
 
   try {
