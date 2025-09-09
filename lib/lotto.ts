@@ -219,22 +219,54 @@ export function buildWhere(dateField: string, since?: string, until?: string): s
 // Normalizes any PB/MM/GA row shape to LottoRow used across the app
 export function normalizeRowsLoose(rows: any[]): LottoRow[] {
   if (!Array.isArray(rows)) return [];
-  return rows
-    .map((r) => {
-      const draw_date: string = r.draw_date ?? r.date ?? r.drawDate ?? '';
-      const mains: number[] =
-        Array.isArray(r.mains) && r.mains.length
-          ? r.mains.map((n: any) => Number(n)).filter(Number.isFinite)
-          : [r.n1, r.n2, r.n3, r.n4, r.n5]
-              .map((n: any) => Number(n))
-              .filter(Number.isFinite);
 
-      const specialRaw = r.special ?? r.special_ball ?? r.pb ?? r.mb ?? undefined;
-      const special = specialRaw !== undefined && specialRaw !== null ? Number(specialRaw) : undefined;
+  // helper: ensure the game value is one of our supported keys
+  const isGameKey = (g: any): g is GameKey =>
+    g === 'powerball' || g === 'megamillions' || g === 'ga_cash4life' || g === 'ga_fantasy5';
 
-      return { ...(r as any), draw_date, mains, special } as LottoRow;
-    })
-    .filter((r) => r.draw_date && r.mains?.length >= 5);
+  const out: LottoRow[] = [];
+
+  for (const r of rows) {
+    // 1) date → ISO YYYY-MM-DD
+    const rawDate: string | undefined = r.draw_date ?? r.date ?? r.drawDate;
+    if (!rawDate) continue;
+    const d = new Date(rawDate);
+    if (Number.isNaN(d.getTime())) continue;
+    const date = d.toISOString().slice(0, 10);
+
+    // 2) mains → 5 numbers
+    let mains: number[] | undefined;
+    if (Array.isArray(r.mains) && r.mains.length >= 5) {
+      mains = r.mains.map((n: any) => Number(n)).filter(Number.isFinite).slice(0, 5);
+    } else {
+      const candidate = [r.n1, r.n2, r.n3, r.n4, r.n5]
+        .map((n: any) => Number(n))
+        .filter(Number.isFinite);
+      if (candidate.length >= 5) mains = candidate.slice(0, 5);
+    }
+    if (!mains || mains.length < 5) continue;
+    const [n1, n2, n3, n4, n5] = mains;
+
+    // 3) special (optional)
+    const specialRaw = r.special ?? r.special_ball ?? r.pb ?? r.mb;
+    const special =
+      specialRaw !== undefined && specialRaw !== null && specialRaw !== ''
+        ? Number(specialRaw)
+        : undefined;
+    if (special !== undefined && !Number.isFinite(special)) {
+      // ignore invalid special values
+      continue;
+    }
+
+    // 4) game
+    const gameCandidate = r.game ?? r.gameKey ?? r.type;
+    if (!isGameKey(gameCandidate)) continue;
+    const game: GameKey = gameCandidate;
+
+    out.push({ game, date, n1, n2, n3, n4, n5, special });
+  }
+
+  return out;
 }
 
 /* ---------------- Data fetching/parsing ---------------- */
