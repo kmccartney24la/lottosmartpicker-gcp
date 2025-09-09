@@ -24,6 +24,24 @@ const GAME_OPTIONS: { key: GameKey; label: string }[] = [
   { key: 'ga_fantasy5',  label: 'Fantasy 5 (GA) (5/42)' },
 ];
 
+function normalizeToLottoRows(rows: any[]): LottoRow[] {
+  if (!Array.isArray(rows)) return [];
+  return rows.map((r) => {
+    const draw_date: string = r.draw_date ?? r.date ?? r.drawDate ?? '';
+    const mains: number[] =
+      Array.isArray(r.mains) && r.mains.length
+        ? r.mains.map((n: any) => Number(n)).filter(Number.isFinite)
+        : [r.n1, r.n2, r.n3, r.n4, r.n5]
+            .map((n: any) => Number(n))
+            .filter(Number.isFinite);
+
+    const specialRaw = r.special ?? r.special_ball ?? r.pb ?? r.mb ?? undefined;
+    const special = specialRaw !== undefined && specialRaw !== null ? Number(specialRaw) : undefined;
+
+    return { ...(r as any), draw_date, mains, special } as LottoRow;
+  }).filter(r => r.draw_date && r.mains?.length >= 5);
+}
+
 export default function Page() {
   const [game, setGame] = useState<GameKey>('powerball');
 
@@ -58,8 +76,10 @@ export default function Page() {
       const sinceEra = getCurrentEraConfig(game).start; // current era only
       // ⬇️ cache-aware fetching; respects latestOnly (won’t cache that path)
       const data = await fetchRowsWithCache({ game, since: sinceEra, latestOnly });
-      setRows(data); setPage(1);
+      const normalized = normalizeToLottoRows(data);
+      setRows(normalized); setPage(1);
     } catch (e: any) {
+      console.error('load() failed:', e);
       setError(e?.message || String(e));
       setRows([]);
     } finally {
@@ -162,7 +182,14 @@ export default function Page() {
         </div>
 
         <div className="hint" style={{ marginTop: 8, display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-          <div><strong>Status:</strong> {loading ? 'Loading…' : error ? <span style={{ color: 'var(--danger)' }}>Error</span> : 'Idle'}</div>
+          <div>
+            <strong>Status:</strong>{' '}
+            {loading
+            ? 'Loading…'
+            : error
+            ? <span style={{ color: 'var(--danger)' }}>Error: {error}</span>
+            : 'Idle'}
+            </div>
           <div><strong>Rows (current era):</strong> {rows.length}</div>
           <div><strong>Next expected draw:</strong> {nextDrawLabelNYFor(game)}</div>
           {latestOnly && <div><strong>Generator source:</strong> latest draw only</div>}

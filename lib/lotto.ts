@@ -21,38 +21,26 @@ export type LottoRow = {
    return `lsp.cache.v1.${game}`;
  }
 
- function computeNextRefreshISO(game: GameKey, now = new Date()): string {
-   // Rule: “fresh until next draw time + 2h buffer”
-   // Daily games: use their official times; PB/MM: ≈23:00 ET.
-   const tz = 'America/New_York';
-   const n = new Date(now);
-   const toET = (d: Date)=> new Date(new Intl.DateTimeFormat('en-US',{ timeZone: tz, hour12:false,
-     year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit'}).format(d).replace(/[^0-9]/g,' ')
-     .replace(/(\d{2}) (\d{2}) (\d{4}) (\d{2}) (\d{2})/, ( _,mm,dd,yyyy,HH,MM)=>`${yyyy}-${mm}-${dd}T${HH}:${MM}:00-04:00`)); // ET offset label is fine for our purpose
+ function toISODateOnly(s?: string): string | null {
+  if (!s) return null;
+  // Already YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  // Try Date()
+  const d = new Date(s);
+  if (!Number.isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+  return null;
+}
 
-   const drawTimeByGame: Record<GameKey,{h:number;m:number}> = {
-     powerball:{h:23,m:0}, megamillions:{h:23,m:0},
-     ga_cash4life:{h:21,m:0}, ga_fantasy5:{h:23,m:34},
-   };
-   const { h, m } = drawTimeByGame[game];
+function getRowISODate(row: any): string | null {
+  return toISODateOnly(row?.draw_date) ?? toISODateOnly(row?.date);
+}
 
-   // Find next draw date based on DRAW_DOWS
-   for (let i=0;i<8;i++){
-     const d = new Date(n);
-     d.setDate(d.getDate()+i);
-     const { dow } = getNYParts(d);
-     if (DRAW_DOWS[game].has(dow)) {
-       const et = toET(d);
-       et.setHours(h, m, 0, 0);
-       // add 2h buffer
-       et.setHours(et.getHours()+2);
-       return new Date(et).toISOString();
-     }
-   }
-   // Fallback 24h
-   const f = new Date(now); f.setHours(f.getHours()+24);
-   return f.toISOString();
- }
+export function computeNextRefreshISO(_game?: GameKey): string {
+  // Simple, safe TTL: refresh again in 6 hours
+  const now = new Date();
+  now.setHours(now.getHours() + 6);
+  return now.toISOString();
+}
 
  function readCache(game: GameKey): CacheEnvelope | null {
    if (!isBrowser()) return null;
@@ -90,7 +78,17 @@ export type LottoRow = {
      }
    }
    // fetch fresh
-   const rows = await fetchNY({ game, since, until, latestOnly, token });
+  let rows: LottoRow[] = [];
+  let usedCanonical = false;
+
+  try {
+    const all = await fetchCanonical(game);   // ✅ canonical first
+    rows = applyFilters(all, { since, until, latestOnly });
+    usedCanonical = true;
+  } catch {
+    // fallback to existing path (Socrata/adapter)
+    rows = await fetchNY({ game, since, until, latestOnly, token });
+  }
    // store (only if not latestOnly)
    if (!latestOnly) writeCache(game, rows, era.start);
    return filterRowsForCurrentEra(rows, game);
@@ -218,6 +216,27 @@ export function buildWhere(dateField: string, since?: string, until?: string): s
   return `${dateField} < '${formatISO(end)}'`;
 }
 
+// Normalizes any PB/MM/GA row shape to LottoRow used across the app
+export function normalizeRowsLoose(rows: any[]): LottoRow[] {
+  if (!Array.isArray(rows)) return [];
+  return rows
+    .map((r) => {
+      const draw_date: string = r.draw_date ?? r.date ?? r.drawDate ?? '';
+      const mains: number[] =
+        Array.isArray(r.mains) && r.mains.length
+          ? r.mains.map((n: any) => Number(n)).filter(Number.isFinite)
+          : [r.n1, r.n2, r.n3, r.n4, r.n5]
+              .map((n: any) => Number(n))
+              .filter(Number.isFinite);
+
+      const specialRaw = r.special ?? r.special_ball ?? r.pb ?? r.mb ?? undefined;
+      const special = specialRaw !== undefined && specialRaw !== null ? Number(specialRaw) : undefined;
+
+      return { ...(r as any), draw_date, mains, special } as LottoRow;
+    })
+    .filter((r) => r.draw_date && r.mains?.length >= 5);
+}
+
 /* ---------------- Data fetching/parsing ---------------- */
 
 export function parseTokens(s: string): number[] {
@@ -262,37 +281,66 @@ export async function fetchNY(options: {
   return out;
 }
 
-// ---- Fantasy 5 CSV adapter ----
+// ---- Fantasy 5 CSV adapter (server-safe) ----
 async function fetchGAFantasy5CSV(opts: { since?: string; until?: string; latestOnly?: boolean }): Promise<LottoRow[]> {
-  // Use NEXT_PUBLIC_… so it’s available in the browser bundle
-  const envUrl = process.env.NEXT_PUBLIC_GA_FANTASY5_CSV_URL;
-  const url = envUrl && envUrl.trim().length > 0 ? envUrl : '/data/ga/fantasy5.csv';
-  const res = await fetch(url, { cache: 'no-store' });
-  if (!res.ok) throw new Error(`GA Fantasy 5 CSV ${res.status}: ${await res.text()}`);
-  const text = await res.text();
-  // Expected headers: draw_date,m1,m2,m3,m4,m5  (ISO 8601 in ET preferred)
+  const isServer = typeof window === 'undefined';
+  let text: string;
+
+  if (isServer) {
+    // Prefer a true absolute URL in server runtime (R2 in prod)
+    const remote =
+      process.env.GA_FANTASY5_REMOTE_CSV_URL ||
+      process.env.NEXT_PUBLIC_GA_FANTASY5_CSV_URL;
+
+    if (remote && remote.trim().length > 0) {
+      const res = await fetch(remote, { cache: 'no-store' });
+      if (!res.ok) throw new Error(`GA Fantasy 5 CSV ${res.status}: ${await res.text()}`);
+      text = await res.text();
+    } else {
+      // Fall back to reading the local seed file from /public in dev
+      const fs = await import('node:fs/promises');
+      const path = await import('node:path');
+      const file = path.join(process.cwd(), 'public', 'data', 'ga', 'fantasy5.csv');
+      try {
+        text = await fs.readFile(file, 'utf8');
+      } catch {
+        throw new Error('GA Fantasy 5 CSV not found locally and no remote URL configured');
+      }
+    }
+  } else {
+    // Browser bundle: relative asset works fine
+    const publicUrl = process.env.NEXT_PUBLIC_GA_FANTASY5_CSV_URL;
+    const url = (publicUrl && publicUrl.trim().length > 0) ? publicUrl : '/data/ga/fantasy5.csv';
+    const res = await fetch(url, { cache: 'no-store' });
+    if (!res.ok) throw new Error(`GA Fantasy 5 CSV ${res.status}: ${await res.text()}`);
+    text = await res.text();
+  }
+
+  // Expected headers: draw_date,m1,m2,m3,m4,m5
   const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0);
   const header = lines.shift() || '';
   const cols = header.split(',').map(s=>s.trim().toLowerCase());
   const idx = (name:string)=> cols.indexOf(name);
   const iDate = idx('draw_date'); const i1 = idx('m1'), i2 = idx('m2'), i3 = idx('m3'), i4 = idx('m4'), i5 = idx('m5');
   if ([iDate,i1,i2,i3,i4,i5].some(i=>i<0)) throw new Error('GA Fantasy 5 CSV: missing headers');
+
   const all: LottoRow[] = [];
   for (const line of lines) {
     const t = line.split(',').map(s=>s.trim());
     if (t.length < 6) continue;
     const d = new Date(t[iDate]); if (isNaN(+d)) continue;
-    const date = formatISO(d);
+    const date = d.toISOString().slice(0,10);
     const nums = [t[i1],t[i2],t[i3],t[i4],t[i5]].map(v=>parseInt(v,10));
     if (nums.some(n => !Number.isFinite(n))) continue;
-    // Domain check: Fantasy 5 is 1..42
-    if (nums.some(n => n < 1 || n > 42)) continue;
+    if (nums.some(n => n < 1 || n > 42)) continue; // 1..42 domain
     const [n1,n2,n3,n4,n5] = nums;
     all.push({ game:'ga_fantasy5', date, n1,n2,n3,n4,n5, special: undefined });
   }
+
   if (opts.latestOnly) return all.slice(-1);
   const where = buildWhere('draw_date', opts.since, opts.until);
   if (!where) return all;
+
   const since = opts.since ? new Date(opts.since) : undefined;
   const until = opts.until ? new Date(opts.until) : undefined;
   return all.filter(r=>{
@@ -303,15 +351,84 @@ async function fetchGAFantasy5CSV(opts: { since?: string; until?: string; latest
   });
 }
 
-export function rowsToCSV(rows: LottoRow[], eol: '\n' | '\r\n' = '\n'): string {
-  const includeSpecial = rows.some(r => typeof r.special === 'number');
-  const header = includeSpecial ? 'game,date,n1,n2,n3,n4,n5,special' : 'game,date,n1,n2,n3,n4,n5';
-  const body = rows
-    .map(r => includeSpecial
-      ? `${r.game},${r.date},${r.n1},${r.n2},${r.n3},${r.n4},${r.n5},${r.special ?? ''}`
-      : `${r.game},${r.date},${r.n1},${r.n2},${r.n3},${r.n4},${r.n5}`)
-    .join(eol);
-  return `${header}${eol}${body}${eol}`;
+// ---- Canonical CSV (R2 via Next API proxies) ----
+
+// Parse canonical CSV: game,draw_date,m1,m2,m3,m4,m5,special,special_name
+function parseCanonicalCsv(csv: string, gameDefault: GameKey): LottoRow[] {
+  const lines = csv.trim().split(/\r?\n/);
+  if (lines.length === 0) return [];
+  const header = lines.shift()!;
+  const cols = header.split(',').map(s => s.trim().toLowerCase());
+  const idx = (name: string) => cols.indexOf(name);
+
+  const iGame = idx('game');
+  const iDate = idx('draw_date');
+  const i1 = idx('m1'), i2 = idx('m2'), i3 = idx('m3'), i4 = idx('m4'), i5 = idx('m5');
+  const iSpec = idx('special');
+
+  const out: LottoRow[] = [];
+  for (const line of lines) {
+    const t = line.split(',').map(s => s.trim());
+    if (t.length < 6) continue;
+
+    const game = (iGame >= 0 && t[iGame]) ? (t[iGame] as GameKey) : gameDefault;
+
+    const d = iDate >= 0 ? new Date(t[iDate]) : new Date(NaN);
+    if (Number.isNaN(d.getTime())) continue;
+    const date = d.toISOString().slice(0, 10);
+
+    const nums = [t[i1], t[i2], t[i3], t[i4], t[i5]]
+      .map(v => parseInt(v, 10));
+    if (nums.some(n => !Number.isFinite(n))) continue;
+
+    const special =
+      iSpec >= 0 && t[iSpec] !== '' && t[iSpec] != null
+        ? parseInt(t[iSpec], 10)
+        : undefined;
+
+    const [n1, n2, n3, n4, n5] = nums;
+    out.push({ game, date, n1, n2, n3, n4, n5, special });
+  }
+  return out;
+}
+
+function canonicalUrlFor(game: GameKey): string | null {
+  if (game === 'powerball') return '/api/multi/powerball';
+  if (game === 'megamillions') return '/api/multi/megamillions';
+  if (game === 'ga_cash4life') return '/api/ga/cash4life';
+  if (game === 'ga_fantasy5') return '/api/ga/fantasy5';
+  return null;
+}
+
+async function fetchCanonical(game: GameKey): Promise<LottoRow[]> {
+  const url =
+    game === 'powerball' ? '/api/multi/powerball' :
+    game === 'megamillions' ? '/api/multi/megamillions' :
+    game === 'ga_cash4life' ? '/api/ga/cash4life' :
+    game === 'ga_fantasy5' ? '/api/ga/fantasy5' :
+    null;
+
+  if (!url) throw new Error(`No canonical route for ${game}`);
+  const res = await fetch(url, { cache: 'no-store' });
+  if (!res.ok) throw new Error(`Canonical ${game} ${res.status}`);
+  const text = await res.text();
+  return parseCanonicalCsv(text, game); // <-- default game if CSV lacks it
+}
+
+function applyFilters(
+  rows: LottoRow[],
+  opts: { since?: string; until?: string; latestOnly?: boolean }
+): LottoRow[] {
+  let out = rows;
+  if (opts.since) out = out.filter(r => r.date >= opts.since!);
+  if (opts.until) {
+    const end = new Date(opts.until);
+    end.setDate(end.getDate() + 1);
+    const endISO = end.toISOString().slice(0, 10);
+    out = out.filter(r => r.date < endISO);
+  }
+  if (opts.latestOnly) out = out.slice(-1);
+  return out;
 }
 
 /* ---------------- UI helpers ---------------- */
