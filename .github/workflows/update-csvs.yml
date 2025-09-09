@@ -12,10 +12,24 @@ permissions:
 jobs:
   update:
     runs-on: ubuntu-latest
-    environment: r2-prod
+    environment:
+      name: r2-prod
+    # Hoist creds to the job env so every step (including actions) sees them.
+    env:
+      CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID || vars.CF_ACCOUNT_ID }}
+      CF_API_TOKEN:  ${{ secrets.CF_API_TOKEN }}
+      R2_BUCKET:     ${{ secrets.R2_BUCKET || vars.R2_BUCKET }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      
+      # Fail fast if any credential is missing (run this BEFORE using wrangler)
+      - name: Verify required secrets/vars are present
+        run: |
+          [ -z "$CF_ACCOUNT_ID" ] && echo "CF_ACCOUNT_ID is MISSING" && exit 1 || echo "CF_ACCOUNT_ID is set"
+          [ -z "$CF_API_TOKEN" ]  && echo "CF_API_TOKEN is MISSING"  && exit 1 || echo "CF_API_TOKEN is set"
+          [ -z "$R2_BUCKET" ]     && echo "R2_BUCKET is MISSING"     && exit 1 || echo "R2_BUCKET is set"
+
 
       - name: Use Node.js 20
         uses: actions/setup-node@v4
@@ -30,6 +44,7 @@ jobs:
           if [[ -n "$(git status --porcelain)" ]]; then
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
+            git pull --rebase || true
             git add public/data/ga/*.csv
             git commit -m "chore: update CSVs"
             git push
@@ -39,20 +54,9 @@ jobs:
       - name: Wrangler version
         uses: cloudflare/wrangler-action@v3
         with:
-          apiToken: ${{ secrets.CF_API_TOKEN }}
-          accountId: ${{ secrets.CF_ACCOUNT_ID }}
+          apiToken: ${{ env.CF_API_TOKEN }}
+          accountId: ${{ env.CF_ACCOUNT_ID }}
           command: --version
-
-      # Quick sanity check: fail early if any secret is missing
-      - name: Verify required secrets are present
-        env:
-          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
-          CF_API_TOKEN:  ${{ secrets.CF_API_TOKEN }}
-          R2_BUCKET:     ${{ secrets.R2_BUCKET }}
-        run: |
-          [ -z "$CF_ACCOUNT_ID" ] && echo "CF_ACCOUNT_ID is MISSING" && exit 1 || echo "CF_ACCOUNT_ID is set"
-          [ -z "$CF_API_TOKEN" ]  && echo "CF_API_TOKEN is MISSING"  && exit 1 || echo "CF_API_TOKEN is set"
-          [ -z "$R2_BUCKET" ]     && echo "R2_BUCKET is MISSING"     && exit 1 || echo "R2_BUCKET is set"
 
       # Optional: show what we're about to upload
       - name: Show Fantasy 5 CSV (before upload)
@@ -65,8 +69,8 @@ jobs:
       - name: List R2 buckets
         uses: cloudflare/wrangler-action@v3
         with:
-          apiToken: ${{ secrets.CF_API_TOKEN }}
-          accountId: ${{ secrets.CF_ACCOUNT_ID }}
+          apiToken: ${{ env.CF_API_TOKEN }}
+          accountId: ${{ env.CF_ACCOUNT_ID }}
           command: r2 bucket list
     
 
@@ -74,9 +78,10 @@ jobs:
       - name: Upload Fantasy 5 to R2
         uses: cloudflare/wrangler-action@v3
         with:
-          apiToken: ${{ secrets.CF_API_TOKEN }}
-          accountId: ${{ secrets.CF_ACCOUNT_ID }}
-          command: r2 object put ${{ secrets.R2_BUCKET }}/ga/fantasy5.csv --file=public/data/ga/fantasy5.csv --content-type text/csv
+          apiToken: ${{ env.CF_API_TOKEN }}
+          accountId: ${{ env.CF_ACCOUNT_ID }}
+          command: r2 object put ${{ env.R2_BUCKET }}/ga/fantasy5.csv --file=public/data/ga/fantasy5.csv --content-type text/csv
+
 
       # ✅ Upload Cash4Life
       - name: Upload Cash4Life to R2
