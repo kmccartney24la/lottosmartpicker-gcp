@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { fetchNY, getCurrentEraConfig } from '@lib/lotto';
-import { rowsToCSV } from '@/lib/csv';
+import { rowsToCSV } from '@lib/csv';
 
 export async function GET() {
   try {
