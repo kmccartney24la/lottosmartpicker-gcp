@@ -247,9 +247,30 @@ export async function fetchNY(options: {
   game: GameKey; since?: string; until?: string; latestOnly?: boolean; token?: string;
 }): Promise<LottoRow[]> {
   const { game, since, until, latestOnly, token } = options;
+
+  // ✅ For Fantasy 5, fetch from our API route (which handles R2/local) and parse
   if (game === 'ga_fantasy5') {
-    return fetchGAFantasy5CSV({ since, until, latestOnly });
+    const res = await fetch('/api/ga/fantasy5', { cache: 'no-store' });
+    if (!res.ok) throw new Error(`GA Fantasy 5 ${res.status}: ${await res.text()}`);
+    const text = await res.text();
+    let all = parseGAFantasy5Csv(text);
+
+    // Apply filters client-side (same semantics as before)
+    if (latestOnly) all = all.slice(-1);
+    else if (since || until) {
+      const sinceD = since ? new Date(since) : undefined;
+      const untilD = until ? new Date(until) : undefined;
+      all = all.filter(r => {
+        const d = new Date(r.date);
+        if (sinceD && d < sinceD) return false;
+        if (untilD) { const end = new Date(untilD); end.setDate(end.getDate() + 1); if (d >= end) return false; }
+        return true;
+      });
+    }
+    return all;
   }
+
+  // ⬇️ Existing Socrata path (unchanged) for PB/MM/Cash4Life
   const cfg = DATASETS[game as Exclude<GameKey,'ga_fantasy5'>];
   const params: Record<string,string> = {
     $select: cfg.specialField ? `${cfg.dateField},${cfg.winningField},${cfg.specialField}` : `${cfg.dateField},${cfg.winningField}`,
@@ -273,7 +294,6 @@ export async function fetchNY(options: {
       if (Number.isFinite(s)) special = s;
     }
     if (special == null && nums.length >= 6) special = nums[5];
-    // For 5+special games, special is required; for Fantasy 5 we never route here.
     if (special == null) continue;
     const [n1,n2,n3,n4,n5] = nums;
     out.push({ game, date, n1,n2,n3,n4,n5, special });
@@ -281,78 +301,34 @@ export async function fetchNY(options: {
   return out;
 }
 
-// ---- Fantasy 5 CSV adapter (server-safe) ----
-async function fetchGAFantasy5CSV(opts: { since?: string; until?: string; latestOnly?: boolean }): Promise<LottoRow[]> {
-  const isServer = typeof window === 'undefined';
-  let text: string;
-
-  if (isServer) {
-    // Prefer a true absolute URL in server runtime (R2 in prod)
-    const remote =
-      process.env.GA_FANTASY5_REMOTE_CSV_URL ||
-      process.env.NEXT_PUBLIC_GA_FANTASY5_CSV_URL;
-
-    if (remote && remote.trim().length > 0) {
-      const res = await fetch(remote, { cache: 'no-store' });
-      if (!res.ok) throw new Error(`GA Fantasy 5 CSV ${res.status}: ${await res.text()}`);
-      text = await res.text();
-    } else {
-      // Fall back to reading the local seed file from /public in dev
-      const fs = await import('node:fs/promises');
-      const path = await import('node:path');
-      const file = path.join(process.cwd(), 'public', 'data', 'ga', 'fantasy5.csv');
-      try {
-        text = await fs.readFile(file, 'utf8');
-      } catch {
-        throw new Error('GA Fantasy 5 CSV not found locally and no remote URL configured');
-      }
-    }
-  } else {
-    // Browser bundle: relative asset works fine
-    const publicUrl = process.env.NEXT_PUBLIC_GA_FANTASY5_CSV_URL;
-    const url = (publicUrl && publicUrl.trim().length > 0) ? publicUrl : '/data/ga/fantasy5.csv';
-    const res = await fetch(url, { cache: 'no-store' });
-    if (!res.ok) throw new Error(`GA Fantasy 5 CSV ${res.status}: ${await res.text()}`);
-    text = await res.text();
-  }
-
+// ---- Fantasy 5 pure CSV parser (no fs/path here) ----
+function parseGAFantasy5Csv(text: string): LottoRow[] {
   // Expected headers: draw_date,m1,m2,m3,m4,m5
   const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0);
-  const header = lines.shift() || '';
-  const cols = header.split(',').map(s=>s.trim().toLowerCase());
-  const idx = (name:string)=> cols.indexOf(name);
-  const iDate = idx('draw_date'); const i1 = idx('m1'), i2 = idx('m2'), i3 = idx('m3'), i4 = idx('m4'), i5 = idx('m5');
-  if ([iDate,i1,i2,i3,i4,i5].some(i=>i<0)) throw new Error('GA Fantasy 5 CSV: missing headers');
+  if (!lines.length) return [];
+  const header = lines.shift()!;
+  const cols = header.split(',').map(s => s.trim().toLowerCase());
+  const idx = (name: string) => cols.indexOf(name);
+  const iDate = idx('draw_date');
+  const i1 = idx('m1'), i2 = idx('m2'), i3 = idx('m3'), i4 = idx('m4'), i5 = idx('m5');
+  if ([iDate, i1, i2, i3, i4, i5].some(i => i < 0)) return [];
 
-  const all: LottoRow[] = [];
+  const out: LottoRow[] = [];
   for (const line of lines) {
-    const t = line.split(',').map(s=>s.trim());
+    const t = line.split(',').map(s => s.trim());
     if (t.length < 6) continue;
-    const d = new Date(t[iDate]); if (isNaN(+d)) continue;
-    const date = d.toISOString().slice(0,10);
-    const nums = [t[i1],t[i2],t[i3],t[i4],t[i5]].map(v=>parseInt(v,10));
+    const d = new Date(t[iDate]); if (Number.isNaN(d.getTime())) continue;
+    const date = d.toISOString().slice(0, 10);
+    const nums = [t[i1], t[i2], t[i3], t[i4], t[i5]].map(v => parseInt(v, 10));
     if (nums.some(n => !Number.isFinite(n))) continue;
-    if (nums.some(n => n < 1 || n > 42)) continue; // 1..42 domain
-    const [n1,n2,n3,n4,n5] = nums;
-    all.push({ game:'ga_fantasy5', date, n1,n2,n3,n4,n5, special: undefined });
+    if (nums.some(n => n < 1 || n > 42)) continue;
+    const [n1, n2, n3, n4, n5] = nums;
+    out.push({ game: 'ga_fantasy5', date, n1, n2, n3, n4, n5, special: undefined });
   }
-
-  if (opts.latestOnly) return all.slice(-1);
-  const where = buildWhere('draw_date', opts.since, opts.until);
-  if (!where) return all;
-
-  const since = opts.since ? new Date(opts.since) : undefined;
-  const until = opts.until ? new Date(opts.until) : undefined;
-  return all.filter(r=>{
-    const d = new Date(r.date);
-    if (since && d < since) return false;
-    if (until) { const end = new Date(until); end.setDate(end.getDate()+1); if (d >= end) return false; }
-    return true;
-  });
+  return out;
 }
 
 // ---- Canonical CSV (R2 via Next API proxies) ----
-
 // Parse canonical CSV: game,draw_date,m1,m2,m3,m4,m5,special,special_name
 function parseCanonicalCsv(csv: string, gameDefault: GameKey): LottoRow[] {
   const lines = csv.trim().split(/\r?\n/);

@@ -1,6 +1,7 @@
 'use client';
 import { useState } from 'react';
-import { GameKey, getCurrentEraConfig, fetchRowsWithCache, rowsToCSV } from '@lib/lotto';
+import { GameKey, getCurrentEraConfig, fetchRowsWithCache } from '@lib/lotto';
+import { rowsToCSV } from '@/lib/csv';
 
 export default function ExportCsvButton({
   game,

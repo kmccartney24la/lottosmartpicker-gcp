@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
+export const runtime = 'nodejs'; // 👈 ensure Node runtime for fs/path
+
 const REMOTE = process.env.GA_FANTASY5_REMOTE_CSV_URL; // optional for now
 
 export async function GET() {
