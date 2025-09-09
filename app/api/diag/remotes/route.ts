@@ -1,6 +1,6 @@
 // app/api/diag/remotes/route.ts
 import { NextResponse } from "next/server";
-import { remoteFor } from "@/lib/server/remotes";
+import { remoteFor } from "@lib/server/remotes";
 
 export const runtime = "nodejs"; // HEAD to R2 works best on Node
 
