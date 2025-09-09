@@ -1,6 +1,6 @@
 // app/api/multi/[game]/route.ts
 import { NextResponse } from 'next/server';
-import type { GameKey } from '@/lib/lotto';
+import type { GameKey } from '@lib/lotto';
 
 // Accept both GA_* and MULTI_* naming schemes so you don't need to rename envs today.
 const env = (k: string) => process.env[k] ?? null;
