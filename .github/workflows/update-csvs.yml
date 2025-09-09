@@ -12,6 +12,7 @@ permissions:
 jobs:
   update:
     runs-on: ubuntu-latest
+    environment: r2-prod
     steps:
       - name: Checkout
         uses: actions/checkout@v4
