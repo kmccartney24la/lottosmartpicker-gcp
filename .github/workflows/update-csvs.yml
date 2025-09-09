@@ -47,19 +47,27 @@ jobs:
         with:
           apiToken: ${{ secrets.CF_API_TOKEN }}
           accountId: ${{ secrets.CF_ACCOUNT_ID }}
-          command: r2 bucket list   
+          command: r2 bucket list  
 
-      # Upload to Cloudflare R2 using Wrangler
+      - name: Show Fantasy 5 CSV (before upload)
+        run: |
+          echo "Fantasy 5 head:"
+          sed -n '1,20p' public/data/ga/fantasy5.csv || true
+          echo "Line count:"
+          wc -l public/data/ga/fantasy5.csv || true  
+    
+
       - name: Upload Fantasy 5 to R2
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CF_API_TOKEN }}
           accountId: ${{ secrets.CF_ACCOUNT_ID }}
-          command: r2 object put ${{ secrets.R2_BUCKET }}/ga/fantasy5.csv --file=public/data/ga/fantasy5.csv --force
+          command: r2 object put ${{ secrets.R2_BUCKET }}/ga/fantasy5.csv --file=public/data/ga/fantasy5.csv --content-type text/csv
 
       - name: Upload Cash4Life to R2
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CF_API_TOKEN }}
           accountId: ${{ secrets.CF_ACCOUNT_ID }}
-          command: r2 object put ${{ secrets.R2_BUCKET }}/ga/cash4life.csv --file=public/data/ga/cash4life.csv --force
+          command: r2 object put ${{ secrets.R2_BUCKET }}/ga/cash4life.csv --file=public/data/ga/cash4life.csv --content-type text/csv
+
