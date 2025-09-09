@@ -44,10 +44,14 @@ jobs:
 
       # Quick sanity check: fail early if any secret is missing
       - name: Verify required secrets are present
+        env:
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          CF_API_TOKEN:  ${{ secrets.CF_API_TOKEN }}
+          R2_BUCKET:     ${{ secrets.R2_BUCKET }}
         run: |
-          [ -z "${{ secrets.CF_ACCOUNT_ID }}" ] && echo "CF_ACCOUNT_ID is MISSING" && exit 1 || echo "CF_ACCOUNT_ID is set"
-          [ -z "${{ secrets.CF_API_TOKEN }}" ] && echo "CF_API_TOKEN is MISSING" && exit 1 || echo "CF_API_TOKEN is set"
-          [ -z "${{ secrets.R2_BUCKET }}" ] && echo "R2_BUCKET is MISSING" && exit 1 || echo "R2_BUCKET is set"
+          [ -z "$CF_ACCOUNT_ID" ] && echo "CF_ACCOUNT_ID is MISSING" && exit 1 || echo "CF_ACCOUNT_ID is set"
+          [ -z "$CF_API_TOKEN" ]  && echo "CF_API_TOKEN is MISSING"  && exit 1 || echo "CF_API_TOKEN is set"
+          [ -z "$R2_BUCKET" ]     && echo "R2_BUCKET is MISSING"     && exit 1 || echo "R2_BUCKET is set"
 
       # Optional: show what we're about to upload
       - name: Show Fantasy 5 CSV (before upload)
