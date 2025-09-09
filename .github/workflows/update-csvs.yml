@@ -77,7 +77,6 @@ jobs:
           accountId: ${{ secrets.CF_ACCOUNT_ID }}
           command: r2 object put ${{ secrets.R2_BUCKET }}/ga/fantasy5.csv --file=public/data/ga/fantasy5.csv --content-type text/csv
 
-
       # ✅ Upload Cash4Life
       - name: Upload Cash4Life to R2
         uses: cloudflare/wrangler-action@v3
