@@ -42,21 +42,30 @@ jobs:
           accountId: ${{ secrets.CF_ACCOUNT_ID }}
           command: --version
 
-      - name: List R2 buckets (perm check)
-        uses: cloudflare/wrangler-action@v3>
+      # Quick sanity check: fail early if any secret is missing
+      - name: Verify required secrets are present
+        run: |
+          [ -z "${{ secrets.CF_ACCOUNT_ID }}" ] && echo "CF_ACCOUNT_ID is MISSING" && exit 1 || echo "CF_ACCOUNT_ID is set"
+          [ -z "${{ secrets.CF_API_TOKEN }}" ] && echo "CF_API_TOKEN is MISSING" && exit 1 || echo "CF_API_TOKEN is set"
+          [ -z "${{ secrets.R2_BUCKET }}" ] && echo "R2_BUCKET is MISSING" && exit 1 || echo "R2_BUCKET is set"
+
+      # Optional: show what we're about to upload
+      - name: Show Fantasy 5 CSV (before upload)
+        run: |
+          sed -n '1,20p' public/data/ga/fantasy5.csv || true
+          wc -l public/data/ga/fantasy5.csv || true
+
+
+      # Smoke test Wrangler auth + bucket visibility
+      - name: List R2 buckets
+        uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CF_API_TOKEN }}
           accountId: ${{ secrets.CF_ACCOUNT_ID }}
-          command: r2 bucket list  
-
-      - name: Show Fantasy 5 CSV (before upload)
-        run: |
-          echo "Fantasy 5 head:"
-          sed -n '1,20p' public/data/ga/fantasy5.csv || true
-          echo "Line count:"
-          wc -l public/data/ga/fantasy5.csv || true  
+          command: r2 bucket list
     
 
+      # ✅ Upload Fantasy 5 (note: no leading slash, no --force)
       - name: Upload Fantasy 5 to R2
         uses: cloudflare/wrangler-action@v3
         with:
@@ -64,10 +73,11 @@ jobs:
           accountId: ${{ secrets.CF_ACCOUNT_ID }}
           command: r2 object put ${{ secrets.R2_BUCKET }}/ga/fantasy5.csv --file=public/data/ga/fantasy5.csv --content-type text/csv
 
+
+      # ✅ Upload Cash4Life
       - name: Upload Cash4Life to R2
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CF_API_TOKEN }}
           accountId: ${{ secrets.CF_ACCOUNT_ID }}
           command: r2 object put ${{ secrets.R2_BUCKET }}/ga/cash4life.csv --file=public/data/ga/cash4life.csv --content-type text/csv
-
