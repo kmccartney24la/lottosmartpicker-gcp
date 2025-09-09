@@ -87,6 +87,6 @@ jobs:
       - name: Upload Cash4Life to R2
         uses: cloudflare/wrangler-action@v3
         with:
-          apiToken: ${{ secrets.CF_API_TOKEN }}
-          accountId: ${{ secrets.CF_ACCOUNT_ID }}
-          command: r2 object put ${{ secrets.R2_BUCKET }}/ga/cash4life.csv --file=public/data/ga/cash4life.csv --content-type text/csv
+          apiToken: ${{ env.CF_API_TOKEN }}
+          accountId: ${{ env.CF_ACCOUNT_ID }}
+          command: r2 object put ${{ env.R2_BUCKET }}/ga/cash4life.csv --file=public/data/ga/cash4life.csv --content-type text/csv
