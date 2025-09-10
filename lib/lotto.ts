@@ -2,6 +2,13 @@ export type GameKey = 'powerball' | 'megamillions' | 'ga_cash4life' | 'ga_fantas
 
 const isMultiGame = (g: GameKey) => g === 'powerball' || g === 'megamillions';
 
+function shouldSeedFullHistory(): boolean {
+  // Guarded to Node/SSR; in browser `process` may not exist
+  return typeof process !== 'undefined'
+      && !!(process as any).env
+      && (process as any).env.LSP_SEED_FULL === '1';
+}
+
 export type LottoRow = {
   game: GameKey;
   date: string;
@@ -71,9 +78,14 @@ export function computeNextRefreshISO(_game?: GameKey): string {
 export async function fetchRowsWithCache(options: {
   game: GameKey; since?: string; until?: string; latestOnly?: boolean; token?: string;
 }): Promise<LottoRow[]> {
-  const { game, since, until, latestOnly, token } = options;
+  const { game, since, until, token } = options;
+
+  // 🔁 If CI asked to seed, force full history for multi games (PB/MM)
+  const effectiveLatestOnly =
+    options.latestOnly && !(isMultiGame(game) && shouldSeedFullHistory());
+
   const era = getCurrentEraConfig(game);
-  if (!latestOnly) {
+  if (!effectiveLatestOnly) {
     const env = readCache(game);
     if (env && env.eraStart === era.start && isCacheFresh(env)) {
       return filterRowsForCurrentEra(env.rows, game);
@@ -82,14 +94,14 @@ export async function fetchRowsWithCache(options: {
 
   let rows: LottoRow[] = [];
   try {
-    const all = await fetchCanonical(game);   // ✅ use only if it’s “big enough”
-    rows = applyFilters(all, { since, until, latestOnly });
+    const all = await fetchCanonical(game); // uses your “min rows” gate
+    rows = applyFilters(all, { since, until, latestOnly: effectiveLatestOnly });
   } catch {
-    // ⬇️ Always hit this for PB/MM until R2 is seeded with full history
-    rows = await fetchNY({ game, since, until, latestOnly, token });
+    // Fall back to Socrata
+    rows = await fetchNY({ game, since, until, latestOnly: effectiveLatestOnly, token });
   }
 
-  if (!latestOnly) writeCache(game, rows, era.start);
+  if (!effectiveLatestOnly) writeCache(game, rows, era.start);
   return filterRowsForCurrentEra(rows, game);
 }
 
