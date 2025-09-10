@@ -1,0 +1,80 @@
+name: Seed Socrata history (one-time)
+
+on:
+  workflow_dispatch:
+    inputs:
+      game:
+        description: 'Game to seed (powerball|megamillions|cash4life)'
+        required: true
+        type: choice
+        options: [powerball, megamillions, cash4life]
+      since:
+        description: 'Era cutoff YYYY-MM-DD (e.g., 2015-10-07)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  seed:
+    runs-on: ubuntu-latest
+    environment:
+      name: r2-prod
+    env:
+      CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID || vars.CF_ACCOUNT_ID }}
+      CF_API_TOKEN:  ${{ secrets.CF_API_TOKEN }}
+      R2_BUCKET:     ${{ secrets.R2_BUCKET || vars.R2_BUCKET }}
+      CLOUDFLARE_ACCOUNT_ID: ""
+      CLOUDFLARE_API_TOKEN:  ""
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: 'npm' }
+      - run: npm ci
+      - run: npm i -D wrangler@4
+      - run: npx playwright install --with-deps chromium
+      - name: Export Cloudflare env for Wrangler
+        run: |
+          echo "CLOUDFLARE_ACCOUNT_ID=$CF_ACCOUNT_ID" >> $GITHUB_ENV
+          echo "CLOUDFLARE_API_TOKEN=$CF_API_TOKEN"   >> $GITHUB_ENV
+      - name: Build seed CSV (full era since cutoff)
+        env:
+          SOCRATA_APP_TOKEN: ${{ secrets.SOCRATA_APP_TOKEN }}
+          LSP_SEED_GAME: ${{ github.event.inputs.game }}
+          LSP_SEED_SINCE: ${{ github.event.inputs.since }}
+        run: node scripts/update_csvs.mjs
+      # Reuse your existing merge/upload/verify steps (copy from update workflow):
+      - name: Merge + Upload + Verify
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes wrangler --version
+          merge_csv() {
+            local rel="$1"
+            local local_file="public/data/$rel"
+            sed -i 's/\r$//' "$local_file" 2>/dev/null || true
+            local tmpdir; tmpdir="$(mktemp -d)"
+            local r2_file="$tmpdir/r2.csv"
+            local merged="$tmpdir/merged.csv"
+            if npx --yes wrangler r2 object get "$R2_BUCKET/$rel" --pipe --remote > "$r2_file" 2>/dev/null; then
+              echo "Fetched existing $rel from R2"
+            else
+              echo "No existing $rel in R2; starting fresh"; : > "$r2_file"
+            fi
+            local header new_header r2_header
+            header="$(head -n1 "$local_file")"
+            r2_header="$( [ -s "$r2_file" ] && head -n1 "$r2_file" || echo "$header" )"
+            [ "$r2_header" = "$header" ] || { echo "Header mismatch"; exit 1; }
+            [ -s "$r2_file" ] || echo "$header" > "$r2_file"
+            { echo "$header"; (tail -n +2 "$r2_file"; tail -n +2 "$local_file") \
+              | sed '/^[[:space:]]*$/d' | awk -F, '!seen[$1]++' | sort; } > "$merged"
+            mv "$merged" "$local_file"
+            npx wrangler r2 object put "$R2_BUCKET/$rel" --file="$local_file" --content-type=text/csv --cache-control=public,max-age=3600,must-revalidate --remote
+            echo "Uploaded $rel"
+          }
+          case "${{ github.event.inputs.game }}" in
+            powerball)     merge_csv multi/powerball.csv ;;
+            megamillions)  merge_csv multi/megamillions.csv ;;
+            cash4life)     merge_csv ga/cash4life.csv ;;
+          esac

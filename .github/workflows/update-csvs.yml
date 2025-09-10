@@ -72,7 +72,7 @@ jobs:
    
           count_lines() {
             local key="$1"
-            if npx --yes wrangler r2 object get "$R2_BUCKET/$key" --pipe > /tmp/probe.csv 2>/dev/null; then
+            if npx --yes wrangler r2 object get "$R2_BUCKET/$key" --pipe --remote > /tmp/probe.csv 2>/dev/null; then
               wc -l < /tmp/probe.csv | tr -d ' '
             else
               echo 0
@@ -100,7 +100,7 @@ jobs:
         run: node scripts/update_csvs.mjs
         env:
           SOCRATA_APP_TOKEN: ${{ secrets.SOCRATA_APP_TOKEN }}
-          SKIP_SOCRATA: '1'
+          SKIP_SOCRATA: '0'
 
       # =========== MERGE & GUARD ===========
 
@@ -121,7 +121,7 @@ jobs:
             local r2_file="$tmpdir/r2.csv"
             local merged="$tmpdir/merged.csv"
 
-            if npx --yes wrangler r2 object get "$R2_BUCKET/$rel" --pipe > "$r2_file" 2>/dev/null; then
+            if npx --yes wrangler r2 object get "$R2_BUCKET/$rel" --pipe --remote > "$r2_file" 2>/dev/null; then
               echo "Fetched existing $rel from R2"
             else
               echo "No existing $rel in R2; starting fresh"
@@ -205,10 +205,54 @@ jobs:
           set -euo pipefail
           npx wrangler --version
           # Upload with cache headers
-          npx wrangler r2 object put "$R2_BUCKET/ga/fantasy5.csv"       --file=public/data/ga/fantasy5.csv       --content-type=text/csv --cache-control=public,max-age=3600,must-revalidate
-          npx wrangler r2 object put "$R2_BUCKET/ga/cash4life.csv"      --file=public/data/ga/cash4life.csv      --content-type=text/csv --cache-control=public,max-age=3600,must-revalidate
-          npx wrangler r2 object put "$R2_BUCKET/multi/powerball.csv"   --file=public/data/multi/powerball.csv   --content-type=text/csv --cache-control=public,max-age=3600,must-revalidate
-          npx wrangler r2 object put "$R2_BUCKET/multi/megamillions.csv" --file=public/data/multi/megamillions.csv --content-type=text/csv --cache-control=public,max-age=3600,must-revalidate
+          npx wrangler r2 object put "$R2_BUCKET/ga/fantasy5.csv"       --file=public/data/ga/fantasy5.csv       --content-type=text/csv --cache-control=public,max-age=3600,must-revalidate --remote
+          npx wrangler r2 object put "$R2_BUCKET/ga/cash4life.csv"      --file=public/data/ga/cash4life.csv      --content-type=text/csv --cache-control=public,max-age=3600,must-revalidate --remote
+          npx wrangler r2 object put "$R2_BUCKET/multi/powerball.csv"   --file=public/data/multi/powerball.csv   --content-type=text/csv --cache-control=public,max-age=3600,must-revalidate --remote
+          npx wrangler r2 object put "$R2_BUCKET/multi/megamillions.csv" --file=public/data/multi/megamillions.csv --content-type=text/csv --cache-control=public,max-age=3600,must-revalidate --remote
+
+      - name: Verify R2 object (Fantasy5)
+        run: |
+          set -euo pipefail
+          # Local line count
+          LOCAL=$(wc -l < public/data/ga/fantasy5.csv)
+          # Download and count from R2
+          npx wrangler r2 object get "$R2_BUCKET/ga/fantasy5.csv" --pipe | tee /tmp/f5.remote.csv >/dev/null
+          REMOTE=$(wc -l < /tmp/f5.remote.csv)
+          echo "Fantasy5 lines: local=$LOCAL remote=$REMOTE"
+          test "$REMOTE" -ge "$LOCAL" || { echo "ERROR: remote has fewer lines than local"; exit 1; }
+
+      - name: Verify R2 object (Cash4Life)
+        run: |
+          set -euo pipefail
+          # Local line count
+          LOCAL=$(wc -l < public/data/ga/cash4life.csv)
+          # Download and count from R2
+          npx wrangler r2 object get "$R2_BUCKET/ga/cash4life.csv" --pipe | tee /tmp/f5.remote.csv >/dev/null
+          REMOTE=$(wc -l < /tmp/f5.remote.csv)
+          echo "Cash$Life lines: local=$LOCAL remote=$REMOTE"
+          test "$REMOTE" -ge "$LOCAL" || { echo "ERROR: remote has fewer lines than local"; exit 1; }
+
+      - name: Verify R2 object (Powerball)
+        run: |
+          set -euo pipefail
+          # Local line count
+          LOCAL=$(wc -l < public/data/multi/powerball.csv)
+          # Download and count from R2
+          npx wrangler r2 object get "$R2_BUCKET/multi/powerball.csv" --pipe | tee /tmp/f5.remote.csv >/dev/null
+          REMOTE=$(wc -l < /tmp/f5.remote.csv)
+          echo "Powerball lines: local=$LOCAL remote=$REMOTE"
+          test "$REMOTE" -ge "$LOCAL" || { echo "ERROR: remote has fewer lines than local"; exit 1; }
+
+      - name: Verify R2 object (Megamillions)
+        run: |
+          set -euo pipefail
+          # Local line count
+          LOCAL=$(wc -l < public/data/multi/megamillions.csv)
+          # Download and count from R2
+          npx wrangler r2 object get "$R2_BUCKET/multi/megamillions.csv" --pipe | tee /tmp/f5.remote.csv >/dev/null
+          REMOTE=$(wc -l < /tmp/f5.remote.csv)
+          echo "Megamillions lines: local=$LOCAL remote=$REMOTE"
+          test "$REMOTE" -ge "$LOCAL" || { echo "ERROR: remote has fewer lines than local"; exit 1; }
 
       - name: Post-upload sanity (counts from R2)
         shell: bash
