@@ -315,7 +315,7 @@ if (SEED_GAME) {
   else if (SEED_GAME === 'megamillions')await buildMegaMillionsSince(SEED_SINCE);
   else if (SEED_GAME === 'cash4life')   await buildCash4LifeSince(SEED_SINCE);
   else throw new Error(`Unknown LSP_SEED_GAME: ${SEED_GAME}`);
-  return; // stop here; workflow merge/upload handles the rest
+ // stop here; workflow merge/upload handles the rest
 }
 
 // Nightly append-only mode (latest-only Socrata)
