@@ -333,16 +333,21 @@ export async function fetchNY(options: {
   return out;
 }
 
-// ---- Fantasy 5 pure CSV parser (no fs/path here) ----
+// ---- Fantasy 5 pure CSV parser (accepts num1..num5 OR m1..m5) ----
 function parseGAFantasy5Csv(text: string): LottoRow[] {
-  // Expected headers: draw_date,m1,m2,m3,m4,m5
   const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0);
   if (!lines.length) return [];
   const header = lines.shift()!;
   const cols = header.split(',').map(s => s.trim().toLowerCase());
   const idx = (name: string) => cols.indexOf(name);
+
   const iDate = idx('draw_date');
-  const i1 = idx('m1'), i2 = idx('m2'), i3 = idx('m3'), i4 = idx('m4'), i5 = idx('m5');
+  const i1 = idx('num1') >= 0 ? idx('num1') : idx('m1');
+  const i2 = idx('num2') >= 0 ? idx('num2') : idx('m2');
+  const i3 = idx('num3') >= 0 ? idx('num3') : idx('m3');
+  const i4 = idx('num4') >= 0 ? idx('num4') : idx('m4');
+  const i5 = idx('num5') >= 0 ? idx('num5') : idx('m5');
+
   if ([iDate, i1, i2, i3, i4, i5].some(i => i < 0)) return [];
 
   const out: LottoRow[] = [];
@@ -353,7 +358,6 @@ function parseGAFantasy5Csv(text: string): LottoRow[] {
     const date = d.toISOString().slice(0, 10);
     const nums = [t[i1], t[i2], t[i3], t[i4], t[i5]].map(v => parseInt(v, 10));
     if (nums.some(n => !Number.isFinite(n))) continue;
-    if (nums.some(n => n < 1 || n > 42)) continue;
     const [n1, n2, n3, n4, n5] = nums;
     out.push({ game: 'ga_fantasy5', date, n1, n2, n3, n4, n5, special: undefined });
   }
@@ -361,41 +365,51 @@ function parseGAFantasy5Csv(text: string): LottoRow[] {
 }
 
 // ---- Canonical CSV (R2 via Next API proxies) ----
-// Parse canonical CSV: game,draw_date,m1,m2,m3,m4,m5,special,special_name
+// Accepts either: draw_date,num1..num5,special  OR  draw_date,m1..m5,special
 function parseCanonicalCsv(csv: string, gameDefault: GameKey): LottoRow[] {
   const lines = csv.trim().split(/\r?\n/);
   if (lines.length === 0) return [];
+
   const header = lines.shift()!;
   const cols = header.split(',').map(s => s.trim().toLowerCase());
   const idx = (name: string) => cols.indexOf(name);
 
-  const iGame = idx('game');
+  const iGame = idx('game'); // optional
   const iDate = idx('draw_date');
-  const i1 = idx('m1'), i2 = idx('m2'), i3 = idx('m3'), i4 = idx('m4'), i5 = idx('m5');
-  const iSpec = idx('special');
+
+  // Support both num1..num5 and m1..m5
+  const i1 = idx('num1') >= 0 ? idx('num1') : idx('m1');
+  const i2 = idx('num2') >= 0 ? idx('num2') : idx('m2');
+  const i3 = idx('num3') >= 0 ? idx('num3') : idx('m3');
+  const i4 = idx('num4') >= 0 ? idx('num4') : idx('m4');
+  const i5 = idx('num5') >= 0 ? idx('num5') : idx('m5');
+
+  const iSpec = idx('special'); // optional for Fantasy5 (will be blank)
+
+  // If the canonical header doesn't match, bail early
+  if (iDate < 0 || [i1,i2,i3,i4,i5].some(i => i < 0)) return [];
 
   const out: LottoRow[] = [];
   for (const line of lines) {
+    if (!line.trim()) continue;
     const t = line.split(',').map(s => s.trim());
-    if (t.length < 6) continue;
 
     const game = (iGame >= 0 && t[iGame]) ? (t[iGame] as GameKey) : gameDefault;
 
-    const d = iDate >= 0 ? new Date(t[iDate]) : new Date(NaN);
+    const d = new Date(t[iDate]);
     if (Number.isNaN(d.getTime())) continue;
     const date = d.toISOString().slice(0, 10);
 
-    const nums = [t[i1], t[i2], t[i3], t[i4], t[i5]]
-      .map(v => parseInt(v, 10));
-    if (nums.some(n => !Number.isFinite(n))) continue;
+    const mains = [t[i1], t[i2], t[i3], t[i4], t[i5]].map(v => parseInt(v, 10));
+    if (mains.some(n => !Number.isFinite(n))) continue;
 
-    const special =
+    const spec =
       iSpec >= 0 && t[iSpec] !== '' && t[iSpec] != null
         ? parseInt(t[iSpec], 10)
         : undefined;
 
-    const [n1, n2, n3, n4, n5] = nums;
-    out.push({ game, date, n1, n2, n3, n4, n5, special });
+    const [n1, n2, n3, n4, n5] = mains;
+    out.push({ game, date, n1, n2, n3, n4, n5, special: spec });
   }
   return out;
 }
@@ -417,10 +431,20 @@ async function fetchCanonical(game: GameKey): Promise<LottoRow[]> {
     null;
 
   if (!url) throw new Error(`No canonical route for ${game}`);
+
   const res = await fetch(url, { cache: 'no-store' });
   if (!res.ok) throw new Error(`Canonical ${game} ${res.status}`);
+
   const text = await res.text();
-  return parseCanonicalCsv(text, game); // <-- default game if CSV lacks it
+
+  // If the file is empty or header-only, bail so we can fall back to Socrata
+  const lineCount = text.trim().split(/\r?\n/).filter(Boolean).length;
+  if (lineCount <= 1) throw new Error(`Canonical ${game} is empty/header-only`);
+
+  const parsed = parseCanonicalCsv(text, game);
+  if (parsed.length === 0) throw new Error(`Canonical ${game} parse failed`);
+
+  return parsed;
 }
 
 function applyFilters(
