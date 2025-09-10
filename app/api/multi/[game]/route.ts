@@ -1,55 +1,55 @@
 // app/api/multi/[game]/route.ts
-import { NextResponse } from 'next/server';
-import type { GameKey } from '@lib/lotto';
+import { NextResponse } from "next/server";
+import { remoteFor } from "@lib/server/remotes"; // ← your alias (no leading slash)
 
-// Accept both GA_* and MULTI_* naming schemes so you don't need to rename envs today.
-const env = (k: string) => process.env[k] ?? null;
-function remoteUrlFor(game: GameKey): string | null {
-  switch (game) {
-    case 'powerball':
-      return env('GA_POWERBALL_REMOTE_CSV_URL')    ?? env('MULTI_POWERBALL_REMOTE_CSV_URL');
-    case 'megamillions':
-      return env('GA_MEGAMILLIONS_REMOTE_CSV_URL') ?? env('MULTI_MEGAMILLIONS_REMOTE_CSV_URL');
-    case 'ga_cash4life':
-      return env('GA_CASH4LIFE_REMOTE_CSV_URL')    ?? env('MULTI_CASH4LIFE_REMOTE_CSV_URL');
-    case 'ga_fantasy5':
-      return env('GA_FANTASY5_REMOTE_CSV_URL')     ?? env('MULTI_FANTASY5_REMOTE_CSV_URL');
-    default:
-      return null;
-  }
-}
+export const runtime = "nodejs";
 
-function isValidGame(x: string): x is GameKey {
-  return ['powerball','megamillions','ga_cash4life','ga_fantasy5'].includes(x);
-}
+const MAP = {
+  powerball: "powerball",
+  megamillions: "megamillions",
+  ga_cash4life: "ga_cash4life",
+  ga_fantasy5: "ga_fantasy5",
+} as const;
+type RouteGame = keyof typeof MAP;
 
-export const runtime = 'nodejs'; // ensure Node runtime for server-only env access
-
-export async function GET(_req: Request, ctx: { params: { game: string } }) {
-  const gameParam = ctx.params?.game ?? '';
-  if (!isValidGame(gameParam)) {
-    return NextResponse.json({ error: `Unknown game: ${gameParam}` }, { status: 400 });
-  }
-
-  const remote = remoteUrlFor(gameParam);
-  if (!remote) {
+export async function GET(
+  _req: Request,
+  ctx: { params: { game: string } }
+) {
+  const raw = (ctx.params.game || "").toLowerCase().trim();
+  if (!(raw in MAP)) {
     return NextResponse.json(
-      { error: `No remote URL configured for ${gameParam}` },
+      { error: `Unknown game '${raw}'. Supported: ${Object.keys(MAP).join(", ")}` },
+      { status: 400 }
+    );
+  }
+
+  const game = MAP[raw as RouteGame];
+  let url: string;
+  try {
+    url = remoteFor(game);
+  } catch (err: any) {
+    return NextResponse.json(
+      { error: err?.message ?? "No remote URL configured" },
       { status: 500 }
     );
   }
 
-  const upstream = await fetch(remote, { cache: 'no-store' });
+  // Stream the CSV from R2 to the client.
+  const upstream = await fetch(url, { method: "GET", cache: "no-store" });
   if (!upstream.ok) {
-    return new NextResponse(`Upstream error ${upstream.status}`, { status: 502 });
+    return NextResponse.json(
+      { error: `Upstream ${upstream.status} fetching ${url}` },
+      { status: 502 }
+    );
   }
 
-  const csv = await upstream.text();
-  return new NextResponse(csv, {
-    headers: {
-      'content-type': 'text/csv; charset=utf-8',
-      // Cache at the edge briefly; your GitHub Action updates R2 after draws
-      'cache-control': 'public, s-maxage=300, stale-while-revalidate=3600',
-    },
-  });
+  // Pass through content type/length if present.
+  const headers = new Headers();
+  const ct = upstream.headers.get("content-type") || "text/csv";
+  headers.set("content-type", ct);
+  const cl = upstream.headers.get("content-length");
+  if (cl) headers.set("content-length", cl);
+
+  return new NextResponse(upstream.body, { status: 200, headers });
 }
