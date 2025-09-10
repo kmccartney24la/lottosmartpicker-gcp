@@ -103,7 +103,7 @@ jobs:
         with:
          apiToken: ${{ env.CF_API_TOKEN }}
          accountId: ${{ env.CF_ACCOUNT_ID }}
-         command: r2 object get ${{ env.R2_BUCKET }}/multi/powerball.csv --pipe | head -n 5
+         command: bash -lc "npx wrangler r2 object get ${{ env.R2_BUCKET }}/ga/cash4life.csv --pipe | tee >(head -n 5) | wc -c && echo '← bytes'"
 
       # Powerball
       - name: Upload Powerball to R2
@@ -111,7 +111,7 @@ jobs:
         with:
           apiToken: ${{ env.CF_API_TOKEN }}
           accountId: ${{ env.CF_ACCOUNT_ID }}
-          command: r2 object put ${{ env.R2_BUCKET }}/multi/powerball.csv --file=public/data/multi/powerball.csv --content-type=text/csv --cache-control=public,max-age=3600,must-revalidate
+          command: bash -lc "npx wrangler r2 object get ${{ env.R2_BUCKET }}/multi/powerball.csv --pipe | tee >(head -n 5) | wc -c && echo '← bytes'"
 
       - name: Peek Powerball (first 5 lines)
         uses: cloudflare/wrangler-action@v3
@@ -133,7 +133,7 @@ jobs:
         with:
          apiToken: ${{ env.CF_API_TOKEN }}
          accountId: ${{ env.CF_ACCOUNT_ID }}
-         command: r2 object get ${{ env.R2_BUCKET }}/multi/powerball.csv --pipe | head -n 5
+         command: bash -lc "npx wrangler r2 object get ${{ env.R2_BUCKET }}/multi/megamillions.csv --pipe | tee >(head -n 5) | wc -c && echo '← bytes'"
     
       - name: Commit changes (if any)
         run: |
