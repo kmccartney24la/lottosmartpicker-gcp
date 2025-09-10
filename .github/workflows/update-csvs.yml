@@ -7,29 +7,27 @@ on:
   workflow_dispatch: {}
 
 permissions:
-  contents: write  # allow commit back to repo if files changed
+  contents: write
 
 jobs:
   update:
     runs-on: ubuntu-latest
     environment:
       name: r2-prod
-    # Hoist creds to the job env so every step (including actions) sees them.
     env:
       CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID || vars.CF_ACCOUNT_ID }}
       CF_API_TOKEN:  ${{ secrets.CF_API_TOKEN }}
       R2_BUCKET:     ${{ secrets.R2_BUCKET || vars.R2_BUCKET }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      
-      # Fail fast if any credential is missing (run this BEFORE using wrangler)
+
       - name: Verify required secrets/vars are present
         run: |
           [ -z "$CF_ACCOUNT_ID" ] && echo "CF_ACCOUNT_ID is MISSING" && exit 1 || echo "CF_ACCOUNT_ID is set"
           [ -z "$CF_API_TOKEN" ]  && echo "CF_API_TOKEN is MISSING"  && exit 1 || echo "CF_API_TOKEN is set"
           [ -z "$R2_BUCKET" ]     && echo "R2_BUCKET is MISSING"     && exit 1 || echo "R2_BUCKET is set"
-
 
       - name: Use Node.js 20
         uses: actions/setup-node@v4
@@ -41,24 +39,12 @@ jobs:
 
       - name: Show local CSVs (before upload)
         run: |
-         for f in public/data/multi/powerball.csv public/data/multi/megamillions.csv public/data/ga/cash4life.csv; do
+          for f in public/data/multi/powerball.csv public/data/multi/megamillions.csv public/data/ga/cash4life.csv; do
             echo "---- $f ----"
             wc -l "$f" || true
             sed -n '1,5p' "$f" || true
-            done
+          done
 
-      - name: Commit changes (if any)
-        run: |
-          if [[ -n "$(git status --porcelain)" ]]; then
-            git config user.name "github-actions[bot]"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
-            git pull --rebase || true
-            git add public/data/ga/*.csv
-            git commit -m "chore: update CSVs"
-            git push
-          else
-            echo "No CSV changes to commit."
-          fi
       - name: Wrangler version
         uses: cloudflare/wrangler-action@v3
         with:
@@ -66,23 +52,15 @@ jobs:
           accountId: ${{ env.CF_ACCOUNT_ID }}
           command: --version
 
-      # Optional: show what we're about to upload
-      - name: Show Fantasy 5 CSV (before upload)
-        run: |
-          sed -n '1,20p' public/data/ga/fantasy5.csv || true
-          wc -l public/data/ga/fantasy5.csv || true
-
-
-      # Smoke test Wrangler auth + bucket visibility
       - name: List R2 buckets
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ env.CF_API_TOKEN }}
           accountId: ${{ env.CF_ACCOUNT_ID }}
           command: r2 bucket list
-    
 
-      # Fantasy 5
+      # -------- Uploads --------
+
       - name: Upload Fantasy 5 to R2
         uses: cloudflare/wrangler-action@v3
         with:
@@ -90,7 +68,13 @@ jobs:
           accountId: ${{ env.CF_ACCOUNT_ID }}
           command: r2 object put ${{ env.R2_BUCKET }}/ga/fantasy5.csv --file=public/data/ga/fantasy5.csv --content-type=text/csv --cache-control=public,max-age=3600,must-revalidate
 
-      # Cash4Life
+      - name: Peek Fantasy 5 (full file to logs)
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ env.CF_API_TOKEN }}
+          accountId: ${{ env.CF_ACCOUNT_ID }}
+          command: r2 object get ${{ env.R2_BUCKET }}/ga/fantasy5.csv --pipe
+
       - name: Upload Cash4Life to R2
         uses: cloudflare/wrangler-action@v3
         with:
@@ -98,29 +82,27 @@ jobs:
           accountId: ${{ env.CF_ACCOUNT_ID }}
           command: r2 object put ${{ env.R2_BUCKET }}/ga/cash4life.csv --file=public/data/ga/cash4life.csv --content-type=text/csv --cache-control=public,max-age=3600,must-revalidate
 
-      - name: Peek Cash4Life (first 5 lines)
+      - name: Peek Cash4Life (full file to logs)
         uses: cloudflare/wrangler-action@v3
         with:
-         apiToken: ${{ env.CF_API_TOKEN }}
-         accountId: ${{ env.CF_ACCOUNT_ID }}
-         command: bash -lc "npx wrangler r2 object get ${{ env.R2_BUCKET }}/ga/cash4life.csv --pipe | tee >(head -n 5) | wc -c && echo '← bytes'"
+          apiToken: ${{ env.CF_API_TOKEN }}
+          accountId: ${{ env.CF_ACCOUNT_ID }}
+          command: r2 object get ${{ env.R2_BUCKET }}/ga/cash4life.csv --pipe
 
-      # Powerball
       - name: Upload Powerball to R2
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ env.CF_API_TOKEN }}
           accountId: ${{ env.CF_ACCOUNT_ID }}
-          command: bash -lc "npx wrangler r2 object get ${{ env.R2_BUCKET }}/multi/powerball.csv --pipe | tee >(head -n 5) | wc -c && echo '← bytes'"
+          command: r2 object put ${{ env.R2_BUCKET }}/multi/powerball.csv --file=public/data/multi/powerball.csv --content-type=text/csv --cache-control=public,max-age=3600,must-revalidate
 
-      - name: Peek Powerball (first 5 lines)
+      - name: Peek Powerball (full file to logs)
         uses: cloudflare/wrangler-action@v3
         with:
-         apiToken: ${{ env.CF_API_TOKEN }}
-         accountId: ${{ env.CF_ACCOUNT_ID }}
-         command: r2 object get ${{ env.R2_BUCKET }}/multi/powerball.csv --pipe | head -n 5
+          apiToken: ${{ env.CF_API_TOKEN }}
+          accountId: ${{ env.CF_ACCOUNT_ID }}
+          command: r2 object get ${{ env.R2_BUCKET }}/multi/powerball.csv --pipe
 
-      # Mega Millions
       - name: Upload Mega Millions to R2
         uses: cloudflare/wrangler-action@v3
         with:
@@ -128,22 +110,23 @@ jobs:
           accountId: ${{ env.CF_ACCOUNT_ID }}
           command: r2 object put ${{ env.R2_BUCKET }}/multi/megamillions.csv --file=public/data/multi/megamillions.csv --content-type=text/csv --cache-control=public,max-age=3600,must-revalidate
 
-      - name: Peek Mega Millions (first 5 lines)
+      - name: Peek Mega Millions (full file to logs)
         uses: cloudflare/wrangler-action@v3
         with:
-         apiToken: ${{ env.CF_API_TOKEN }}
-         accountId: ${{ env.CF_ACCOUNT_ID }}
-         command: bash -lc "npx wrangler r2 object get ${{ env.R2_BUCKET }}/multi/megamillions.csv --pipe | tee >(head -n 5) | wc -c && echo '← bytes'"
-    
+          apiToken: ${{ env.CF_API_TOKEN }}
+          accountId: ${{ env.CF_ACCOUNT_ID }}
+          command: r2 object get ${{ env.R2_BUCKET }}/multi/megamillions.csv --pipe
+
+      # -------- Commit at the end --------
       - name: Commit changes (if any)
         run: |
-         if [[ -n "$(git status --porcelain)" ]]; then
+          if [[ -n "$(git status --porcelain)" ]]; then
             git config user.name "github-actions[bot]"
-           git config user.email "github-actions[bot]@users.noreply.github.com"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
             git pull --rebase || true
             git add public/data/ga/*.csv public/data/multi/*.csv
             git commit -m "chore: update CSVs"
-           git push
+            git push
           else
-           echo "No CSV changes to commit."
+            echo "No CSV changes to commit."
           fi
