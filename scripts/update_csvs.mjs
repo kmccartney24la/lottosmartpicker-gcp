@@ -61,6 +61,7 @@ async function fetchAll(datasetId, select = "*", { limit = 25000 } = {}) {
     offset += limit;
   }
   return out;
+}
 
 // --- Date helpers shared by Socrata builders ---
 function toYMD(ts) {
@@ -299,3 +300,4 @@ if (typeof process !== "undefined" && process.argv && process.argv[1]) {
     });
   }
 }
+
