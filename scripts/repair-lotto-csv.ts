@@ -107,41 +107,25 @@ export function repairCsv(inPath: string, outPath: string) {
   const n3 = choose(idx, "num3", "m3", "n3");
   const n4 = choose(idx, "num4", "m4", "n4");
   const n5 = choose(idx, "num5", "m5", "n5");
-  const sCol = choose(idx, "special", "mega_ball", "cash_ball", "powerball");
+const sCol = choose(idx, "special", "mega_ball", "cash_ball", "powerball");
 
-  if (
-    dateCol != null &&
-    n1 != null &&
-    n2 != null &&
-    n3 != null &&
-    n4 != null &&
-    n5 != null &&
-    sCol != null
-  ) {
-    for (let i = 1; i < rawLines.length; i++) {
-      const parts = rawLines[i].split(",");
-      const date = toYMD(parts[dateCol]);
-      const whites = [parts[n1], parts[n2], parts[n3], parts[n4], parts[n5]].map(
-        toInt
-      );
-      const specialV = toInt(parts[sCol]);
-      if (date && isInts5(whites)) {
-        out.push(
-          [
-            date,
-            whites[0],
-            whites[1],
-            whites[2],
-            whites[3],
-            whites[4],
-            Number.isFinite(specialV) ? specialV : "",
-          ].join(",")
-        );
-      }
+if (
+  dateCol != null &&
+  n1 != null && n2 != null && n3 != null && n4 != null && n5 != null
+) {
+  for (let i = 1; i < rawLines.length; i++) {
+    const parts = rawLines[i].split(",");
+    const date = toYMD(parts[dateCol]);
+    const whites = [parts[n1], parts[n2], parts[n3], parts[n4], parts[n5]].map(toInt);
+    const specialV = sCol != null ? toInt(parts[sCol]) : NaN; // may be missing
+    if (date && isInts5(whites)) {
+      out.push([date, whites[0], whites[1], whites[2], whites[3], whites[4],
+                Number.isFinite(specialV) ? specialV : ""].join(","));
     }
-    fs.writeFileSync(outPath, out.join("\n") + "\n", "utf8");
-    return;
   }
+  fs.writeFileSync(outPath, out.join("\n") + "\n", "utf8");
+  return;
+}
 
   // Unknown layout → fail so CI surfaces it
   console.error("Unrecognized header layout:", header);
