@@ -281,13 +281,23 @@ jobs:
               remote_lines=$(tr -d '\r' < "$tmp_plain"  | wc -l | tr -d ' ')
               echo "$rel lines: local=$local_lines remote=$remote_lines"
 
+              echo "$rel lines: local=$local_lines remote=$remote_lines"
+
               if [ "$remote_lines" -ge "$local_lines" ]; then
                 break
               fi
 
+              # NEW: remote is behind local → upload the merged local superset
+              echo "$rel: remote ($remote_lines) is behind local ($local_lines); uploading superset…"
+              npx wrangler r2 object put "$R2_BUCKET/$rel" \
+                --file="$local_file" \
+                --content-type=text/csv \
+                --cache-control=public,max-age=3600,must-revalidate \
+                --remote
+
               tries=$((tries+1))
               if [ "$tries" -ge "$max" ]; then
-                echo "ERROR: remote has fewer lines than local for $rel after $max attempts"
+                echo "ERROR: remote still behind local for $rel after $max attempts"
                 exit 1
               fi
               sleep "$sleep_s"
