@@ -15,9 +15,13 @@ jobs:
     environment:
       name: r2-prod
     env:
+      # Your inputs (as before)
       CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID || vars.CF_ACCOUNT_ID }}
       CF_API_TOKEN:  ${{ secrets.CF_API_TOKEN }}
       R2_BUCKET:     ${{ secrets.R2_BUCKET || vars.R2_BUCKET }}
+      # Wrangler v4 reads these envs; we export them from CF_ in a step below
+      CLOUDFLARE_ACCOUNT_ID: ""
+      CLOUDFLARE_API_TOKEN:  ""
 
     steps:
       - name: Checkout
@@ -33,89 +37,154 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: 'npm'
+
+      - name: Install Wrangler v4 (pin)
+        run: |
+          npm i -D wrangler@4
+          npx wrangler --version
+
+      - name: Export Cloudflare env for Wrangler
+        run: |
+          echo "CLOUDFLARE_ACCOUNT_ID=$CF_ACCOUNT_ID" >> $GITHUB_ENV
+          echo "CLOUDFLARE_API_TOKEN=$CF_API_TOKEN"   >> $GITHUB_ENV
 
       - name: Run updater
         run: node scripts/update_csvs.mjs
 
-      - name: Show local CSVs (before upload)
+      # =========== MERGE & GUARD ===========
+
+      - name: Merge local CSV with existing R2 object (append-only)
+        shell: bash
         run: |
-          for f in public/data/multi/powerball.csv public/data/multi/megamillions.csv public/data/ga/cash4life.csv; do
+          set -euo pipefail
+          export LC_ALL=C LANG=C
+
+          merge_csv() {
+            local rel="$1"              # e.g. ga/cash4life.csv or multi/powerball.csv
+            local local_file="public/data/$rel"
+
+            # Normalize CRLF if present (Windows-origin files)
+            sed -i 's/\r$//' "$local_file" 2>/dev/null || true
+
+            # Temp workspace
+            local tmpdir
+            tmpdir="$(mktemp -d)"
+            local r2_file="$tmpdir/r2.csv"
+            local merged="$tmpdir/merged.csv"
+
+            # Fetch current from R2 if present
+            if npx --yes wrangler r2 object get "$R2_BUCKET/$rel" --pipe > "$r2_file" 2>/dev/null; then
+              echo "Fetched existing $rel from R2"
+            else
+              echo "No existing $rel in R2; starting fresh"
+              : > "$r2_file"
+            fi
+
+            # If generator output is empty, keep R2 version
+            if [ ! -s "$local_file" ]; then
+              echo "WARNING: $local_file is empty (no new rows?). Keeping R2 version as-is."
+              cp "$r2_file" "$local_file"
+              return 0
+            fi
+
+            # Establish & validate header
+            local header new_header r2_header
+            header="$(head -n1 "$local_file")"
+            r2_header="$( [ -s "$r2_file" ] && head -n1 "$r2_file" || echo "$header" )"
+            new_header="$header"
+
+            if [ "$r2_header" != "$new_header" ]; then
+              echo "ERROR: Header mismatch for $rel"
+              echo "R2:  $r2_header"
+              echo "LOC: $new_header"
+              exit 1
+            fi
+
+            # Ensure R2 file has a header if empty
+            if [ ! -s "$r2_file" ]; then
+              echo "$header" > "$r2_file"
+            fi
+
+            # Count previous rows (excluding header) for anti-truncation
+            local prev_rows
+            prev_rows=$( ( [ -s "$r2_file" ] && tail -n +2 "$r2_file" | wc -l ) || echo 0 )
+
+            # Merge + de-dupe by entire line (columns stable)
+            {
+              echo "$header"
+              (tail -n +2 "$r2_file"; tail -n +2 "$local_file") | sort | uniq
+            } > "$merged"
+
+            local merged_rows
+            merged_rows=$(tail -n +2 "$merged" | wc -l || echo 0)
+
+            # Anti-truncation: merged must never be smaller than previous
+            if [ "$merged_rows" -lt "$prev_rows" ]; then
+              echo "ERROR: Anti-truncation triggered for $rel (merged $merged_rows < previous $prev_rows)."
+              echo "Restoring previous content."
+              cp "$r2_file" "$local_file"
+            else
+              mv "$merged" "$local_file"
+            fi
+
+            echo "Post-merge $rel line counts:"
+            echo "  R2 previous rows:  $prev_rows"
+            echo "  Local merged rows: $(tail -n +2 "$local_file" | wc -l || echo 0)"
+          }
+
+          merge_csv ga/fantasy5.csv
+          merge_csv ga/cash4life.csv
+          merge_csv multi/powerball.csv
+          merge_csv multi/megamillions.csv
+
+      - name: Show local CSVs (after merge, before upload)
+        shell: bash
+        run: |
+          set -euo pipefail
+          for f in \
+            public/data/ga/fantasy5.csv \
+            public/data/ga/cash4life.csv \
+            public/data/multi/powerball.csv \
+            public/data/multi/megamillions.csv
+          do
             echo "---- $f ----"
             wc -l "$f" || true
             sed -n '1,5p' "$f" || true
+            echo
           done
 
-      - name: Wrangler version
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ env.CF_API_TOKEN }}
-          accountId: ${{ env.CF_ACCOUNT_ID }}
-          command: --version
+      # =========== UPLOADS via Wrangler v4 ===========
 
-      - name: List R2 buckets
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ env.CF_API_TOKEN }}
-          accountId: ${{ env.CF_ACCOUNT_ID }}
-          command: r2 bucket list
+      - name: Upload merged CSVs to R2
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx wrangler --version
+          # Upload with cache headers
+          npx wrangler r2 object put "$R2_BUCKET/ga/fantasy5.csv"       --file=public/data/ga/fantasy5.csv       --content-type=text/csv --cache-control=public,max-age=3600,must-revalidate
+          npx wrangler r2 object put "$R2_BUCKET/ga/cash4life.csv"      --file=public/data/ga/cash4life.csv      --content-type=text/csv --cache-control=public,max-age=3600,must-revalidate
+          npx wrangler r2 object put "$R2_BUCKET/multi/powerball.csv"   --file=public/data/multi/powerball.csv   --content-type=text/csv --cache-control=public,max-age=3600,must-revalidate
+          npx wrangler r2 object put "$R2_BUCKET/multi/megamillions.csv" --file=public/data/multi/megamillions.csv --content-type=text/csv --cache-control=public,max-age=3600,must-revalidate
 
-      # -------- Uploads --------
-
-      - name: Upload Fantasy 5 to R2
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ env.CF_API_TOKEN }}
-          accountId: ${{ env.CF_ACCOUNT_ID }}
-          command: r2 object put ${{ env.R2_BUCKET }}/ga/fantasy5.csv --file=public/data/ga/fantasy5.csv --content-type=text/csv --cache-control=public,max-age=3600,must-revalidate
-
-      - name: Peek Fantasy 5 (full file to logs)
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ env.CF_API_TOKEN }}
-          accountId: ${{ env.CF_ACCOUNT_ID }}
-          command: r2 object get ${{ env.R2_BUCKET }}/ga/fantasy5.csv --pipe
-
-      - name: Upload Cash4Life to R2
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ env.CF_API_TOKEN }}
-          accountId: ${{ env.CF_ACCOUNT_ID }}
-          command: r2 object put ${{ env.R2_BUCKET }}/ga/cash4life.csv --file=public/data/ga/cash4life.csv --content-type=text/csv --cache-control=public,max-age=3600,must-revalidate
-
-      - name: Peek Cash4Life (full file to logs)
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ env.CF_API_TOKEN }}
-          accountId: ${{ env.CF_ACCOUNT_ID }}
-          command: r2 object get ${{ env.R2_BUCKET }}/ga/cash4life.csv --pipe
-
-      - name: Upload Powerball to R2
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ env.CF_API_TOKEN }}
-          accountId: ${{ env.CF_ACCOUNT_ID }}
-          command: r2 object put ${{ env.R2_BUCKET }}/multi/powerball.csv --file=public/data/multi/powerball.csv --content-type=text/csv --cache-control=public,max-age=3600,must-revalidate
-
-      - name: Peek Powerball (full file to logs)
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ env.CF_API_TOKEN }}
-          accountId: ${{ env.CF_ACCOUNT_ID }}
-          command: r2 object get ${{ env.R2_BUCKET }}/multi/powerball.csv --pipe
-
-      - name: Upload Mega Millions to R2
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ env.CF_API_TOKEN }}
-          accountId: ${{ env.CF_ACCOUNT_ID }}
-          command: r2 object put ${{ env.R2_BUCKET }}/multi/megamillions.csv --file=public/data/multi/megamillions.csv --content-type=text/csv --cache-control=public,max-age=3600,must-revalidate
-
-      - name: Peek Mega Millions (full file to logs)
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ env.CF_API_TOKEN }}
-          accountId: ${{ env.CF_ACCOUNT_ID }}
-          command: r2 object get ${{ env.R2_BUCKET }}/multi/megamillions.csv --pipe
+      - name: Post-upload sanity (counts from R2)
+        shell: bash
+        run: |
+          set -euo pipefail
+          check() {
+            local key="$1"
+            local tmp
+            tmp="$(mktemp)"
+            npx wrangler r2 object get "$R2_BUCKET/$key" --pipe > "$tmp"
+            echo "R2: $key -> total lines: $(wc -l < "$tmp")"
+            echo "Head:"
+            sed -n '1,5p' "$tmp"
+            echo
+          }
+          check ga/fantasy5.csv
+          check ga/cash4life.csv
+          check multi/powerball.csv
+          check multi/megamillions.csv
 
       # -------- Commit at the end (CSV-only, safe) --------
       - name: Commit CSV changes only (safe)
@@ -124,11 +193,9 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-        
+          # Ensure only CSVs are committed
           git restore --worktree --staged package.json package-lock.json 2>/dev/null || true
-
-           git add public/data/ga public/data/multi
-
+          git add public/data/ga public/data/multi
 
           if git diff --cached --quiet; then
             echo "No CSV changes to commit."
