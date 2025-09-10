@@ -2,7 +2,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import cheerio from "cheerio";
+import * as cheerio from "cheerio";
 import got from "got";
 
 // CSV header to match your other files
@@ -44,7 +44,7 @@ async function fetchYearFromSite({ base, year }) {
     retry: { limit: 2 }
   }).text();
 
-  const $ = cheerio.load(res);
+  const $ = cheerio.load(html);
 
   // Heuristic row detection:
   // Pick rows that contain a date-like cell and exactly 5 numbers.
