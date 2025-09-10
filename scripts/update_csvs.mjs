@@ -62,12 +62,21 @@ async function fetchAll(datasetId, select = "*", { limit = 25000 } = {}) {
   }
   return out;
 
+// --- Date helpers shared by Socrata builders ---
 function toYMD(ts) {
-  // incoming draw_date may be "YYYY-MM-DDT00:00:00.000"
-  return (ts || "").slice(0, 10);
+  // Accepts strings like "YYYY-MM-DDT00:00:00.000" OR a Date/ISO string.
+  if (!ts) return "";
+  if (ts instanceof Date) {
+    return ts.toISOString().slice(0, 10);
+  }
+  // If it's already "YYYY-MM-DD..." slice the first 10 chars
+  const s = String(ts);
+  const m = s.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (m) return m[1];
+  // Last resort: Date parse; if invalid, return empty string
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? "" : d.toISOString().slice(0, 10);
 }
-}
-
 function parseWinningNumbers(s) {
   // Split on spaces, tolerate double spaces
   return (s || "")
