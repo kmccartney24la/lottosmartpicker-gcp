@@ -110,15 +110,110 @@ jobs:
           set -euo pipefail
           export LC_ALL=C LANG=C
 
+          canon="draw_date,num1,num2,num3,num4,num5,special"
+
+          # Robust Node helper to repair ANY of our past shapes to canonical header.
+          make_repair_js() {
+          cat > /tmp/repair_csv.js <<'NODE'
+          const fs = require('fs');
+
+          function stripBOM(s){ return s && s.charCodeAt(0)===0xFEFF ? s.slice(1) : s; }
+          function toYMD(s){
+            if(!s) return '';
+            const m = String(s).match(/^(\d{4}-\d{2}-\d{2})/);
+            if (m) return m[1];
+            const d = new Date(s);
+            return isNaN(d) ? '' : d.toISOString().slice(0,10);
+          }
+          function int(x){ const n = parseInt(String(x).trim(),10); return Number.isFinite(n)?n:NaN; }
+          function ints5(arr){ return arr.length===5 && arr.every(n=>Number.isInteger(n)); }
+
+          function repair(inPath, outPath){
+            if (!fs.existsSync(inPath) || fs.statSync(inPath).size === 0) {
+              fs.writeFileSync(outPath, '', 'utf8'); return;
+            }
+            const text = fs.readFileSync(inPath, 'utf8').replace(/\r/g,'');
+            const lines = text.split('\n').filter(l => l.length>0);
+            if (lines.length === 0) { fs.writeFileSync(outPath, '', 'utf8'); return; }
+
+            let header = stripBOM(lines[0]).trim().toLowerCase();
+            const cols = header.split(',').map(s => s.trim());
+            const idx = Object.fromEntries(cols.map((c,i)=>[c,i]));
+
+            // Helper to emit canonical row in order
+            const out = ['draw_date,num1,num2,num3,num4,num5,special'];
+
+            // CASE 0: Already canonical — just pass through.
+            if (header === 'draw_date,num1,num2,num3,num4,num5,special') {
+              fs.writeFileSync(outPath, lines.join('\n')+'\n', 'utf8'); return;
+            }
+
+            // CASE 1: legacy Socrata: draw_date + winning_numbers + optional special name (mega_ball|cash_ball|powerball)
+            if ('draw_date' in idx && 'winning_numbers' in idx) {
+              const sname = ['special','mega_ball','cash_ball','powerball'].find(k=>k in idx);
+              for (let i=1;i<lines.length;i++){
+                const parts = lines[i].split(',');
+                const date = toYMD(parts[idx['draw_date']]);
+                const wn = String(parts[idx['winning_numbers']]||'');
+                const nums = (wn.match(/\d+/g)||[]).map(Number);
+                const whites = nums.slice(0,5);
+                let special = '';
+                if (sname && sname !== 'special') {
+                  const sv = int(parts[idx[sname]]);
+                  special = Number.isFinite(sv) ? String(sv) : '';
+                } else if (nums.length >= 6) {
+                  special = String(nums[5]);
+                }
+                if (date && ints5(whites)) out.push([date,...whites,special].join(','));
+              }
+              fs.writeFileSync(outPath, out.join('\n')+'\n', 'utf8'); return;
+            }
+
+            // CASE 2: column-based numeric names — accept num1..num5 OR m1..m5; special can be special|mega_ball|cash_ball|powerball
+            const baseDate = ('draw_date' in idx) ? idx['draw_date'] : null;
+            const choose = (...names)=> names.find(n => n in idx);
+            const n1 = choose('num1','m1','n1');
+            const n2 = choose('num2','m2','n2');
+            const n3 = choose('num3','m3','n3');
+            const n4 = choose('num4','m4','n4');
+            const n5 = choose('num5','m5','n5');
+            const sCol = choose('special','mega_ball','cash_ball','powerball');
+
+            // Allow extra columns like 'game', 'special_name' — we just ignore them.
+            const numericColsPresent = [n1,n2,n3,n4,n5].every(v => Number.isInteger(v));
+            if (baseDate != null && numericColsPresent && sCol != null) {
+              for (let i=1;i<lines.length;i++){
+                const parts = lines[i].split(',');
+                const date = toYMD(parts[baseDate]);
+                const whites = [parts[n1],parts[n2],parts[n3],parts[n4],parts[n5]].map(int);
+                const specialV = int(parts[sCol]);
+                if (date && ints5(whites)) {
+                  out.push([date, whites[0], whites[1], whites[2], whites[3], whites[4], Number.isFinite(specialV)?specialV:''].join(','));
+                }
+              }
+              fs.writeFileSync(outPath, out.join('\n')+'\n', 'utf8'); return;
+            }
+
+            console.error('Unrecognized header layout:', header);
+            process.exit(2);
+          }
+
+          const [,,inPath, outPath] = process.argv;
+          repair(inPath, outPath);
+          NODE
+          }
+
           merge_csv() {
             local rel="$1"              # e.g. ga/cash4life.csv or multi/powerball.csv
             local local_file="public/data/$rel"
 
             sed -i 's/\r$//' "$local_file" 2>/dev/null || true
 
-            local tmpdir r2_file merged
+            local tmpdir r2_file r2_fixed local_fixed merged
             tmpdir="$(mktemp -d)"
             r2_file="$tmpdir/r2.csv"
+            r2_fixed="$tmpdir/r2.fixed.csv"
+            local_fixed="$tmpdir/local.fixed.csv"
             merged="$tmpdir/merged.csv"
 
             if npx --yes wrangler r2 object get "$R2_BUCKET/$rel" --pipe --remote > "$r2_file" 2>/dev/null; then
@@ -128,83 +223,49 @@ jobs:
               : > "$r2_file"
             fi
 
-            # --- Canonical header ---
-            local canon="draw_date,num1,num2,num3,num4,num5,special"
+            make_repair_js
 
-            # --- Read headers (strip CRLF) ---
-            local header r2_header
-            header="$(head -n1 "$local_file" | tr -d '\r')"
-            r2_header="$( [ -s "$r2_file" ] && head -n1 "$r2_file" | tr -d '\r' || echo "$header" )"
+            # Normalize R2 and local to canonical header
+            node /tmp/repair_csv.js "$r2_file" "$r2_fixed"
+            node /tmp/repair_csv.js "$local_file" "$local_fixed"
 
-            # --- Strip UTF-8 BOM if present ---
-            local bom=$'\xEF\xBB\xBF'
-            [[ "$r2_header" == "$bom"* ]] && r2_header="${r2_header#"$bom"}"
-
-            # --- Normalize helper: lowercase + map special column names to 'special' ---
-            normalize_header() {
-              local s="${1,,}"                        # lowercase (bash 4+)
-              s="${s//mega_ball/special}"
-              s="${s//cash_ball/special}"
-              s="${s//powerball/special}"
-              echo "$s"
-            }
-
-            local h_norm r2_norm c_norm
-            h_norm="$(normalize_header "$header")"
-            r2_norm="$(normalize_header "$r2_header")"
-            c_norm="$(normalize_header "$canon")"
-
-            # If local header isn't canonical, trust canonical (future-proof)
-            if [[ "$h_norm" != "$c_norm" ]]; then
-              echo "WARNING: local header not canonical; rewriting to canonical."
-              { echo "$canon"; tail -n +2 "$local_file"; } > "$local_file.tmp" && mv "$local_file.tmp" "$local_file"
-              header="$canon"
-              h_norm="$c_norm"
+            # If local is empty (no new rows), just keep R2
+            if [ ! -s "$local_fixed" ] || [ "$(tail -n +2 "$local_fixed" | sed '/^[[:space:]]*$/d' | wc -l)" -eq 0 ]; then
+              echo "No new local rows for $rel; keeping R2 version."
+              cp "$r2_fixed" "$local_file"
+              return 0
             fi
 
-            # If R2 header differs only by synonyms/BOM/CRLF, rewrite it to canonical in-place
-            if [[ -s "$r2_file" && "$r2_norm" != "$h_norm" ]]; then
-              # If body looks like the same shape (6 commas), allow auto-repair; else bail.
-              local r2_cols
-              r2_cols="$(head -n1 "$r2_file" | tr -d '\r' | awk -F, '{print NF}')"
-              if [[ "$r2_cols" -eq 7 ]]; then
-                echo "R2 header differs but compatible; rewriting to canonical."
-                { echo "$canon"; tail -n +2 "$r2_file"; } > "$r2_file.tmp" && mv "$r2_file.tmp" "$r2_file"
-                r2_header="$canon"
-                r2_norm="$c_norm"
-              else
-                echo "ERROR: Header mismatch for $rel (incompatible column count)."
-                echo "R2:  $r2_header"
-                echo "LOC: $header"
-                exit 1
-              fi
-            fi
+            # Final sanity: headers must be canonical now
+            head -n1 "$r2_fixed" | tr -d '\r' | grep -qx "$canon" || { echo "R2 header not canonical after repair"; exit 1; }
+            head -n1 "$local_fixed" | tr -d '\r' | grep -qx "$canon" || { echo "Local header not canonical after repair"; exit 1; }
 
-            # Final safety check
-            if [[ "$r2_norm" != "$h_norm" ]]; then
-              echo "ERROR: Header mismatch for $rel"
-              echo "R2:  $r2_header"
-              echo "LOC: $header"
-              exit 1
-            fi
+            # Track previous row count for anti-truncation
+            prev_rows=$(tail -n +2 "$r2_fixed" | sed '/^[[:space:]]*$/d' | wc -l || echo 0)
 
-            # Ensure R2 has a header line if it was empty
-            [[ -s "$r2_file" ]] || echo "$header" > "$r2_file"
-
-            # --- Merge (append-only, unique by date = col 1) ---
-            # Keep rows sorted by date. Remove blank lines. De-dupe on draw_date.
+            # Merge append-only, unique by draw_date, sorted by date
             {
-              echo "$header"
-              (tail -n +2 "$r2_file"; tail -n +2 "$local_file") \
+              echo "$canon"
+              (tail -n +2 "$r2_fixed"; tail -n +2 "$local_fixed") \
                 | sed '/^[[:space:]]*$/d' \
-                | awk -F, 'NR>1 { if (!seen[$1]++) print $0 }' \
+                | awk -F, '!seen[$1]++' \
                 | sort
             } > "$merged"
 
-            mv "$merged" "$local_file"
-            echo "Post-merge $rel line count: $(($(wc -l < "$local_file") - 1)) rows"
+            merged_rows=$(tail -n +2 "$merged" | sed '/^[[:space:]]*$/d' | wc -l || echo 0)
+            if [ "$merged_rows" -lt "$prev_rows" ]; then
+              echo "ERROR: Anti-truncation triggered for $rel (merged $merged_rows < previous $prev_rows)."
+              cp "$r2_fixed" "$local_file"
+            else
+              mv "$merged" "$local_file"
+            fi
+
+            echo "Post-merge $rel rows: prev=$prev_rows → now=$merged_rows"
+            npx wrangler r2 object put "$R2_BUCKET/$rel" --file="$local_file" --content-type=text/csv --cache-control=public,max-age=3600,must-revalidate --remote
+            echo "Uploaded $rel"
           }
 
+          # Apply to the game you seeded; keeping others is fine too.
           merge_csv multi/powerball.csv
           merge_csv multi/megamillions.csv
           merge_csv ga/cash4life.csv

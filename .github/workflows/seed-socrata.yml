@@ -48,7 +48,7 @@ jobs:
       - name: Merge + Upload + Verify
         shell: bash
         run: |
-            set -euo pipefail
+          set -euo pipefail
             export LC_ALL=C LANG=C
 
             canon="draw_date,num1,num2,num3,num4,num5,special"
