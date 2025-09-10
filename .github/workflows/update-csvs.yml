@@ -156,7 +156,7 @@ jobs:
 
             echo "Post-merge $rel line counts:"
             echo "  R2 previous rows:  $prev_rows"
-            + echo "  Local merged rows: $(tail -n +2 "$local_file" | sed '/^[[:space:]]*$/d' | wc -l || echo 0)"
+            echo "  Local merged rows: $(tail -n +2 "$local_file" | sed '/^[[:space:]]*$/d' | wc -l || echo 0)"
           }
 
           merge_csv ga/fantasy5.csv

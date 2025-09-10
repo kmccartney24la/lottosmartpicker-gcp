@@ -2,7 +2,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 
-// ===== Socrata config (PB/MM/C4L) =====
+// ---------- Shared helpers ----------
 const BASE = "https://data.ny.gov/resource";
 const APP_TOKEN = process.env.SOCRATA_APP_TOKEN ?? ""; // optional but recommended
 const HEADERS = {
@@ -10,13 +10,67 @@ const HEADERS = {
   accept: "application/json",
 };
 
+// Small helper to add a conservative UA for HTML sources
+const UA_HEADERS = {
+  "user-agent":
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36",
+  accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+};
+
+function toYMD(ts) {
+  // incoming draw_date may be "YYYY-MM-DDT00:00:00.000"
+  return (ts || "").slice(0, 10);
+}
+
+function parseWinningNumbers(s) {
+  // Split on spaces, tolerate double spaces and hyphens
+  return (s || "")
+    .replace(/-/g, " ")
+    .trim()
+    .split(/\s+/)
+    .map((n) => parseInt(n, 10))
+    .filter((n) => Number.isFinite(n));
+}
+
+/** Normalized CSVs */
+function rowsToCSVWithSpecial(rows) {
+  const header = "draw_date,num1,num2,num3,num4,num5,special\n";
+  const body = rows
+    .map((r) =>
+      [
+        r.draw_date,
+        r.num1,
+        r.num2,
+        r.num3,
+        r.num4,
+        r.num5,
+        r.special ?? "",
+      ].join(","),
+    )
+    .join("\n");
+  return header + body + (body ? "\n" : "");
+}
+
+function rowsToCSVNoSpecial(rows) {
+  const header = "draw_date,num1,num2,num3,num4,num5\n";
+  const body = rows
+    .map((r) => [r.draw_date, r.num1, r.num2, r.num3, r.num4, r.num5].join(","))
+    .join("\n");
+  return header + body + (body ? "\n" : "");
+}
+
+// Pull Socrata datasets in chunks
 async function fetchAll(datasetId, select = "*") {
   const limit = 50000;
-  let offset = 0, out = [];
-  for (;;) {
-    const url = `${BASE}/${datasetId}.json?$select=${encodeURIComponent(select)}&$order=draw_date&$limit=${limit}&$offset=${offset}`;
+  let offset = 0,
+    out = [];
+  while (true) {
+    const url = `${BASE}/${datasetId}.json?$select=${encodeURIComponent(
+      select,
+    )}&$order=draw_date&$limit=${limit}&$offset=${offset}`;
     const res = await fetch(url, { headers: HEADERS });
-    if (!res.ok) throw new Error(`Socrata ${datasetId} ${res.status}`);
+    if (!res.ok)
+      throw new Error(`Socrata ${datasetId} ${res.status} ${await res.text()}`);
     const chunk = await res.json();
     out = out.concat(chunk);
     if (chunk.length < limit) break;
@@ -25,34 +79,7 @@ async function fetchAll(datasetId, select = "*") {
   return out;
 }
 
-function toYMD(ts) {
-  return (ts || "").slice(0, 10);
-}
-
-function parseWinningNumbers(s) {
-  return (s || "")
-    .trim()
-    .split(/\s+/)
-    .map((n) => parseInt(n, 10))
-    .filter((n) => Number.isFinite(n));
-}
-
-/** Normalized CSV: draw_date,num1..num5,special (special blank for Fantasy 5) */
-function rowsToCSV(rows, { includeSpecial = true } = {}) {
-  const header = includeSpecial
-    ? "draw_date,num1,num2,num3,num4,num5,special\n"
-    : "draw_date,num1,num2,num3,num4,num5\n";
-  const body = rows
-    .map((r) =>
-      includeSpecial
-        ? [r.draw_date, r.num1, r.num2, r.num3, r.num4, r.num5, r.special ?? ""].join(",")
-        : [r.draw_date, r.num1, r.num2, r.num3, r.num4, r.num5].join(",")
-    )
-    .join("\n");
-  return header + body + (body ? "\n" : "");
-}
-
-// ---------- Powerball ----------
+// ---------- Builders using Socrata ----------
 async function buildPowerball() {
   const raw = await fetchAll("d6yy-54nr", "draw_date,winning_numbers,multiplier");
   const rows = raw
@@ -73,14 +100,12 @@ async function buildPowerball() {
     })
     .filter(Boolean)
     .sort((a, b) => a.draw_date.localeCompare(b.draw_date));
-
   const outPath = path.join("public", "data", "multi", "powerball.csv");
   await fs.mkdir(path.dirname(outPath), { recursive: true });
-  await fs.writeFile(outPath, rowsToCSV(rows, { includeSpecial: true }), "utf8");
+  await fs.writeFile(outPath, rowsToCSVWithSpecial(rows), "utf8");
   console.log(`Powerball rows: ${rows.length} → ${outPath}`);
 }
 
-// ---------- Mega Millions ----------
 async function buildMegaMillions() {
   const raw = await fetchAll("5xaw-6ayf", "draw_date,winning_numbers,mega_ball");
   const rows = raw
@@ -100,16 +125,17 @@ async function buildMegaMillions() {
     })
     .filter(Boolean)
     .sort((a, b) => a.draw_date.localeCompare(b.draw_date));
-
   const outPath = path.join("public", "data", "multi", "megamillions.csv");
   await fs.mkdir(path.dirname(outPath), { recursive: true });
-  await fs.writeFile(outPath, rowsToCSV(rows, { includeSpecial: true }), "utf8");
+  await fs.writeFile(outPath, rowsToCSVWithSpecial(rows), "utf8");
   console.log(`MegaMillions rows: ${rows.length} → ${outPath}`);
 }
 
-// ---------- Cash4Life ----------
 async function buildCash4Life() {
-  const raw = await fetchAll("kwxv-fwze", "draw_date,winning_numbers,cash_ball");
+  const raw = await fetchAll(
+    "kwxv-fwze",
+    "draw_date,winning_numbers,cash_ball",
+  );
   const rows = raw
     .map((r) => {
       const nums = parseWinningNumbers(r.winning_numbers);
@@ -128,137 +154,169 @@ async function buildCash4Life() {
     })
     .filter(Boolean)
     .sort((a, b) => a.draw_date.localeCompare(b.draw_date));
-
   const outPath = path.join("public", "data", "ga", "cash4life.csv");
   await fs.mkdir(path.dirname(outPath), { recursive: true });
-  await fs.writeFile(outPath, rowsToCSV(rows, { includeSpecial: true }), "utf8");
+  await fs.writeFile(outPath, rowsToCSVWithSpecial(rows), "utf8");
   console.log(`Cash4Life rows: ${rows.length} → ${outPath}`);
 }
 
-// ================= Fantasy 5 (GA) =================
-// Not on Socrata; scrape a public year archive with zero dependencies.
-// Defaults to LotteryUSA year pages; configurable via env if you have a better source.
-const F5_SOURCE_BASES = [
-  process.env.F5_SOURCE_BASE?.replace(/\/+$/, "") || "",                         // optional override
-  "https://www.lotteryusa.com/georgia/fantasy-5",                                // common
-];
-const F5_YEARS_BACK = Number.parseInt(process.env.F5_YEARS_BACK || "6", 10);     // how many past years to pull
-const F5_THIS_YEAR = new Date().getFullYear();
-
-function uniqueSortedRows(rows) {
-  const map = new Map(); // key by draw_date + numbers
-  for (const r of rows) {
-    const key = `${r.draw_date}|${r.num1},${r.num2},${r.num3},${r.num4},${r.num5}`;
-    map.set(key, r);
-  }
-  return Array.from(map.values()).sort((a, b) => a.draw_date.localeCompare(b.draw_date));
-}
-
-function isoDate(s) {
-  // try to coerce "YYYY-MM-DD" quickly
-  const m = String(s).match(/(\d{4})-(\d{2})-(\d{2})/);
-  return m ? `${m[1]}-${m[2]}-${m[3]}` : null;
-}
-
-/**
- * Very forgiving HTML parser:
- * - Finds blocks that contain a date in ISO (in datetime= or inner text).
- * - In the following ~200 chars, extracts 5 integers (1–42 typical for F5).
- */
-function parseFantasy5YearHtml(html) {
+// ---------- Fantasy 5 (no Socrata) ----------
+// We scrape year archives from LotteryUSA. Two URL patterns are tried.
+// Example patterns (historically):
+//   https://www.lotteryusa.com/georgia/fantasy-5/year?year=2025
+//   https://www.lotteryusa.com/georgia/fantasy-5/2025/
+//
+// The HTML varies over time, so we use tolerant regexes:
+// - Date in the row, then a group of exactly five ints separated by spaces or hyphens.
+// - We normalize month/day names via Date() and serialize to YYYY-MM-DD.
+function tryParseFantasy5HTML(html) {
   const rows = [];
-  const cleaned = html.replace(/\r/g, "");
-  // Find many candidate date anchors like datetime="2025-08-30" OR text "2025-08-30"
-  const dateRe = /(datetime\s*=\s*["'](\d{4}-\d{2}-\d{2})["'])|(\b\d{4}-\d{2}-\d{2}\b)/g;
+
+  // Normalize spaces
+  const text = html.replace(/\r/g, "").replace(/\t/g, " ");
+
+  // 1) Common pattern: a date near 5 numbers like "12-19-26-30-39"
+  //    We'll look for yyyy-mm-dd or "Mon, Aug 30, 2025" or "Aug 30, 2025" nearby.
+  const numberRe =
+    /(?:^|[^\d])(?!\d{6,})(\d{1,2})[-\s]+(\d{1,2})[-\s]+(\d{1,2})[-\s]+(\d{1,2})[-\s]+(\d{1,2})(?!\d)/g;
+
+  // To find a date for each match, search backward a bit for a date-ish string.
+  const around = 300; // chars to look back for a date
+  const dateSnippets = [
+    // 2025-08-30 or 2025/08/30
+    /(\d{4})[/-](\d{1,2})[/-](\d{1,2})/,
+    // Aug 30, 2025 or August 30, 2025 (optional weekday prefix)
+    /(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+(\d{1,2}),\s*(\d{4})/i,
+    // Sat, Aug 30, 2025 (weekday, comma)
+    /(Sun|Mon|Tue|Wed|Thu|Fri|Sat)[a-z]*,\s*(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+(\d{1,2}),\s*(\d{4})/i,
+  ];
+
   let m;
-  while ((m = dateRe.exec(cleaned)) !== null) {
-    const date = m[2] || m[3];
-    const draw_date = isoDate(date);
-    if (!draw_date) continue;
+  while ((m = numberRe.exec(text)) !== null) {
+    const nums = [m[1], m[2], m[3], m[4], m[5]].map((v) => parseInt(v, 10));
+    if (nums.some((n) => !Number.isFinite(n))) continue;
 
-    // Look ahead around this match for 5 numbers
-    const start = m.index;
-    const window = cleaned.slice(start, start + 1000); // plenty of room
-    const nums = [];
-    const numRe = />(\d{1,2})<|(?:^|\D)(\d{1,2})(?=\D)/g;
-    let n;
-    while ((n = numRe.exec(window)) !== null) {
-      const val = Number(n[1] ?? n[2]);
-      if (Number.isFinite(val)) nums.push(val);
-      if (nums.length >= 8) break; // don't overcollect
+    // ignore obvious non-lottery sequences (e.g., "404 2025 5 0 1")
+    if (nums.find((n) => n < 1 || n > 42)) continue;
+
+    const idx = m.index;
+    const start = Math.max(0, idx - around);
+    const ctx = text.slice(start, idx + 1);
+
+    let foundDate = null;
+    for (const re of dateSnippets) {
+      const d = re.exec(ctx);
+      if (!d) continue;
+
+      // normalize to Date()
+      let iso = null;
+      if (re === dateSnippets[0]) {
+        // yyyy-mm-dd
+        const y = parseInt(d[1], 10);
+        const mo = parseInt(d[2], 10);
+        const da = parseInt(d[3], 10);
+        iso = new Date(Date.UTC(y, mo - 1, da)).toISOString().slice(0, 10);
+      } else if (re === dateSnippets[1]) {
+        const y = parseInt(d[3], 10);
+        const mo = d[1];
+        const da = parseInt(d[2], 10);
+        iso = new Date(`${mo} ${da}, ${y} UTC`).toISOString().slice(0, 10);
+      } else {
+        // weekday, Month day, year
+        const y = parseInt(d[4], 10);
+        const mo = d[2];
+        const da = parseInt(d[3], 10);
+        iso = new Date(`${mo} ${da}, ${y} UTC`).toISOString().slice(0, 10);
+      }
+
+      if (iso) {
+        foundDate = iso;
+        break;
+      }
     }
-    // Heuristic: pick the first 5 numbers between 1 and 42
-    const mains = nums.filter((v) => v >= 1 && v <= 70).slice(0, 5); // tolerant; later we filter by era in app
-    if (mains.length === 5) {
-      rows.push({
-        draw_date,
-        num1: mains[0],
-        num2: mains[1],
-        num3: mains[2],
-        num4: mains[3],
-        num5: mains[4],
-      });
-    }
+
+    if (!foundDate) continue;
+
+    const [n1, n2, n3, n4, n5] = nums;
+    rows.push({
+      draw_date: foundDate,
+      num1: n1,
+      num2: n2,
+      num3: n3,
+      num4: n4,
+      num5: n5,
+    });
   }
-  return uniqueSortedRows(rows);
+
+  return rows;
 }
 
-async function fetchText(url) {
-  const res = await fetch(url, { headers: { "user-agent": "Mozilla/5.0 (compatible; LSP/1.0)" } });
-  if (!res.ok) throw new Error(`GET ${url} -> ${res.status}`);
-  return await res.text();
-}
+async function fetchFantasy5Year(year) {
+  const urls = [
+    `https://www.lotteryusa.com/georgia/fantasy-5/year?year=${year}`,
+    `https://www.lotteryusa.com/georgia/fantasy-5/${year}/`,
+  ];
 
-async function tryFantasy5YearFromBases(year) {
-  // Try common permutations:
-  //   /<year>/
-  //   /year (some sites redirect)
-  //   /results/<year>/  (fallback form)
-  const suffixes = [`/${year}/`, `/results/${year}/`, `/year/${year}/`, `/${year}`];
-  const bases = F5_SOURCE_BASES.filter(Boolean);
-  const tried = [];
-  for (const base of bases) {
-    for (const suf of suffixes) {
-      const url = `${base}${suf}`.replace(/\/+$/, "/");
-      tried.push(url);
-      try {
-        const html = await fetchText(url);
-        const rows = parseFantasy5YearHtml(html);
-        if (rows.length > 0) return { rows, url };
-      } catch {}
-    }
+  for (const url of urls) {
+    const res = await fetch(url, { headers: UA_HEADERS });
+    if (!res.ok) continue;
+    const html = await res.text();
+    const rows = tryParseFantasy5HTML(html);
+    if (rows.length > 0) return rows;
   }
-  return { rows: [], url: tried[tried.length - 1] || "" };
+
+  return [];
 }
 
 async function buildGAFantasy5() {
+  const thisYear = new Date().getUTCFullYear();
+  // Conservative start year for current ruleset
+  const startYear = 2019;
+
   const all = [];
-  const failures = [];
-  for (let y = F5_THIS_YEAR; y >= F5_THIS_YEAR - F5_YEARS_BACK; y--) {
-    const { rows, url } = await tryFantasy5YearFromBases(y);
-    if (rows.length) {
-      console.log(`Fantasy 5: parsed ${rows.length} rows from ${url}`);
+  const missed = [];
+  for (let y = thisYear; y >= startYear; y--) {
+    try {
+      const rows = await fetchFantasy5Year(y);
+      if (rows.length === 0) {
+        console.log(`Fantasy 5: no rows parsed for year ${y}`);
+        missed.push(y);
+        continue;
+      }
       all.push(...rows);
-    } else {
-      failures.push(y);
-      console.warn(`Fantasy 5: no rows parsed for year ${y}`);
+    } catch (err) {
+      console.log(`Fantasy 5: fetch/parse failed for ${y}:`, err?.message ?? err);
+      missed.push(y);
     }
-    // Be gentle
-    await new Promise((r) => setTimeout(r, 300));
   }
 
-  const rows = uniqueSortedRows(all);
+  // de-dupe by (date + numbers)
+  const key = (r) =>
+    `${r.draw_date}|${r.num1},${r.num2},${r.num3},${r.num4},${r.num5}`;
+  const seen = new Set();
+  const deduped = [];
+  for (const r of all) {
+    const k = key(r);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    deduped.push(r);
+  }
+
+  deduped.sort((a, b) => a.draw_date.localeCompare(b.draw_date));
+
   const outPath = path.join("public", "data", "ga", "fantasy5.csv");
   await fs.mkdir(path.dirname(outPath), { recursive: true });
-  await fs.writeFile(rowsToCSV(rows, { includeSpecial: false }), "utf8");
+  await fs.writeFile(rowsToCSVNoSpecial(deduped), rowsToCSVNoSpecial.name ? "utf8" : "utf8"); // keeps Node happy
 
-  console.log(`Fantasy 5 rows: ${rows.length} → ${outPath}`);
-  if (failures.length) {
-    console.log(`Fantasy 5 missed years (non-fatal): ${failures.join(", ")}`);
+  console.log(`Fantasy 5 rows: ${deduped.length} → ${outPath}`);
+  if (missed.length) {
+    console.log(
+      `Fantasy 5 missed years (non-fatal): ${missed.sort().join(", ")}`,
+    );
   }
 }
 
-// ---------------- main ----------------
+// ---------- Main ----------
 async function main() {
   await buildPowerball();
   await buildMegaMillions();
@@ -272,16 +330,12 @@ async function main() {
   try {
     await buildGAFantasy5();
   } catch (err) {
-    // If the scrape fails entirely, we still write a header-only CSV.
-    // The merge guard will keep the previous R2 file intact.
-    console.error("Fantasy 5 update failed (non-fatal):", err?.message ?? err);
-    const outPath = path.join("public", "data", "ga", "fantasy5.csv");
-    await fs.mkdir(path.dirname(outPath), { recursive: true });
-    await fs.writeFile("public/data/ga/fantasy5.csv", "draw_date,num1,num2,num3,num4,num5\n", "utf8");
+    // Non-fatal: we’ll keep previous R2 copy via the merge guard in the workflow
+    console.error("Fantasy 5 update failed:", err?.message ?? err);
   }
 }
 
 main().catch((e) => {
   console.error(e);
-  process.exitCode = 1;
+  process.exit(1);
 });
