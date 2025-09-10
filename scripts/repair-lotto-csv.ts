@@ -1,114 +1,159 @@
 // scripts/repair-lotto-csv.ts
 /* eslint-disable no-console */
-// Usage:
-//   pnpm ts-node scripts/repair-lotto-csv.ts <in.csv> <out.csv> [--game powerball|megamillions]
-// Notes:
-//   - If --game omitted, script tries to infer from ranges.
-//   - Handles files that have literal "\n" inside a single line and stray ellipses "…" or "...".
+import fs from "node:fs";
+import path from "node:path";
 
-import fs from 'node:fs';
-import path from 'node:path';
+const CANON = "draw_date,num1,num2,num3,num4,num5,special";
 
-type GameKey = 'powerball'|'megamillions';
-const RANGES: Record<GameKey, {mainMax:number; specMax:number}> = {
-  powerball: { mainMax:69, specMax:26 },
-  megamillions: { mainMax:70, specMax:25 },
+const stripBOM = (s: string) =>
+  s && s.charCodeAt(0) === 0xfeff ? s.slice(1) : s;
+
+function toYMD(s: unknown): string {
+  if (s == null) return "";
+  const m = String(s).match(/^(\d{4}-\d{2}-\d{2})/);
+  if (m) return m[1];
+  const d = new Date(String(s));
+  return Number.isNaN(d.getTime()) ? "" : d.toISOString().slice(0, 10);
+}
+
+const toInt = (x: unknown) => {
+  const n = parseInt(String(x).trim(), 10);
+  return Number.isFinite(n) ? n : NaN;
 };
+const isInts5 = (arr: number[]) =>
+  arr.length === 5 && arr.every((n) => Number.isInteger(n));
 
-function usage(msg?:string) {
-  if (msg) console.error('Error:', msg);
-  console.error('Usage: pnpm ts-node scripts/repair-lotto-csv.ts <in.csv> <out.csv> [--game powerball|megamillions]');
-  process.exit(msg ? 1 : 0);
+function choose<K extends string>(
+  idx: Record<string, number>,
+  ...names: K[]
+): K | undefined {
+  return names.find((n) => n in idx);
 }
 
-const [, , inPath, outPath, ...rest] = process.argv;
-if (!inPath || !outPath) usage();
-
-let forcedGame: GameKey|undefined;
-for (let i=0;i<rest.length;i++) {
-  if (rest[i]==='--game' && rest[i+1]) {
-    const g = rest[i+1] as GameKey;
-    if (g!=='powerball' && g!=='megamillions') usage('Invalid --game');
-    forcedGame = g; i++;
-  }
-}
-
-const raw = fs.readFileSync(path.resolve(inPath), 'utf8');
-
-// Normalize: real newlines, strip ellipses noise
-let text = raw.replaceAll('\\n', '\n').replaceAll('\r\n', '\n').replaceAll('\r', '\n');
-// remove Unicode ellipsis and triple dots that may splice digits
-text = text.replaceAll('…', '').replaceAll('...', '');
-
-// Split lines
-const lines = text.split('\n').filter(l => l.trim().length>0);
-
-// Helpers
-const dateRe = /(\d{4}-\d{2}-\d{2})/;
-function onlyInts(s: string) {
-  return (s.match(/\d+/g) || []).map(t => parseInt(t,10)).filter(n => Number.isFinite(n));
-}
-
-type Row = { game: GameKey; date: string; n1:number; n2:number; n3:number; n4:number; n5:number; special:number };
-const out: Row[] = [];
-
-function inferGame(mainMax:number, specMax:number): GameKey|undefined {
-  if (mainMax<=69 && specMax<=26) return 'powerball';
-  if (mainMax<=70 && specMax<=25) return 'megamillions';
-  return undefined;
-}
-
-for (const lineOrig of lines) {
-  const line = lineOrig.trim();
-  if (!line) continue;
-
-  // Skip header-ish lines
-  if (/^game\s*,\s*date\s*,/i.test(line)) continue;
-
-  // Try read game from row if present
-  let rowGame: GameKey|undefined = forcedGame;
-  if (!rowGame) {
-    if (/^powerball/i.test(line)) rowGame = 'powerball';
-    else if (/^megamillions/i.test(line)) rowGame = 'megamillions';
+export function repairCsv(inPath: string, outPath: string) {
+  if (!fs.existsSync(inPath) || fs.statSync(inPath).size === 0) {
+    fs.writeFileSync(outPath, "", "utf8");
+    return;
   }
 
-  // Extract date
-  const md = line.match(dateRe);
-  if (!md) continue; // no date found
-  const date = md[1];
-
-  // Numbers: remove the date substring to avoid grabbing Y-M-D, then take first 6 ints
-  const lineNoDate = line.replace(date, ' ');
-  const nums = onlyInts(lineNoDate);
-  if (nums.length < 6) continue;
-  const [n1,n2,n3,n4,n5,special] = nums.slice(0,6);
-
-  // If still no game, infer from ranges on the fly
-  if (!rowGame) {
-    const maxMain = Math.max(n1,n2,n3,n4,n5);
-    const g = inferGame(maxMain, special);
-    if (!g) continue;
-    rowGame = g;
+  // Normalize CRLF so line ops are simple
+  const text = fs.readFileSync(inPath, "utf8").replace(/\r/g, "");
+  const rawLines = text.split("\n").filter((l) => l.length > 0);
+  if (rawLines.length === 0) {
+    fs.writeFileSync(outPath, "", "utf8");
+    return;
   }
 
-  const ranges = RANGES[rowGame];
-  const mains = [n1,n2,n3,n4,n5];
-  const mainsValid = mains.every(n => n>=1 && n<=ranges.mainMax);
-  const specValid = special>=1 && special<=ranges.specMax;
-  if (!mainsValid || !specValid) {
-    // Try fallback: maybe the line had "game," prefix with commas shifting tokens
-    // but we already stripped ellipses and parsed by ints; if out of range, drop row
-    continue;
+  let header = stripBOM(rawLines[0]).trim().toLowerCase();
+  const cols = header.split(",").map((s) => s.trim());
+  const idx: Record<string, number> = Object.fromEntries(
+    cols.map((c, i) => [c, i])
+  );
+
+  // Case 0: already canonical — pass-through
+  if (header === CANON) {
+    // Ensure trailing newline
+    fs.writeFileSync(outPath, rawLines.join("\n") + "\n", "utf8");
+    return;
   }
 
-  out.push({ game: rowGame, date, n1,n2,n3,n4,n5, special });
+  const out: string[] = [CANON];
+
+  // Case A: Socrata legacy: draw_date + winning_numbers (+ special col name)
+  if ("draw_date" in idx && "winning_numbers" in idx) {
+    const sName = choose(idx, "special", "mega_ball", "cash_ball", "powerball");
+    for (let i = 1; i < rawLines.length; i++) {
+      const parts = rawLines[i].split(",");
+      if (parts.length < 2) continue;
+      const date = toYMD(parts[idx["draw_date"]]);
+      const wn = String(parts[idx["winning_numbers"]] ?? "");
+      const nums = (wn.match(/\d+/g) ?? []).map(Number);
+      const whites = nums.slice(0, 5);
+      let special = "";
+      if (sName && sName !== "special" && idx[sName] != null) {
+        const sv = toInt(parts[idx[sName]]);
+        special = Number.isFinite(sv) ? String(sv) : "";
+      } else if (nums.length >= 6) {
+        special = String(nums[5]);
+      }
+      if (date && isInts5(whites)) {
+        out.push(
+          [date, whites[0], whites[1], whites[2], whites[3], whites[4], special].join(
+            ","
+          )
+        );
+      }
+    }
+    fs.writeFileSync(outPath, out.join("\n") + "\n", "utf8");
+    return;
+  }
+
+  // Case B: same shape as canon but special column named differently — rename header only
+  const hasNum1to5 = ["num1", "num2", "num3", "num4", "num5"].every(
+    (k) => k in idx
+  );
+  const specialSyn = choose(idx, "special", "mega_ball", "cash_ball", "powerball");
+  if ("draw_date" in idx && hasNum1to5 && specialSyn) {
+    // Just rewrite header, keep body as-is
+    const body = rawLines.slice(1);
+    fs.writeFileSync(outPath, CANON + "\n" + body.join("\n") + "\n", "utf8");
+    return;
+  }
+
+  // Case C: column-based numerics: support m1..m5 or n1..n5 (ignore extra columns like game, special_name)
+  const dateCol = "draw_date" in idx ? idx["draw_date"] : undefined;
+  const n1 = choose(idx, "num1", "m1", "n1");
+  const n2 = choose(idx, "num2", "m2", "n2");
+  const n3 = choose(idx, "num3", "m3", "n3");
+  const n4 = choose(idx, "num4", "m4", "n4");
+  const n5 = choose(idx, "num5", "m5", "n5");
+  const sCol = choose(idx, "special", "mega_ball", "cash_ball", "powerball");
+
+  if (
+    dateCol != null &&
+    n1 != null &&
+    n2 != null &&
+    n3 != null &&
+    n4 != null &&
+    n5 != null &&
+    sCol != null
+  ) {
+    for (let i = 1; i < rawLines.length; i++) {
+      const parts = rawLines[i].split(",");
+      const date = toYMD(parts[dateCol]);
+      const whites = [parts[n1], parts[n2], parts[n3], parts[n4], parts[n5]].map(
+        toInt
+      );
+      const specialV = toInt(parts[sCol]);
+      if (date && isInts5(whites)) {
+        out.push(
+          [
+            date,
+            whites[0],
+            whites[1],
+            whites[2],
+            whites[3],
+            whites[4],
+            Number.isFinite(specialV) ? specialV : "",
+          ].join(",")
+        );
+      }
+    }
+    fs.writeFileSync(outPath, out.join("\n") + "\n", "utf8");
+    return;
+  }
+
+  // Unknown layout → fail so CI surfaces it
+  console.error("Unrecognized header layout:", header);
+  process.exit(2);
 }
 
-// Basic sanity: ensure sorted by date
-out.sort((a,b) => a.date.localeCompare(b.date));
-
-const header = 'game,date,n1,n2,n3,n4,n5,special';
-const body = out.map(r => `${r.game},${r.date},${r.n1},${r.n2},${r.n3},${r.n4},${r.n5},${r.special}`).join('\n');
-fs.writeFileSync(path.resolve(outPath), `${header}\n${body}\n`, 'utf8');
-
-console.log(`Wrote ${out.length} rows → ${outPath}`);
+// CLI usage: npx tsx scripts/repair-lotto-csv.ts <in.csv> <out.csv>
+if (require.main === module) {
+  const [, , inArg, outArg] = process.argv;
+  if (!inArg || !outArg) {
+    console.error("Usage: npx tsx scripts/repair-lotto-csv.ts <in.csv> <out.csv>");
+    process.exit(1);
+  }
+  repairCsv(path.resolve(inArg), path.resolve(outArg));
+}

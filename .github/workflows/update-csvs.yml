@@ -226,8 +226,8 @@ jobs:
             make_repair_js
 
             # Normalize R2 and local to canonical header
-            node /tmp/repair_csv.js "$r2_file" "$r2_fixed"
-            node /tmp/repair_csv.js "$local_file" "$local_fixed"
+            npx tsx scripts/repair-lotto-csv.ts "$r2_file" "$r2_fixed"
+            npx tsx scripts/repair-lotto-csv.ts "$local_file" "$local_fixed"
 
             # If local is empty (no new rows), just keep R2
             if [ ! -s "$local_fixed" ] || [ "$(tail -n +2 "$local_fixed" | sed '/^[[:space:]]*$/d' | wc -l)" -eq 0 ]; then
