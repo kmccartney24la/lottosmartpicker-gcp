@@ -305,36 +305,50 @@ async function updateFantasy5Incremental(outPath = "public/data/ga/fantasy5.csv"
 
 /* ---------------- Main orchestrator ---------------- */
 
-// One-time SEED mode (manual run or dedicated workflow)
-const SEED_GAME = process.env.LSP_SEED_GAME;       // 'powerball' | 'megamillions' | 'cash4life'
-const SEED_SINCE = process.env.LSP_SEED_SINCE;     // 'YYYY-MM-DD'
-if (SEED_GAME) {
-  if (!SEED_SINCE) throw new Error("LSP_SEED_SINCE (YYYY-MM-DD) required for seeding.");
-  console.log(`Seeding ${SEED_GAME} since ${SEED_SINCE}…`);
-  if (SEED_GAME === 'powerball')        await buildPowerballSince(SEED_SINCE);
-  else if (SEED_GAME === 'megamillions')await buildMegaMillionsSince(SEED_SINCE);
-  else if (SEED_GAME === 'cash4life')   await buildCash4LifeSince(SEED_SINCE);
-  else throw new Error(`Unknown LSP_SEED_GAME: ${SEED_GAME}`);
- // stop here; workflow merge/upload handles the rest
-}
+async function main() {
+  // One-time SEED mode (manual run or dedicated workflow)
+  const SEED_GAME = process.env.LSP_SEED_GAME;       // 'powerball' | 'megamillions' | 'cash4life'
+  const SEED_SINCE = process.env.LSP_SEED_SINCE;     // 'YYYY-MM-DD'
 
-// Nightly append-only mode (latest-only Socrata)
-if (process.env.SKIP_SOCRATA !== '1') {
-   await buildPowerballLatest();
-   await buildMegaMillionsLatest();
-   try { await buildCash4LifeLatest(); } catch (err) {
-     console.error("Cash4Life update failed:", err?.message ?? err);
-   }
-} else {
-  console.log("SKIP_SOCRATA=1 → skipping PB/MM/C4L");
-}
+  if (SEED_GAME) {
+    if (!SEED_SINCE) throw new Error("LSP_SEED_SINCE (YYYY-MM-DD) required for seeding.");
+    console.log(`Seeding ${SEED_GAME} since ${SEED_SINCE}…`);
 
-try {
-  await updateFantasy5Incremental("public/data/ga/fantasy5.csv");
-} catch (err) {
-  // Don’t fail the whole job if Fantasy5 source hiccups.
-  console.error("Fantasy 5 update failed:", err?.message ?? err);
- }
+    if (SEED_GAME === 'powerball') {
+      await buildPowerballSince(SEED_SINCE);
+    } else if (SEED_GAME === 'megamillions') {
+      await buildMegaMillionsSince(SEED_SINCE);
+    } else if (SEED_GAME === 'cash4life') {
+      await buildCash4LifeSince(SEED_SINCE);
+    } else {
+      throw new Error(`Unknown LSP_SEED_GAME: ${SEED_GAME}`);
+    }
+
+    // IMPORTANT: stop after seed; let the workflow merge/upload steps handle R2.
+    return;
+  }
+
+  // Nightly append-only mode (latest-only Socrata)
+  if (process.env.SKIP_SOCRATA !== '1') {
+    await buildPowerballLatest();
+    await buildMegaMillionsLatest();
+    try {
+      await buildCash4LifeLatest();
+    } catch (err) {
+      console.error("Cash4Life update failed:", err?.message ?? err);
+    }
+  } else {
+    console.log("SKIP_SOCRATA=1 → skipping PB/MM/C4L");
+  }
+
+  // Fantasy 5 incremental always runs (independent of Socrata)
+  try {
+    await updateFantasy5Incremental("public/data/ga/fantasy5.csv");
+  } catch (err) {
+    // Don’t fail the whole job if Fantasy5 source hiccups.
+    console.error("Fantasy 5 update failed:", err?.message ?? err);
+  }
+}
 
 /* ---------------- Windows-safe CLI entry ---------------- */
 
@@ -343,10 +357,13 @@ if (typeof process !== "undefined" && process.argv && process.argv[1]) {
   const invoked = path.resolve(process.argv[1]);
   const isDirect = thisFile === invoked;
   if (isDirect) {
-    main().catch((err) => {
-      console.error(err);
-      process.exit(1);
-    });
+    (async () => {
+      try {
+        await main();
+      } catch (err) {
+        console.error(err);
+        process.exit(1);
+      }
+    })();
   }
 }
-
