@@ -1,6 +1,7 @@
 // scripts/update_csvs.mjs
 import fs from "node:fs/promises";
 import path from "node:path";
+import { buildFantasy5Csv } from "./sources/fantasy5.mjs";
 
 const BASE = "https://data.ny.gov/resource";
 const APP_TOKEN = process.env.SOCRATA_APP_TOKEN ?? ""; // optional but recommended
@@ -164,7 +165,7 @@ async function buildCash4Life() {
 
    Implementation goals:
    - No external deps. Regex-based HTML extraction.
-   - Exactly 5 integers per draw, otherwise skip line.
+   - Exactly 5 integers right inside the balls list, otherwise skip line.
    - Normalize date to YYYY-MM-DD.
    - Walk from current year back until the first available year.
    - Non-fatal if a given year yields zero rows (log + continue).
@@ -206,50 +207,27 @@ function toYMDfromMDYWords(label) {
 }
 
 // Extract all draw blocks from a yearly HTML page.
-// Strategy:
-//  - Find each date label like “Monday September 1, 2025” (as an <a> text).
-//  - Then capture the following <ul>…</ul> that contains the 5 numbers.
-//  - Inside the UL, collect the first five integers (li or spans).
+// Strategy (more precise and resilient):
+//  - Capture the visible date text AND the *nearest* following balls list in one regex.
+//  - Require the balls list <ul> to have a "balls" class to avoid grabbing nav lists.
+//  - Inside the UL, collect five <li> values that are 1–99 and ignore anything else.
 function extractFantasy5FromYearHtml(html, expectYear) {
   const out = [];
-  // Date + list that follows. Non-greedy blocks to the next </ul>.
-  const RE =
-    />\s*(?:Sun|Mon|Tues|Wednes|Thurs|Fri|Satur)day\s+[A-Za-z]+\s+\d{1,2},\s+\d{4}\s*<[^]*?<\/a>\s*([^]*?)<\/ul>/g;
-
-  let match;
-  while ((match = RE.exec(html)) !== null) {
-    const prefix = html.slice(0, match.index);
-    // Look backwards a bit to find the visible date text
-    const dateBack = prefix.slice(Math.max(0, prefix.length - 300));
-    const dateM = dateBack.match(
-      />\s*((?:Sun|Mon|Tues|Wednes|Thurs|Fri|Satur)day\s+[A-Za-z]+\s+\d{1,2},\s+\d{4})\s*<[^>]*\/a>\s*$/i
-    );
-    if (!dateM) continue;
-    const ymd = toYMDfromMDYWords(dateM[1]);
+  const RE = />\s*((?:Sun|Mon|Tues|Wednes|Thurs|Fri|Satur)day\s+[A-Za-z]+\s+\d{1,2},\s+\d{4})\s*<[^>]*?\/a>[^]*?<ul[^>]*class="[^"]*\bballs\b[^"]*"[^>]*>([^]*?)<\/ul>/gi;
+  let m;
+  while ((m = RE.exec(html)) !== null) {
+    const ymd = toYMDfromMDYWords(m[1]);
     if (!ymd) continue;
     const y = parseInt(ymd.slice(0, 4), 10);
-    if (expectYear && y !== expectYear) {
-      // Be tolerant: some pages include neighboring-year rows around New Year.
-      // We'll still include them, we just don't require exact match.
-    }
-
-    const ulChunk = match[1] || "";
-    const nums = Array.from(ulChunk.matchAll(/>(\d{1,2})</g))
-      .map((m) => parseInt(m[1], 10))
-      .filter(Number.isFinite);
-
+    // Be tolerant of year boundaries; we dedupe later
+    if (expectYear && (y < expectYear - 1 || y > expectYear + 1)) continue;
+    const ul = m[2] || "";
+    const nums = Array.from(ul.matchAll(/<li[^>]*>\s*(\d{1,2})\s*<\/li>/gi))
+      .map((mm) => parseInt(mm[1], 10))
+      .filter((n) => Number.isFinite(n) && n >= 1 && n <= 99);
     if (nums.length >= 5) {
-      const whites = nums.slice(0, 5);
-      out.push({
-        draw_date: ymd,
-        num1: whites[0],
-        num2: whites[1],
-        num3: whites[2],
-        num4: whites[3],
-        num5: whites[4],
-        // Fantasy 5 has no special ball
-        special: "",
-      });
+      const [a, b, c, d, e] = nums.slice(0, 5);
+      out.push({ draw_date: ymd, num1: a, num2: b, num3: c, num4: d, num5: e, special: "" });
     }
   }
   return out;
@@ -304,7 +282,12 @@ async function buildFantasy5() {
 
   // De-dupe by date (if any overlap across pages) and sort
   const byDate = new Map();
-  for (const r of all) byDate.set(r.draw_date, r);
+  for (const r of all) {
+    // sanity: exactly five distinct ints, strictly increasing after sort
+    const whitelist = [r.num1, r.num2, r.num3, r.num4, r.num5].map(Number);
+    if (whitelist.length !== 5 || whitelist.some((n) => !Number.isFinite(n))) continue;
+    byDate.set(r.draw_date, r);
+  }
   const rows = Array.from(byDate.values()).sort((a, b) =>
     a.draw_date.localeCompare(b.draw_date)
   );
