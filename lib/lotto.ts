@@ -1,5 +1,7 @@
 export type GameKey = 'powerball' | 'megamillions' | 'ga_cash4life' | 'ga_fantasy5';
 
+const isMultiGame = (g: GameKey) => g === 'powerball' || g === 'megamillions';
+
 export type LottoRow = {
   game: GameKey;
   date: string;
@@ -66,33 +68,30 @@ export function computeNextRefreshISO(_game?: GameKey): string {
    return new Date(env.nextRefreshISO).getTime() > Date.now();
  }
  
- export async function fetchRowsWithCache(options: {
-   game: GameKey; since?: string; until?: string; latestOnly?: boolean; token?: string;
- }): Promise<LottoRow[]> {
-   const { game, since, until, latestOnly, token } = options;
-   const era = getCurrentEraConfig(game);
-   if (!latestOnly) {
-     const env = readCache(game);
-     if (env && env.eraStart === era.start && isCacheFresh(env)) {
-       return filterRowsForCurrentEra(env.rows, game);
-     }
-   }
-   // fetch fresh
-  let rows: LottoRow[] = [];
-  let usedCanonical = false;
+export async function fetchRowsWithCache(options: {
+  game: GameKey; since?: string; until?: string; latestOnly?: boolean; token?: string;
+}): Promise<LottoRow[]> {
+  const { game, since, until, latestOnly, token } = options;
+  const era = getCurrentEraConfig(game);
+  if (!latestOnly) {
+    const env = readCache(game);
+    if (env && env.eraStart === era.start && isCacheFresh(env)) {
+      return filterRowsForCurrentEra(env.rows, game);
+    }
+  }
 
+  let rows: LottoRow[] = [];
   try {
-    const all = await fetchCanonical(game);   // ✅ canonical first
+    const all = await fetchCanonical(game);   // ✅ use only if it’s “big enough”
     rows = applyFilters(all, { since, until, latestOnly });
-    usedCanonical = true;
   } catch {
-    // fallback to existing path (Socrata/adapter)
+    // ⬇️ Always hit this for PB/MM until R2 is seeded with full history
     rows = await fetchNY({ game, since, until, latestOnly, token });
   }
-   // store (only if not latestOnly)
-   if (!latestOnly) writeCache(game, rows, era.start);
-   return filterRowsForCurrentEra(rows, game);
- }
+
+  if (!latestOnly) writeCache(game, rows, era.start);
+  return filterRowsForCurrentEra(rows, game);
+}
 
 export const SOCRATA_BASE = 'https://data.ny.gov/resource';
 export const DATASETS: Record<Exclude<GameKey,'ga_fantasy5'>, { id: string; dateField: string; winningField: string; specialField?: string }> = {
@@ -438,8 +437,12 @@ async function fetchCanonical(game: GameKey): Promise<LottoRow[]> {
   const text = await res.text();
 
   // If the file is empty or header-only, bail so we can fall back to Socrata
-  const lineCount = text.trim().split(/\r?\n/).filter(Boolean).length;
-  if (lineCount <= 1) throw new Error(`Canonical ${game} is empty/header-only`);
+  const lines = text.trim().split(/\r?\n/).filter(Boolean);
+  const rowCount = Math.max(0, lines.length - 1); // exclude header
+
+  // 🔐 Gate canonical: require "enough" rows for PB/MM before trusting it
+  const minRows = isMultiGame(game) ? 1000 : 10; // adjust as you like
+  if (rowCount < minRows) throw new Error(`Canonical ${game} too small (${rowCount} rows)`);
 
   const parsed = parseCanonicalCsv(text, game);
   if (parsed.length === 0) throw new Error(`Canonical ${game} parse failed`);
