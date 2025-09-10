@@ -117,16 +117,26 @@ jobs:
           accountId: ${{ env.CF_ACCOUNT_ID }}
           command: r2 object get ${{ env.R2_BUCKET }}/multi/megamillions.csv --pipe
 
-      # -------- Commit at the end --------
-      - name: Commit changes (if any)
+      # -------- Commit at the end (CSV-only, safe) --------
+      - name: Commit CSV changes only (safe)
         run: |
-          if [[ -n "$(git status --porcelain)" ]]; then
-            git config user.name "github-actions[bot]"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
-            git pull --rebase || true
-            git add public/data/ga/*.csv public/data/multi/*.csv
-            git commit -m "chore: update CSVs"
-            git push
-          else
+          set -e
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+        
+          git restore --worktree --staged package.json package-lock.json 2>/dev/null || true
+
+           git add public/data/ga public/data/multi
+
+
+          if git diff --cached --quiet; then
             echo "No CSV changes to commit."
+            exit 0
           fi
+
+          echo "Changes to commit:"
+          git diff --cached --name-status
+
+          git commit -m "chore: update CSVs"
+          git push
