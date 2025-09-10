@@ -100,7 +100,22 @@ jobs:
             local local_file="public/data/$rel"
             local latest_file="${local_file%.csv}.latest.csv"
             local local_src="$local_file"
-            [ -f "$latest_file" ] && local_src="$latest_file"
+
+            count_rows() {
+              # count data rows (skip header), handles missing file
+              [ -f "$1" ] && tail -n +2 "$1" | sed '/^[[:space:]]*$/d' | wc -l | tr -d ' ' || echo 0
+            }
+
+            full_rows=$(count_rows "$local_file")
+            latest_rows=$(count_rows "$latest_file")
+
+            # Prefer the local source with MORE rows
+            if [ "$latest_rows" -gt "$full_rows" ]; then
+              local_src="$latest_file"
+            fi
+
+            echo "merge_csv $rel → local_src=$local_src (full_rows=$full_rows latest_rows=$latest_rows)"
+
 
             # Normalize CRLF on the chosen local source
             [ -f "$local_src" ] && sed -i 's/\r$//' "$local_src" 2>/dev/null || true
@@ -111,8 +126,6 @@ jobs:
             r2_fixed="$tmpdir/r2.fixed.csv"
             local_fixed="$tmpdir/local.fixed.csv"
             merged="$tmpdir/merged.csv"
-
-            echo "merge_csv $rel → local_src=$local_src"
 
             if fetch_plain "$rel" "$r2_plain"; then
               had_remote=1
@@ -157,6 +170,13 @@ jobs:
             } > "$merged"
 
             merged_rows=$(tail -n +2 "$merged" | sed '/^[[:space:]]*$/d' | wc -l || true)
+
+            # If the merged result is smaller than the existing full local CSV, keep the full local instead
+            if [ "$merged_rows" -lt "$full_rows" ]; then
+              echo "Guard: merged ($merged_rows) < full_local ($full_rows). Preserving full local for $rel."
+              cp "$local_file" "$merged"
+              merged_rows="$full_rows"
+            fi
 
             # Extra guard: if we *did* fetch remote but the merge shrank, abort upload.
             if [ "$merged_rows" -lt "$prev_rows" ] && [ "$had_remote" -eq 1 ]; then
