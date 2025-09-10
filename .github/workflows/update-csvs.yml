@@ -98,25 +98,29 @@ jobs:
           merge_csv() {
             local rel="$1"              # e.g. ga/cash4life.csv or multi/powerball.csv
             local local_file="public/data/$rel"
-            local latest_file="${local_file%.csv}.latest.csv"   # new: where the updater puts newest row
+            local latest_file="${local_file%.csv}.latest.csv"
             local local_src="$local_file"
             [ -f "$latest_file" ] && local_src="$latest_file"
 
             # Normalize CRLF on the chosen local source
             [ -f "$local_src" ] && sed -i 's/\r$//' "$local_src" 2>/dev/null || true
 
-            local tmpdir r2_plain r2_fixed local_fixed merged
+            local tmpdir r2_plain r2_fixed local_fixed merged had_remote=0
             tmpdir="$(mktemp -d)"
             r2_plain="$tmpdir/r2.plain.csv"
             r2_fixed="$tmpdir/r2.fixed.csv"
             local_fixed="$tmpdir/local.fixed.csv"
             merged="$tmpdir/merged.csv"
 
+            echo "merge_csv $rel → local_src=$local_src"
+
             if fetch_plain "$rel" "$r2_plain"; then
+              had_remote=1
               echo "Fetched existing $rel from R2"
             else
-              echo "No existing $rel in R2; starting fresh"
-              : > "$r2_plain"
+              echo "ERROR: could not read $rel from R2 (network/permission/object mismatch)."
+              echo "Refusing to 'start fresh' to avoid clobbering history. Please run the seed workflow or fix credentials."
+              exit 1    # <-- hard fail; prevents accidental overwrite
             fi
 
             # Canonicalize both sides
@@ -135,11 +139,13 @@ jobs:
             fi
 
             # Headers must be canonical
+            local canon="draw_date,num1,num2,num3,num4,num5,special"
             head -n1 "$r2_fixed"    | tr -d '\r' | grep -qx "$canon" || { echo "R2 header not canonical after repair"; exit 1; }
             head -n1 "$local_fixed" | tr -d '\r' | grep -qx "$canon" || { echo "Local header not canonical after repair"; exit 1; }
 
-            # Anti-truncation guard baseline
+            # Baselines
             prev_rows=$(tail -n +2 "$r2_fixed" | sed '/^[[:space:]]*$/d' | wc -l || true)
+            local_rows=$(tail -n +2 "$local_fixed" | sed '/^[[:space:]]*$/d' | wc -l || true)
 
             # Merge append-only, unique by draw_date, sorted
             {
@@ -151,14 +157,17 @@ jobs:
             } > "$merged"
 
             merged_rows=$(tail -n +2 "$merged" | sed '/^[[:space:]]*$/d' | wc -l || true)
-            if [ "$merged_rows" -lt "$prev_rows" ]; then
-              echo "ERROR: Anti-truncation triggered for $rel (merged $merged_rows < previous $prev_rows)."
+
+            # Extra guard: if we *did* fetch remote but the merge shrank, abort upload.
+            if [ "$merged_rows" -lt "$prev_rows" ] && [ "$had_remote" -eq 1 ]; then
+              echo "ERROR: Anti-truncation: merged $merged_rows < previous $prev_rows for $rel. Not uploading."
               cp "$r2_fixed" "$local_file"
-            else
-              mv "$merged" "$local_file"
+              exit 1
             fi
 
-            echo "Post-merge $rel rows: prev=$prev_rows → now=$merged_rows"
+            mv "$merged" "$local_file"
+            echo "Post-merge $rel rows: prev=$prev_rows + local=$local_rows → now=$merged_rows"
+
             npx wrangler r2 object put "$R2_BUCKET/$rel" \
               --file="$local_file" \
               --content-type=text/csv \
@@ -166,6 +175,7 @@ jobs:
               --remote
             echo "Uploaded $rel"
           }
+
 
           merge_csv multi/powerball.csv
           merge_csv multi/megamillions.csv
