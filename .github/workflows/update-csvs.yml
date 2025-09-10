@@ -116,10 +116,10 @@ jobs:
 
             sed -i 's/\r$//' "$local_file" 2>/dev/null || true
 
-            local tmpdir
+            local tmpdir r2_file merged
             tmpdir="$(mktemp -d)"
-            local r2_file="$tmpdir/r2.csv"
-            local merged="$tmpdir/merged.csv"
+            r2_file="$tmpdir/r2.csv"
+            merged="$tmpdir/merged.csv"
 
             if npx --yes wrangler r2 object get "$R2_BUCKET/$rel" --pipe --remote > "$r2_file" 2>/dev/null; then
               echo "Fetched existing $rel from R2"
@@ -128,58 +128,87 @@ jobs:
               : > "$r2_file"
             fi
 
-            if [ ! -s "$local_file" ] || [ "$(tail -n +2 "$local_file" | sed '/^[[:space:]]*$/d' | wc -l)" -eq 0 ]; then
-              echo "WARNING: $local_file is empty (no new rows?). Keeping R2 version as-is."
-              cp "$r2_file" "$local_file"
-              return 0
+            # --- Canonical header ---
+            local canon="draw_date,num1,num2,num3,num4,num5,special"
+
+            # --- Read headers (strip CRLF) ---
+            local header r2_header
+            header="$(head -n1 "$local_file" | tr -d '\r')"
+            r2_header="$( [ -s "$r2_file" ] && head -n1 "$r2_file" | tr -d '\r' || echo "$header" )"
+
+            # --- Strip UTF-8 BOM if present ---
+            local bom=$'\xEF\xBB\xBF'
+            [[ "$r2_header" == "$bom"* ]] && r2_header="${r2_header#"$bom"}"
+
+            # --- Normalize helper: lowercase + map special column names to 'special' ---
+            normalize_header() {
+              local s="${1,,}"                        # lowercase (bash 4+)
+              s="${s//mega_ball/special}"
+              s="${s//cash_ball/special}"
+              s="${s//powerball/special}"
+              echo "$s"
+            }
+
+            local h_norm r2_norm c_norm
+            h_norm="$(normalize_header "$header")"
+            r2_norm="$(normalize_header "$r2_header")"
+            c_norm="$(normalize_header "$canon")"
+
+            # If local header isn't canonical, trust canonical (future-proof)
+            if [[ "$h_norm" != "$c_norm" ]]; then
+              echo "WARNING: local header not canonical; rewriting to canonical."
+              { echo "$canon"; tail -n +2 "$local_file"; } > "$local_file.tmp" && mv "$local_file.tmp" "$local_file"
+              header="$canon"
+              h_norm="$c_norm"
             fi
 
-            local header new_header r2_header
-            header="$(head -n1 "$local_file")"
-            r2_header="$( [ -s "$r2_file" ] && head -n1 "$r2_file" || echo "$header" )"
-            new_header="$header"
+            # If R2 header differs only by synonyms/BOM/CRLF, rewrite it to canonical in-place
+            if [[ -s "$r2_file" && "$r2_norm" != "$h_norm" ]]; then
+              # If body looks like the same shape (6 commas), allow auto-repair; else bail.
+              local r2_cols
+              r2_cols="$(head -n1 "$r2_file" | tr -d '\r' | awk -F, '{print NF}')"
+              if [[ "$r2_cols" -eq 7 ]]; then
+                echo "R2 header differs but compatible; rewriting to canonical."
+                { echo "$canon"; tail -n +2 "$r2_file"; } > "$r2_file.tmp" && mv "$r2_file.tmp" "$r2_file"
+                r2_header="$canon"
+                r2_norm="$c_norm"
+              else
+                echo "ERROR: Header mismatch for $rel (incompatible column count)."
+                echo "R2:  $r2_header"
+                echo "LOC: $header"
+                exit 1
+              fi
+            fi
 
-            if [ "$r2_header" != "$new_header" ]; then
+            # Final safety check
+            if [[ "$r2_norm" != "$h_norm" ]]; then
               echo "ERROR: Header mismatch for $rel"
               echo "R2:  $r2_header"
-              echo "LOC: $new_header"
+              echo "LOC: $header"
               exit 1
             fi
 
-            if [ ! -s "$r2_file" ]; then
-              echo "$header" > "$r2_file"
-            fi
+            # Ensure R2 has a header line if it was empty
+            [[ -s "$r2_file" ]] || echo "$header" > "$r2_file"
 
-            local prev_rows
-            prev_rows=$( ( [ -s "$r2_file" ] && tail -n +2 "$r2_file" | sed '/^[[:space:]]*$/d' | wc -l ) || echo 0 )
-
+            # --- Merge (append-only, unique by date = col 1) ---
+            # Keep rows sorted by date. Remove blank lines. De-dupe on draw_date.
             {
               echo "$header"
               (tail -n +2 "$r2_file"; tail -n +2 "$local_file") \
                 | sed '/^[[:space:]]*$/d' \
-                | sort -u
+                | awk -F, 'NR>1 { if (!seen[$1]++) print $0 }' \
+                | sort
             } > "$merged"
 
-            local merged_rows
-            merged_rows=$(tail -n +2 "$merged" | sed '/^[[:space:]]*$/d' | wc -l || echo 0)
-
-            if [ "$merged_rows" -lt "$prev_rows" ]; then
-              echo "ERROR: Anti-truncation triggered for $rel (merged $merged_rows < previous $prev_rows)."
-              echo "Restoring previous content."
-              cp "$r2_file" "$local_file"
-            else
-              mv "$merged" "$local_file"
-            fi
-
-            echo "Post-merge $rel line counts:"
-            echo "  R2 previous rows:  $prev_rows"
-            echo "  Local merged rows: $(tail -n +2 "$local_file" | sed '/^[[:space:]]*$/d' | wc -l || echo 0)"
+            mv "$merged" "$local_file"
+            echo "Post-merge $rel line count: $(($(wc -l < "$local_file") - 1)) rows"
           }
 
-          merge_csv ga/fantasy5.csv
-          merge_csv ga/cash4life.csv
           merge_csv multi/powerball.csv
           merge_csv multi/megamillions.csv
+          merge_csv ga/cash4life.csv
+
 
       - name: Show local CSVs (after merge, before upload)
         shell: bash
