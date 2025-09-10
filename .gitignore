@@ -4,3 +4,8 @@
 .env*
 .vercel/
 .DS_Store
+
+# cache/scratch
+.cache/
+public/data/**/*.latest.csv
+public/data/**/*.partial

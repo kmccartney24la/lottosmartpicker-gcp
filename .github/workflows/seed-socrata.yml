@@ -52,6 +52,21 @@ jobs:
             export LC_ALL=C LANG=C
             canon="draw_date,num1,num2,num3,num4,num5,special"
 
+            fetch_plain () {
+                local rel="$1"     # e.g. ga/cash4life.csv
+                local out="$2"
+                local tmp_raw
+                tmp_raw="$(mktemp)"
+                if ! npx --yes wrangler r2 object get "$R2_BUCKET/$rel" --file="$tmp_raw" --remote 1>/dev/null; then
+                    return 1
+                fi
+                if gzip -t "$tmp_raw" 2>/dev/null || head -c2 "$tmp_raw" | od -An -t x1 | tr -d ' ' | grep -qi '^1f8b'; then
+                    gunzip -c "$tmp_raw" > "$out"
+                else
+                    cp "$tmp_raw" "$out"
+                fi
+                }
+
             merge_csv() {
             local rel="$1"
             local local_file="public/data/$rel"
@@ -65,7 +80,7 @@ jobs:
             local_fixed="$tmpdir/local.fixed.csv"
             merged="$tmpdir/merged.csv"
 
-            if npx --yes wrangler r2 object get "$R2_BUCKET/$rel" --pipe --remote > "$r2_file" 2>/dev/null; then
+            if fetch_plain "$rel" "$r2_file"; then
                 echo "Fetched existing $rel from R2"
             else
                 echo "No existing $rel in R2; starting fresh"
@@ -120,3 +135,19 @@ jobs:
             merge_csv multi/powerball.csv
             merge_csv multi/megamillions.csv
             merge_csv ga/cash4life.csv
+
+      - name: Commit CSV changes only (safe)
+        run: |
+            set -e
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git restore --worktree --staged package.json package-lock.json 2>/dev/null || true
+            git add public/data/ga public/data/multi
+            if git diff --cached --quiet; then
+            echo "No CSV changes to commit."
+            exit 0
+            fi
+            echo "Changes to commit:"
+            git diff --cached --name-status
+            git commit -m "chore(seed): import Socrata history"
+            git push

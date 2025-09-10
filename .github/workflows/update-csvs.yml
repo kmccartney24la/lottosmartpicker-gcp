@@ -63,39 +63,6 @@ jobs:
           echo "CLOUDFLARE_ACCOUNT_ID=$CF_ACCOUNT_ID" >> $GITHUB_ENV
           echo "CLOUDFLARE_API_TOKEN=$CF_API_TOKEN"   >> $GITHUB_ENV
 
-      - name: Probe R2 and decide if we should seed full PB/MM history
-        shell: bash
-        run: |
-          set -euo pipefail
-          need_seed=0
-
-   
-          count_lines() {
-            local key="$1"
-            if npx --yes wrangler r2 object get "$R2_BUCKET/$key" --pipe --remote > /tmp/probe.csv 2>/dev/null; then
-              wc -l < /tmp/probe.csv | tr -d ' '
-            else
-              echo 0
-            fi
-          }
-
-          pb_lines=$(count_lines "multi/powerball.csv")
-          mm_lines=$(count_lines "multi/megamillions.csv")
-
-          echo "R2 probe: powerball.csv lines=$pb_lines ; megamillions.csv lines=$mm_lines"
-
-    
-          if [ "$pb_lines" -le 100 ] || [ "$mm_lines" -le 100 ]; then
-           need_seed=1
-          fi
-
-          if [ "$need_seed" -eq 1 ]; then
-           echo "LSP_SEED_FULL=1" >> "$GITHUB_ENV"
-           echo "Seeding full history for PB/MM this run."
-          else
-            echo "No seed needed."
-          fi
-
       - name: Run updater
         run: node scripts/update_csvs.mjs
         env:
