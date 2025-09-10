@@ -7,17 +7,18 @@ const APP_TOKEN = process.env.SOCRATA_APP_TOKEN ?? ""; // optional but recommend
 
 const HEADERS = {
   ...(APP_TOKEN ? { "X-App-Token": APP_TOKEN } : {}),
-  "accept": "application/json",
+  accept: "application/json",
 };
-
-// ----- shared helpers --------------------------------------------------------
 
 async function fetchAll(datasetId, select = "*") {
   // Pull in chunks to be nice to the API
   const limit = 50000; // large enough for these datasets
-  let offset = 0, out = [];
+  let offset = 0,
+    out = [];
   while (true) {
-    const url = `${BASE}/${datasetId}.json?$select=${encodeURIComponent(select)}&$order=draw_date&$limit=${limit}&$offset=${offset}`;
+    const url = `${BASE}/${datasetId}.json?$select=${encodeURIComponent(
+      select
+    )}&$order=draw_date&$limit=${limit}&$offset=${offset}`;
     const res = await fetch(url, { headers: HEADERS });
     if (!res.ok) throw new Error(`Socrata ${datasetId} ${res.status}`);
     const chunk = await res.json();
@@ -38,18 +39,22 @@ function parseWinningNumbers(s) {
   return (s || "")
     .trim()
     .split(/\s+/)
-    .map(n => parseInt(n, 10))
-    .filter(n => Number.isFinite(n));
+    .map((n) => parseInt(n, 10))
+    .filter((n) => Number.isFinite(n));
 }
 
 /** Normalized CSV: draw_date,num1..num5,special */
 function rowsToCSV(rows) {
   const header = "draw_date,num1,num2,num3,num4,num5,special\n";
   const body = rows
-    .map(r =>
+    .map((r) =>
       [
         r.draw_date,
-        r.num1, r.num2, r.num3, r.num4, r.num5,
+        r.num1,
+        r.num2,
+        r.num3,
+        r.num4,
+        r.num5,
         r.special ?? "",
       ].join(",")
     )
@@ -57,59 +62,92 @@ function rowsToCSV(rows) {
   return header + body + (body ? "\n" : "");
 }
 
-// ----- PB / MM / C4L (Socrata) ----------------------------------------------
-
+// --- Powerball (d6yy-54nr): winning_numbers contains 6 numbers; multiplier separate.
 async function buildPowerball() {
-  const raw = await fetchAll("d6yy-54nr", "draw_date,winning_numbers,multiplier");
-  const rows = raw.map(r => {
-    const nums = parseWinningNumbers(r.winning_numbers);
-    const whites = nums.slice(0, 5);
-    const special = nums[5]; // powerball
-    if (whites.length !== 5 || !Number.isFinite(special)) return null;
-    return {
-      draw_date: toYMD(r.draw_date),
-      num1: whites[0], num2: whites[1], num3: whites[2], num4: whites[3], num5: whites[4],
-      special,
-    };
-  }).filter(Boolean).sort((a, b) => a.draw_date.localeCompare(b.draw_date));
+  const raw = await fetchAll(
+    "d6yy-54nr",
+    "draw_date,winning_numbers,multiplier"
+  );
+  const rows = raw
+    .map((r) => {
+      const nums = parseWinningNumbers(r.winning_numbers);
+      const whites = nums.slice(0, 5);
+      const special = nums[5]; // powerball
+      if (whites.length !== 5 || !Number.isFinite(special)) return null;
+      return {
+        draw_date: toYMD(r.draw_date),
+        num1: whites[0],
+        num2: whites[1],
+        num3: whites[2],
+        num4: whites[3],
+        num5: whites[4],
+        special,
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.draw_date.localeCompare(b.draw_date));
   const outPath = path.join("public", "data", "multi", "powerball.csv");
   await fs.mkdir(path.dirname(outPath), { recursive: true });
   await fs.writeFile(outPath, rowsToCSV(rows), "utf8");
   console.log(`Powerball rows: ${rows.length} → ${outPath}`);
 }
 
+// --- Mega Millions (5xaw-6ayf): winning_numbers + mega_ball column
 async function buildMegaMillions() {
-  const raw = await fetchAll("5xaw-6ayf", "draw_date,winning_numbers,mega_ball");
-  const rows = raw.map(r => {
-    const whites = parseWinningNumbers(r.winning_numbers).slice(0, 5);
-    const special = parseInt(r.mega_ball, 10);
-    if (whites.length !== 5 || !Number.isFinite(special)) return null;
-    return {
-      draw_date: toYMD(r.draw_date),
-      num1: whites[0], num2: whites[1], num3: whites[2], num4: whites[3], num5: whites[4],
-      special,
-    };
-  }).filter(Boolean).sort((a, b) => a.draw_date.localeCompare(b.draw_date));
+  const raw = await fetchAll(
+    "5xaw-6ayf",
+    "draw_date,winning_numbers,mega_ball"
+  );
+  const rows = raw
+    .map((r) => {
+      const whites = parseWinningNumbers(r.winning_numbers).slice(0, 5);
+      const special = parseInt(r.mega_ball, 10);
+      if (whites.length !== 5 || !Number.isFinite(special)) return null;
+      return {
+        draw_date: toYMD(r.draw_date),
+        num1: whites[0],
+        num2: whites[1],
+        num3: whites[2],
+        num4: whites[3],
+        num5: whites[4],
+        special,
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.draw_date.localeCompare(b.draw_date));
   const outPath = path.join("public", "data", "multi", "megamillions.csv");
   await fs.mkdir(path.dirname(outPath), { recursive: true });
   await fs.writeFile(outPath, rowsToCSV(rows), "utf8");
   console.log(`MegaMillions rows: ${rows.length} → ${outPath}`);
 }
 
+// --- Cash4Life (kwxv-fwze): winning_numbers + (cash_ball | cashball) varies by schema.
 async function buildCash4Life() {
-  const raw = await fetchAll("kwxv-fwze", "draw_date,winning_numbers,cash_ball");
-  const rows = raw.map(r => {
-    const nums = parseWinningNumbers(r.winning_numbers);
-    const whites = nums.slice(0, 5);
-    const special = Number.parseInt(r.cash_ball ?? "", 10);
-    if (whites.length !== 5 || !Number.isFinite(special)) return null;
+  // ✅ Only real fields on this dataset
+  const raw = await fetchAll(
+    "kwxv-fwze",
+    "draw_date,winning_numbers,cash_ball"
+  );
 
-    return {
-      draw_date: toYMD(r.draw_date),
-      num1: whites[0], num2: whites[1], num3: whites[2], num4: whites[3], num5: whites[4],
-      special,
-    };
-  }).filter(Boolean).sort((a, b) => a.draw_date.localeCompare(b.draw_date));
+  const rows = raw
+    .map((r) => {
+      const nums = parseWinningNumbers(r.winning_numbers);
+      const whites = nums.slice(0, 5);
+      const special = Number.parseInt(r.cash_ball ?? "", 10);
+      if (whites.length !== 5 || !Number.isFinite(special)) return null;
+
+      return {
+        draw_date: toYMD(r.draw_date),
+        num1: whites[0],
+        num2: whites[1],
+        num3: whites[2],
+        num4: whites[3],
+        num5: whites[4],
+        special,
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.draw_date.localeCompare(b.draw_date));
 
   const outPath = path.join("public", "data", "ga", "cash4life.csv");
   await fs.mkdir(path.dirname(outPath), { recursive: true });
@@ -117,102 +155,169 @@ async function buildCash4Life() {
   console.log(`Cash4Life rows: ${rows.length} → ${outPath}`);
 }
 
-// ----- Fantasy 5 (GA): scrape LotteryUSA "last year" archive -----------------
-// Source: https://www.lotteryusa.com/georgia/fantasy-5/year
-// We parse dates like "Monday,  Sep 8, 2025" followed by 5 numbers.
-// No external deps; tolerant to minor markup changes.
+/* =========================
+   Fantasy 5 (GA) — HTML archive (lottery.net)
+   Pages like:
+     https://www.lottery.net/georgia/fantasy-5/numbers/2025
+     https://www.lottery.net/georgia/fantasy-5/numbers/2019
+   Each page lists date + 5 numbers (no “special” ball).
 
-function monthStrToNum(m) {
-  const map = {
-    jan: "01", feb: "02", mar: "03", apr: "04", may: "05", jun: "06",
-    jul: "07", aug: "08", sep: "09", sept: "09", oct: "10", nov: "11", dec: "12",
-  };
-  return map[m.toLowerCase()] ?? null;
+   Implementation goals:
+   - No external deps. Regex-based HTML extraction.
+   - Exactly 5 integers per draw, otherwise skip line.
+   - Normalize date to YYYY-MM-DD.
+   - Walk from current year back until the first available year.
+   - Non-fatal if a given year yields zero rows (log + continue).
+========================= */
+
+// Month map for “Monday September 1, 2025” style
+const MONTHS = new Map(
+  [
+    "january",
+    "february",
+    "march",
+    "april",
+    "may",
+    "june",
+    "july",
+    "august",
+    "september",
+    "october",
+    "november",
+    "december",
+  ].map((m, i) => [m, i + 1])
+);
+
+function toYMDfromMDYWords(label) {
+  // Input like: "Monday September 1, 2025"
+  const m = label
+    .trim()
+    .match(
+      /^(?:Sun|Mon|Tues|Wednes|Thurs|Fri|Satur)day\s+([A-Za-z]+)\s+(\d{1,2}),\s+(\d{4})$/i
+    );
+  if (!m) return null;
+  const month = MONTHS.get(m[1].toLowerCase());
+  const day = parseInt(m[2], 10);
+  const year = parseInt(m[3], 10);
+  if (!month || !day || !year) return null;
+  const mm = String(month).padStart(2, "0");
+  const dd = String(day).padStart(2, "0");
+  return `${year}-${mm}-${dd}`;
 }
 
-function textifyHTML(html) {
-  // Remove scripts/styles; turn tags into newlines; collapse whitespace.
-  html = html.replace(/<script[\s\S]*?<\/script>/gi, " ");
-  html = html.replace(/<style[\s\S]*?<\/style>/gi, " ");
-  html = html.replace(/<br\s*\/?>/gi, "\n");
-  html = html.replace(/<\/(p|li|h\d|tr|div|section|article)>/gi, "\n");
-  html = html.replace(/<[^>]+>/g, " ");
-  html = html.replace(/&nbsp;/g, " ");
-  html = html.replace(/&amp;/g, "&");
-  html = html.replace(/&middot;/g, "·");
-  // normalize spaces + unix newlines
-  return html.replace(/\r/g, "").replace(/[ \t]+/g, " ").replace(/\n\s*\n+/g, "\n");
-}
+// Extract all draw blocks from a yearly HTML page.
+// Strategy:
+//  - Find each date label like “Monday September 1, 2025” (as an <a> text).
+//  - Then capture the following <ul>…</ul> that contains the 5 numbers.
+//  - Inside the UL, collect the first five integers (li or spans).
+function extractFantasy5FromYearHtml(html, expectYear) {
+  const out = [];
+  // Date + list that follows. Non-greedy blocks to the next </ul>.
+  const RE =
+    />\s*(?:Sun|Mon|Tues|Wednes|Thurs|Fri|Satur)day\s+[A-Za-z]+\s+\d{1,2},\s+\d{4}\s*<[^]*?<\/a>\s*([^]*?)<\/ul>/g;
 
-function* scanFantasy5FromLines(lines) {
-  // Date line examples (allow single/double spaces):
-  // "Monday,  Sep 8, 2025"
-  const dayNames = "(?:Mon|Tues|Wednes|Thurs|Fri|Satur|Sun)day";
-  const monthNames = "(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*";
-  const dateRe = new RegExp(`^${dayNames},\\s+(${monthNames})\\s+(\\d{1,2}),\\s+(\\d{4})$`, "i");
-
-  // walk the lines; when we hit a date, collect the next five integers
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trim();
-    const m = line.match(dateRe);
-    if (!m) continue;
-
-    const month = monthStrToNum(m[1]);
-    const day = String(parseInt(m[2], 10)).padStart(2, "0");
-    const year = m[3];
-    if (!month) continue;
-    const draw_date = `${year}-${month}-${day}`;
-
-    const nums = [];
-    let j = i + 1;
-    while (j < lines.length && nums.length < 5) {
-      const n = parseInt(lines[j].trim(), 10);
-      if (Number.isFinite(n)) nums.push(n);
-      j++;
+  let match;
+  while ((match = RE.exec(html)) !== null) {
+    const prefix = html.slice(0, match.index);
+    // Look backwards a bit to find the visible date text
+    const dateBack = prefix.slice(Math.max(0, prefix.length - 300));
+    const dateM = dateBack.match(
+      />\s*((?:Sun|Mon|Tues|Wednes|Thurs|Fri|Satur)day\s+[A-Za-z]+\s+\d{1,2},\s+\d{4})\s*<[^>]*\/a>\s*$/i
+    );
+    if (!dateM) continue;
+    const ymd = toYMDfromMDYWords(dateM[1]);
+    if (!ymd) continue;
+    const y = parseInt(ymd.slice(0, 4), 10);
+    if (expectYear && y !== expectYear) {
+      // Be tolerant: some pages include neighboring-year rows around New Year.
+      // We'll still include them, we just don't require exact match.
     }
-    if (nums.length === 5) {
-      yield { draw_date, num1: nums[0], num2: nums[1], num3: nums[2], num4: nums[3], num5: nums[4] };
+
+    const ulChunk = match[1] || "";
+    const nums = Array.from(ulChunk.matchAll(/>(\d{1,2})</g))
+      .map((m) => parseInt(m[1], 10))
+      .filter(Number.isFinite);
+
+    if (nums.length >= 5) {
+      const whites = nums.slice(0, 5);
+      out.push({
+        draw_date: ymd,
+        num1: whites[0],
+        num2: whites[1],
+        num3: whites[2],
+        num4: whites[3],
+        num5: whites[4],
+        // Fantasy 5 has no special ball
+        special: "",
+      });
     }
   }
+  return out;
+}
+
+async function fetchFantasy5Year(year) {
+  const url = `https://www.lottery.net/georgia/fantasy-5/numbers/${year}`;
+  const res = await fetch(url, {
+    headers: {
+      accept: "text/html,application/xhtml+xml",
+      "accept-language": "en",
+      // be a decent citizen
+      "user-agent":
+        "Lottery-Analysis-App/1.0 (+https://github.com/your-repo; contact: ops)",
+    },
+  });
+  if (!res.ok) {
+    // 404 or other: treat as “no data this year”
+    return { year, rows: [], ok: false, status: res.status };
+  }
+  const html = await res.text();
+  const rows = extractFantasy5FromYearHtml(html, year);
+  return { year, rows, ok: true, status: 200 };
 }
 
 async function buildFantasy5() {
-  const url = "https://www.lotteryusa.com/georgia/fantasy-5/year";
-  const res = await fetch(url, {
-    headers: {
-      "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-      "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) NodeFetch/1 Safari/537.36",
-    },
-  });
-  if (!res.ok) throw new Error(`Fantasy5 fetch ${res.status}`);
-  const html = await res.text();
-  const text = textifyHTML(html);
-
-  const lines = text.split("\n").map(s => s.trim()).filter(Boolean);
-
-  // pass 1: extract rows from the "last year" page
-  const rows = Array.from(scanFantasy5FromLines(lines));
-
-  if (rows.length === 0) {
-    console.log("Fantasy 5: parsed 0 rows from LotteryUSA last-year page");
-  }
-
-  // Normalize, sort by date asc, and assign special="" to match app schema
-  const outRows = rows
-    .map(r => ({
-      draw_date: r.draw_date,
-      num1: r.num1, num2: r.num2, num3: r.num3, num4: r.num4, num5: r.num5,
-      special: "", // Fantasy 5 has no special ball
-    }))
-    .sort((a, b) => a.draw_date.localeCompare(b.draw_date));
-
   const outPath = path.join("public", "data", "ga", "fantasy5.csv");
   await fs.mkdir(path.dirname(outPath), { recursive: true });
-  await fs.writeFile(outPath, rowsToCSV(outRows), "utf8");
-  console.log(`Fantasy 5 rows: ${outRows.length} → ${outPath}`);
-}
 
-// ----- main ------------------------------------------------------------------
+  const thisYear = new Date().getFullYear();
+  const firstYear = 1994; // archive goes back to 1994 on the source used
+  const missed = [];
+  let all = [];
+
+  for (let y = thisYear; y >= firstYear; y--) {
+    try {
+      const { rows, ok, status } = await fetchFantasy5Year(y);
+      if (!ok || rows.length === 0) {
+        console.log(
+          `Fantasy 5: no rows parsed for year ${y}${ok ? "" : ` (HTTP ${status})`}`
+        );
+        missed.push(y);
+        continue;
+      }
+      console.log(`Fantasy 5: parsed ${rows.length} rows for ${y}`);
+      all = all.concat(rows);
+    } catch (err) {
+      console.log(`Fantasy 5: error parsing year ${y}: ${err?.message ?? err}`);
+      missed.push(y);
+    }
+  }
+
+  // De-dupe by date (if any overlap across pages) and sort
+  const byDate = new Map();
+  for (const r of all) byDate.set(r.draw_date, r);
+  const rows = Array.from(byDate.values()).sort((a, b) =>
+    a.draw_date.localeCompare(b.draw_date)
+  );
+
+  await fs.writeFile(outPath, rowsToCSV(rows), "utf8");
+  console.log(`Fantasy 5 rows: ${rows.length} → ${outPath}`);
+  if (missed.length) {
+    // Non-fatal
+    console.log(
+      `Fantasy 5 missed years (non-fatal): ${missed.sort((a, b) => a - b).join(", ")}`
+    );
+  }
+}
 
 async function main() {
   await buildPowerball();
@@ -221,18 +326,21 @@ async function main() {
   try {
     await buildCash4Life();
   } catch (err) {
+    // Don’t fail the whole job if C4L has a transient issue.
     console.error("Cash4Life update failed:", err?.message ?? err);
   }
 
   try {
     await buildFantasy5();
   } catch (err) {
-    // Non-fatal; your merge step keeps existing R2 version on empty
+    // Don’t fail the whole job if Fantasy5 source hiccups.
     console.error("Fantasy 5 update failed:", err?.message ?? err);
   }
 }
 
-main().catch(err => {
-  console.error(err);
-  process.exitCode = 1;
-});
+if (import.meta.main) {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}
