@@ -197,10 +197,36 @@ jobs:
             echo
           done
 
-      - name: Verify R2 objects (safe fetch + retry)
+      - name: Verify R2 objects (safe fetch + auto-decompress)
         shell: bash
         run: |
           set -euo pipefail
+
+          # Write remote object to a file, then auto-decompress if it's gzip.
+          fetch_plain () {
+            local rel="$1"           # e.g. ga/fantasy5.csv
+            local out_plain="$2"     # path to write plain-text CSV
+
+            local tmp_raw
+            tmp_raw="$(mktemp)"
+
+            # Fetch to file (avoid --pipe so we get only bytes)
+            if ! npx --yes wrangler r2 object get "$R2_BUCKET/$rel" --file="$tmp_raw" --remote 1>/dev/null; then
+              return 1
+            fi
+
+            # If gzipped, decompress; otherwise just copy.
+            if gzip -t "$tmp_raw" 2>/dev/null; then
+              gunzip -c "$tmp_raw" > "$out_plain"
+            else
+              # Some environments might not recognize gzip -t; also handle magic bytes.
+              if head -c2 "$tmp_raw" | od -An -t x1 | tr -d ' ' | grep -qi '^1f8b'; then
+                gunzip -c "$tmp_raw" > "$out_plain"
+              else
+                cp "$tmp_raw" "$out_plain"
+              fi
+            fi
+          }
 
           verify_or_put () {
             local rel="$1"                      # e.g. ga/fantasy5.csv
@@ -209,28 +235,29 @@ jobs:
             # local must exist
             test -s "$local_file" || { echo "ERROR: local $rel missing or empty"; exit 1; }
 
-            # Fetch remote bytes ONLY (no CLI noise), with a small retry for consistency.
-            local tmp="$(mktemp)"
             local tries=0
             local max=5
             local sleep_s=2
 
             while : ; do
-              if npx --yes wrangler r2 object get "$R2_BUCKET/$rel" --pipe --remote > "$tmp" 2>/dev/null; then
-                :
-              else
+              local tmp_plain
+              tmp_plain="$(mktemp)"
+
+              if ! fetch_plain "$rel" "$tmp_plain"; then
                 echo "$rel not found in R2; uploading…"
                 npx wrangler r2 object put "$R2_BUCKET/$rel" \
                   --file="$local_file" \
                   --content-type=text/csv \
                   --cache-control=public,max-age=3600,must-revalidate \
                   --remote
-                npx --yes wrangler r2 object get "$R2_BUCKET/$rel" --pipe --remote > "$tmp" 2>/dev/null || true
+                # try once more after upload
+                fetch_plain "$rel" "$tmp_plain" || true
               fi
 
               local local_lines remote_lines
-              local_lines=$(wc -l < "$local_file")
-              remote_lines=$(wc -l < "$tmp")
+              # normalize CRLF just in case
+              local_lines=$(tr -d '\r' < "$local_file" | wc -l | tr -d ' ')
+              remote_lines=$(tr -d '\r' < "$tmp_plain"  | wc -l | tr -d ' ')
               echo "$rel lines: local=$local_lines remote=$remote_lines"
 
               if [ "$remote_lines" -ge "$local_lines" ]; then
@@ -250,8 +277,6 @@ jobs:
           verify_or_put ga/cash4life.csv
           verify_or_put multi/powerball.csv
           verify_or_put multi/megamillions.csv
-
-
 
       - name: Post-upload sanity (counts from R2)
         shell: bash
