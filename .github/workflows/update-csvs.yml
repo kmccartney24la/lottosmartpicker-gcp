@@ -112,11 +112,6 @@ jobs:
 
           canon="draw_date,num1,num2,num3,num4,num5,special"
 
-          # Robust Node helper to repair ANY of our past shapes to canonical header.
-          make_repair_js() {
-          cat > /tmp/repair_csv.js <<'NODE'
-          const fs = require('fs');
-
           function stripBOM(s){ return s && s.charCodeAt(0)===0xFEFF ? s.slice(1) : s; }
           function toYMD(s){
             if(!s) return '';
@@ -301,49 +296,53 @@ jobs:
           npx wrangler r2 object put "$R2_BUCKET/multi/powerball.csv"   --file=public/data/multi/powerball.csv   --content-type=text/csv --cache-control=public,max-age=3600,must-revalidate --remote
           npx wrangler r2 object put "$R2_BUCKET/multi/megamillions.csv" --file=public/data/multi/megamillions.csv --content-type=text/csv --cache-control=public,max-age=3600,must-revalidate --remote
 
-      - name: Verify R2 object (Fantasy5)
+      - name: List R2 keys (debug)
+        shell: bash
         run: |
           set -euo pipefail
-          # Local line count
-          LOCAL=$(wc -l < public/data/ga/fantasy5.csv)
-          # Download and count from R2
-          npx wrangler r2 object get "$R2_BUCKET/ga/fantasy5.csv" --pipe | tee /tmp/f5.remote.csv >/dev/null
-          REMOTE=$(wc -l < /tmp/f5.remote.csv)
-          echo "Fantasy5 lines: local=$LOCAL remote=$REMOTE"
-          test "$REMOTE" -ge "$LOCAL" || { echo "ERROR: remote has fewer lines than local"; exit 1; }
+          echo "Using bucket: $R2_BUCKET"
+          echo "Objects under ga/:"
+          npx wrangler r2 object list "$R2_BUCKET" --prefix ga/ --remote || true
+          echo "Objects under multi/:"
+          npx wrangler r2 object list "$R2_BUCKET" --prefix multi/ --remote || true
 
-      - name: Verify R2 object (Cash4Life)
-        run: |
-          set -euo pipefail
-          # Local line count
-          LOCAL=$(wc -l < public/data/ga/cash4life.csv)
-          # Download and count from R2
-          npx wrangler r2 object get "$R2_BUCKET/ga/cash4life.csv" --pipe | tee /tmp/f5.remote.csv >/dev/null
-          REMOTE=$(wc -l < /tmp/f5.remote.csv)
-          echo "Cash$Life lines: local=$LOCAL remote=$REMOTE"
-          test "$REMOTE" -ge "$LOCAL" || { echo "ERROR: remote has fewer lines than local"; exit 1; }
 
-      - name: Verify R2 object (Powerball)
+      - name: Verify R2 objects (self-heal if missing)
+        shell: bash
         run: |
           set -euo pipefail
-          # Local line count
-          LOCAL=$(wc -l < public/data/multi/powerball.csv)
-          # Download and count from R2
-          npx wrangler r2 object get "$R2_BUCKET/multi/powerball.csv" --pipe | tee /tmp/f5.remote.csv >/dev/null
-          REMOTE=$(wc -l < /tmp/f5.remote.csv)
-          echo "Powerball lines: local=$LOCAL remote=$REMOTE"
-          test "$REMOTE" -ge "$LOCAL" || { echo "ERROR: remote has fewer lines than local"; exit 1; }
 
-      - name: Verify R2 object (Megamillions)
-        run: |
-          set -euo pipefail
-          # Local line count
-          LOCAL=$(wc -l < public/data/multi/megamillions.csv)
-          # Download and count from R2
-          npx wrangler r2 object get "$R2_BUCKET/multi/megamillions.csv" --pipe | tee /tmp/f5.remote.csv >/dev/null
-          REMOTE=$(wc -l < /tmp/f5.remote.csv)
-          echo "Megamillions lines: local=$LOCAL remote=$REMOTE"
-          test "$REMOTE" -ge "$LOCAL" || { echo "ERROR: remote has fewer lines than local"; exit 1; }
+          verify_or_put () {
+            local rel="$1"                      # e.g. ga/fantasy5.csv
+            local local_file="public/data/$rel"
+
+            # local must exist
+            test -s "$local_file" || { echo "ERROR: local $rel missing or empty"; exit 1; }
+
+            # try fetch; if missing, upload then fetch
+            if ! npx wrangler r2 object get "$R2_BUCKET/$rel" --pipe --remote | tee /tmp/verify.csv >/dev/null; then
+              echo "$rel not found in R2; uploading and retrying…"
+              npx wrangler r2 object put "$R2_BUCKET/$rel" \
+                --file="$local_file" \
+                --content-type=text/csv \
+                --cache-control=public,max-age=3600,must-revalidate \
+                --remote
+              npx wrangler r2 object get "$R2_BUCKET/$rel" --pipe --remote | tee /tmp/verify.csv >/dev/null
+            fi
+
+            local local_lines remote_lines
+            local_lines=$(wc -l < "$local_file")
+            remote_lines=$(wc -l < /tmp/verify.csv)
+            echo "$rel lines: local=$local_lines remote=$remote_lines"
+
+            test "$remote_lines" -ge "$local_lines" || { echo "ERROR: remote has fewer lines than local for $rel"; exit 1; }
+          }
+
+          verify_or_put ga/fantasy5.csv
+          verify_or_put ga/cash4life.csv
+          verify_or_put multi/powerball.csv
+          verify_or_put multi/megamillions.csv
+
 
       - name: Post-upload sanity (counts from R2)
         shell: bash
