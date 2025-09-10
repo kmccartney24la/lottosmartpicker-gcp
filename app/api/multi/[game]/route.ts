@@ -35,6 +35,8 @@ export async function GET(
     );
   }
 
+  
+
   // Stream the CSV from R2 to the client.
   const upstream = await fetch(url, { method: "GET", cache: "no-store" });
   if (!upstream.ok) {
@@ -45,9 +47,11 @@ export async function GET(
   }
 
   // Pass through content type/length if present.
-  const headers = new Headers();
-  const ct = upstream.headers.get("content-type") || "text/csv";
-  headers.set("content-type", ct);
+  const headers = new Headers({
+    "content-type": "text/csv; charset=utf-8",
+    "content-disposition": `attachment; filename="${game}.csv"`,
+    "cache-control": "public, max-age=300, must-revalidate",
+  });
   const cl = upstream.headers.get("content-length");
   if (cl) headers.set("content-length", cl);
 

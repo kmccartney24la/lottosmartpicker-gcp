@@ -90,3 +90,29 @@ jobs:
           apiToken: ${{ env.CF_API_TOKEN }}
           accountId: ${{ env.CF_ACCOUNT_ID }}
           command: r2 object put ${{ env.R2_BUCKET }}/ga/cash4life.csv --file=public/data/ga/cash4life.csv --content-type text/csv
+
+      # ✅ Upload Powerball
+      - name: Upload Powerball to R2
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ env.CF_API_TOKEN }}
+          accountId: ${{ env.CF_ACCOUNT_ID }}
+          command: >
+            r2 object put ${{ env.R2_BUCKET }}/multi/powerball.csv
+            --file=public/data/multi/powerball.csv
+            --content-type text/csv
+            --content-disposition 'attachment; filename="powerball.csv"'
+            --cache-control 'public, max-age=3600, must-revalidate'
+
+      # ✅ Upload Mega Millions
+      - name: Upload Mega Millions to R2
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ env.CF_API_TOKEN }}
+          accountId: ${{ env.CF_ACCOUNT_ID }}
+          command: >
+            r2 object put ${{ env.R2_BUCKET }}/multi/megamillions.csv
+            --file=public/data/multi/megamillions.csv
+            --content-type text/csv
+            --content-disposition 'attachment; filename="megamillions.csv"'
+            --cache-control 'public, max-age=3600, must-revalidate'
