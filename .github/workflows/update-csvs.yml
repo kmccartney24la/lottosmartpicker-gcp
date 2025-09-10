@@ -39,6 +39,20 @@ jobs:
           node-version: 20
           cache: 'npm'
 
+      - name: Cache scraper state (.cache)
+        uses: actions/cache@v4
+        with:
+          path: .cache
+          key: fantasy5-cache-${{ runner.os }}-${{ hashFiles('scripts/sources/fantasy5.mjs') }}
+          restore-keys: |
+            fantasy5-cache-${{ runner.os }}-
+
+      - name: Install project dependencies
+        run: npm ci
+
+      - name: Install Playwright (Chromium only)
+        run: npx playwright install --with-deps chromium
+
       - name: Install Wrangler v4 (pin)
         run: |
           npm i -D wrangler@4
@@ -84,6 +98,8 @@ jobs:
 
       - name: Run updater
         run: node scripts/update_csvs.mjs
+        env:
+          SOCRATA_APP_TOKEN: ${{ secrets.SOCRATA_APP_TOKEN }}
 
       # =========== MERGE & GUARD ===========
 
