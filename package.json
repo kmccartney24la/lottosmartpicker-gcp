@@ -15,8 +15,8 @@
   "devDependencies": {
     "@types/node": "^24.3.1",
     "@types/react": "^19.1.12",
-    "typescript": "^5.9.2",
-    "cheerio": "^1.0.0",
-    "got": "^14.4.1"
+    "cheerio": "1.1.2",
+    "got": "14.4.8",
+    "typescript": "^5.9.2"
   }
 }
