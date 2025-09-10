@@ -97,16 +97,13 @@ jobs:
             local rel="$1"              # e.g. ga/cash4life.csv or multi/powerball.csv
             local local_file="public/data/$rel"
 
-            # Normalize CRLF if present (Windows-origin files)
             sed -i 's/\r$//' "$local_file" 2>/dev/null || true
 
-            # Temp workspace
             local tmpdir
             tmpdir="$(mktemp -d)"
             local r2_file="$tmpdir/r2.csv"
             local merged="$tmpdir/merged.csv"
 
-            # Fetch current from R2 if present
             if npx --yes wrangler r2 object get "$R2_BUCKET/$rel" --pipe > "$r2_file" 2>/dev/null; then
               echo "Fetched existing $rel from R2"
             else
@@ -114,14 +111,12 @@ jobs:
               : > "$r2_file"
             fi
 
-            # If generator output is empty, keep R2 version
-            if [ ! -s "$local_file" ]; then
+            if [ ! -s "$local_file" ] || [ "$(tail -n +2 "$local_file" | sed '/^[[:space:]]*$/d' | wc -l)" -eq 0 ]; then
               echo "WARNING: $local_file is empty (no new rows?). Keeping R2 version as-is."
               cp "$r2_file" "$local_file"
               return 0
             fi
 
-            # Establish & validate header
             local header new_header r2_header
             header="$(head -n1 "$local_file")"
             r2_header="$( [ -s "$r2_file" ] && head -n1 "$r2_file" || echo "$header" )"
@@ -134,25 +129,23 @@ jobs:
               exit 1
             fi
 
-            # Ensure R2 file has a header if empty
             if [ ! -s "$r2_file" ]; then
               echo "$header" > "$r2_file"
             fi
 
-            # Count previous rows (excluding header) for anti-truncation
             local prev_rows
-            prev_rows=$( ( [ -s "$r2_file" ] && tail -n +2 "$r2_file" | wc -l ) || echo 0 )
+            prev_rows=$( ( [ -s "$r2_file" ] && tail -n +2 "$r2_file" | sed '/^[[:space:]]*$/d' | wc -l ) || echo 0 )
 
-            # Merge + de-dupe by entire line (columns stable)
             {
               echo "$header"
-              (tail -n +2 "$r2_file"; tail -n +2 "$local_file") | sort | uniq
+              (tail -n +2 "$r2_file"; tail -n +2 "$local_file") \
+                | sed '/^[[:space:]]*$/d' \
+                | sort -u
             } > "$merged"
 
             local merged_rows
-            merged_rows=$(tail -n +2 "$merged" | wc -l || echo 0)
+            merged_rows=$(tail -n +2 "$merged" | sed '/^[[:space:]]*$/d' | wc -l || echo 0)
 
-            # Anti-truncation: merged must never be smaller than previous
             if [ "$merged_rows" -lt "$prev_rows" ]; then
               echo "ERROR: Anti-truncation triggered for $rel (merged $merged_rows < previous $prev_rows)."
               echo "Restoring previous content."
@@ -163,7 +156,7 @@ jobs:
 
             echo "Post-merge $rel line counts:"
             echo "  R2 previous rows:  $prev_rows"
-            echo "  Local merged rows: $(tail -n +2 "$local_file" | wc -l || echo 0)"
+            + echo "  Local merged rows: $(tail -n +2 "$local_file" | sed '/^[[:space:]]*$/d' | wc -l || echo 0)"
           }
 
           merge_csv ga/fantasy5.csv
@@ -226,7 +219,6 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          # Ensure only CSVs are committed
           git restore --worktree --staged package.json package-lock.json 2>/dev/null || true
           git add public/data/ga public/data/multi
 
