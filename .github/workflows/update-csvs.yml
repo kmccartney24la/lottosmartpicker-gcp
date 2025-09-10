@@ -104,5 +104,5 @@ jobs:
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ env.CF_API_TOKEN }}
-         accountId: ${{ env.CF_ACCOUNT_ID }}
-         command: r2 object put ${{ env.R2_BUCKET }}/multi/megamillions.csv --file=public/data/multi/megamillions.csv --content-type=text/csv --content-disposition=attachment;filename=megamillions.csv --cache-control=public,max-age=3600,must-revalidate
+          accountId: ${{ env.CF_ACCOUNT_ID }}
+          command: r2 object put ${{ env.R2_BUCKET }}/multi/megamillions.csv --file=public/data/multi/megamillions.csv --content-type=text/csv --content-disposition=attachment;filename=megamillions.csv --cache-control=public,max-age=3600,must-revalidate
