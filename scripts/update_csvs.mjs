@@ -128,12 +128,12 @@ async function buildPowerballLatest() {
   const whites = nums.slice(0, 5);
   const special = nums[5];
   if (whites.length !== 5 || !Number.isFinite(special)) throw new Error("Malformed latest Powerball row");
-  const outPath = path.join("public", "data", "multi", "powerball.csv");
+  const outPath = path.join("public", "data", "multi", "powerball.latest.csv");
   await fs.mkdir(path.dirname(outPath), { recursive: true });
   await fs.writeFile(outPath, rowsToCSV([{
     draw_date: toYMD(r.draw_date), num1: whites[0], num2: whites[1], num3: whites[2], num4: whites[3], num5: whites[4], special
   }]), "utf8");
-  console.log(`Powerball latest written → ${outPath}`);
+  console.log(`Powerball latest-only written → ${outPath}`);
 }
 
 // One-time seed: full era since cutoff (e.g., 2015-10-07)
@@ -159,12 +159,12 @@ async function buildMegaMillionsLatest() {
   const whites = parseWinningNumbers(r.winning_numbers).slice(0, 5);
   const special = parseInt(r.mega_ball, 10);
   if (whites.length !== 5 || !Number.isFinite(special)) throw new Error("Malformed latest MegaMillions row");
-  const outPath = path.join("public", "data", "multi", "megamillions.csv");
+  const outPath = path.join("public", "data", "multi", "megamillions.latest.csv");
   await fs.mkdir(path.dirname(outPath), { recursive: true });
   await fs.writeFile(outPath, rowsToCSV([{
     draw_date: toYMD(r.draw_date), num1: whites[0], num2: whites[1], num3: whites[2], num4: whites[3], num5: whites[4], special
   }]), "utf8");
-  console.log(`MegaMillions latest written → ${outPath}`);
+  console.log(`MegaMillions latest-only written → ${outPath}`);
 }
 
 async function buildMegaMillionsSince(since) {
@@ -189,12 +189,12 @@ async function buildCash4LifeLatest() {
   const whites = nums.slice(0, 5);
   const special = Number.parseInt(r.cash_ball ?? "", 10);
   if (whites.length !== 5 || !Number.isFinite(special)) throw new Error("Malformed latest Cash4Life row");
-  const outPath = path.join("public", "data", "ga", "cash4life.csv");
+  const outPath = path.join("public", "data", "ga", "cash4life.latest.csv");
   await fs.mkdir(path.dirname(outPath), { recursive: true });
   await fs.writeFile(outPath, rowsToCSV([{
     draw_date: toYMD(r.draw_date), num1: whites[0], num2: whites[1], num3: whites[2], num4: whites[3], num5: whites[4], special
   }]), "utf8");
-  console.log(`Cash4Life latest written → ${outPath}`);
+  console.log(`Cash4Life latest-only written → ${outPath}`);
 }
 
 async function buildCash4LifeSince(since) {

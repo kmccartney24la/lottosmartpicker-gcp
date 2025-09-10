@@ -112,29 +112,53 @@ jobs:
 
           canon="draw_date,num1,num2,num3,num4,num5,special"
 
+          # Fetch remote object to a file, auto-decompress if it's gzip
+          fetch_plain () {
+            local rel="$1"     # e.g. ga/cash4life.csv
+            local out="$2"     # destination plain CSV
+            local tmp_raw
+            tmp_raw="$(mktemp)"
+            if ! npx --yes wrangler r2 object get "$R2_BUCKET/$rel" --file="$tmp_raw" --remote 1>/dev/null; then
+              return 1
+            fi
+            if gzip -t "$tmp_raw" 2>/dev/null || head -c2 "$tmp_raw" | od -An -t x1 | tr -d ' ' | grep -qi '^1f8b'; then
+              gunzip -c "$tmp_raw" > "$out"
+            else
+              cp "$tmp_raw" "$out"
+            fi
+          }
+
           merge_csv() {
             local rel="$1"              # e.g. ga/cash4life.csv or multi/powerball.csv
             local local_file="public/data/$rel"
+            local latest_file="${local_file%.csv}.latest.csv"   # new: where the updater puts newest row
+            local local_src="$local_file"
+            [ -f "$latest_file" ] && local_src="$latest_file"
 
-            sed -i 's/\r$//' "$local_file" 2>/dev/null || true
+            # Normalize CRLF on the chosen local source
+            [ -f "$local_src" ] && sed -i 's/\r$//' "$local_src" 2>/dev/null || true
 
-            local tmpdir r2_file r2_fixed local_fixed merged
+            local tmpdir r2_plain r2_fixed local_fixed merged
             tmpdir="$(mktemp -d)"
-            r2_file="$tmpdir/r2.csv"
+            r2_plain="$tmpdir/r2.plain.csv"
             r2_fixed="$tmpdir/r2.fixed.csv"
             local_fixed="$tmpdir/local.fixed.csv"
             merged="$tmpdir/merged.csv"
 
-            if npx --yes wrangler r2 object get "$R2_BUCKET/$rel" --pipe --remote > "$r2_file" 2>/dev/null; then
+            if fetch_plain "$rel" "$r2_plain"; then
               echo "Fetched existing $rel from R2"
             else
               echo "No existing $rel in R2; starting fresh"
-              : > "$r2_file"
+              : > "$r2_plain"
             fi
 
-            # Normalize both sides to canonical header using your TS repair script
-            npx tsx scripts/repair-lotto-csv.ts "$r2_file" "$r2_fixed"
-            npx tsx scripts/repair-lotto-csv.ts "$local_file" "$local_fixed"
+            # Canonicalize both sides
+            npx tsx scripts/repair-lotto-csv.ts "$r2_plain" "$r2_fixed"
+            if [ -f "$local_src" ]; then
+              npx tsx scripts/repair-lotto-csv.ts "$local_src" "$local_fixed"
+            else
+              : > "$local_fixed"
+            fi
 
             # If local has no new rows, keep R2 as-is
             if [ ! -s "$local_fixed" ] || [ "$(tail -n +2 "$local_fixed" | sed '/^[[:space:]]*$/d' | wc -l)" -eq 0 ]; then
@@ -143,11 +167,11 @@ jobs:
               return 0
             fi
 
-            # Final sanity: headers must be canonical now
-            head -n1 "$r2_fixed" | tr -d '\r' | grep -qx "$canon" || { echo "R2 header not canonical after repair"; exit 1; }
+            # Headers must be canonical
+            head -n1 "$r2_fixed"    | tr -d '\r' | grep -qx "$canon" || { echo "R2 header not canonical after repair"; exit 1; }
             head -n1 "$local_fixed" | tr -d '\r' | grep -qx "$canon" || { echo "Local header not canonical after repair"; exit 1; }
 
-            # Anti-truncation guard
+            # Anti-truncation guard baseline
             prev_rows=$(tail -n +2 "$r2_fixed" | sed '/^[[:space:]]*$/d' | wc -l || true)
 
             # Merge append-only, unique by draw_date, sorted
