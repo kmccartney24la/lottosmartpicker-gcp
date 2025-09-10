@@ -96,19 +96,22 @@ async function buildMegaMillions() {
 
 // --- Cash4Life (kwxv-fwze): winning_numbers + (cash_ball | cashball) varies by schema.
 async function buildCash4Life() {
-  const raw = await fetchAll("kwxv-fwze", "draw_date,winning_numbers,cash_ball,cashball");
+  // ✅ Only real fields on this dataset
+  const raw = await fetchAll("kwxv-fwze", "draw_date,winning_numbers,cash_ball");
+
   const rows = raw.map(r => {
-    const whites = parseWinningNumbers(r.winning_numbers).slice(0, 5);
-    const special = Number.parseInt(r.cash_ball ?? r.cashball ?? "", 10);
-    // Some schemas omit cash_ball; if so, try last number as special (defensive)
-    const sp = Number.isFinite(special) ? special : parseWinningNumbers(r.winning_numbers)[5];
-    if (whites.length !== 5 || !Number.isFinite(sp)) return null;
+    const nums = parseWinningNumbers(r.winning_numbers);
+    const whites = nums.slice(0, 5);
+    const special = Number.parseInt(r.cash_ball ?? "", 10);
+    if (whites.length !== 5 || !Number.isFinite(special)) return null;
+
     return {
       draw_date: toYMD(r.draw_date),
       num1: whites[0], num2: whites[1], num3: whites[2], num4: whites[3], num5: whites[4],
-      special: sp,
+      special,
     };
   }).filter(Boolean).sort((a, b) => a.draw_date.localeCompare(b.draw_date));
+
   const outPath = path.join("public", "data", "ga", "cash4life.csv");
   await fs.mkdir(path.dirname(outPath), { recursive: true });
   await fs.writeFile(outPath, rowsToCSV(rows), "utf8");
@@ -118,10 +121,11 @@ async function buildCash4Life() {
 async function main() {
   await buildPowerball();
   await buildMegaMillions();
-  await buildCash4Life();
-}
 
-main().catch(err => {
-  console.error(err);
-  process.exit(1);
-});
+  try {
+    await buildCash4Life();
+  } catch (err) {
+    // Don’t fail the whole job if C4L has a transient issue.
+    console.error("Cash4Life update failed:", err?.message ?? err);
+  }
+}
