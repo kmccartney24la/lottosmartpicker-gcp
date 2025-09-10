@@ -98,13 +98,6 @@ jobs:
           accountId: ${{ env.CF_ACCOUNT_ID }}
           command: r2 object put ${{ env.R2_BUCKET }}/ga/cash4life.csv --file=public/data/ga/cash4life.csv --content-type=text/csv --cache-control=public,max-age=3600,must-revalidate
 
-      - name: Head Cash4Life (after upload)
-        uses: cloudflare/wrangler-action@v3
-        with:
-         apiToken: ${{ env.CF_API_TOKEN }}
-         accountId: ${{ env.CF_ACCOUNT_ID }}
-         command: r2 object head ${{ env.R2_BUCKET }}/multi/powerball.csv
-
       - name: Peek Cash4Life (first 5 lines)
         uses: cloudflare/wrangler-action@v3
         with:
@@ -120,13 +113,6 @@ jobs:
           accountId: ${{ env.CF_ACCOUNT_ID }}
           command: r2 object put ${{ env.R2_BUCKET }}/multi/powerball.csv --file=public/data/multi/powerball.csv --content-type=text/csv --cache-control=public,max-age=3600,must-revalidate
 
-      - name: Head Powerball (after upload)
-        uses: cloudflare/wrangler-action@v3
-        with:
-         apiToken: ${{ env.CF_API_TOKEN }}
-         accountId: ${{ env.CF_ACCOUNT_ID }}
-         command: r2 object head ${{ env.R2_BUCKET }}/multi/powerball.csv
-
       - name: Peek Powerball (first 5 lines)
         uses: cloudflare/wrangler-action@v3
         with:
@@ -141,13 +127,6 @@ jobs:
           apiToken: ${{ env.CF_API_TOKEN }}
           accountId: ${{ env.CF_ACCOUNT_ID }}
           command: r2 object put ${{ env.R2_BUCKET }}/multi/megamillions.csv --file=public/data/multi/megamillions.csv --content-type=text/csv --cache-control=public,max-age=3600,must-revalidate
-      
-      - name: Head Mega Millions (after upload)
-        uses: cloudflare/wrangler-action@v3
-        with:
-         apiToken: ${{ env.CF_API_TOKEN }}
-         accountId: ${{ env.CF_ACCOUNT_ID }}
-         command: r2 object head ${{ env.R2_BUCKET }}/multi/powerball.csv
 
       - name: Peek Mega Millions (first 5 lines)
         uses: cloudflare/wrangler-action@v3
