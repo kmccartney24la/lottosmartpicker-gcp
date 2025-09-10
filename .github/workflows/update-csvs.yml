@@ -208,6 +208,7 @@ jobs:
           merge_csv multi/powerball.csv
           merge_csv multi/megamillions.csv
           merge_csv ga/cash4life.csv
+          merge_csv ga/fantasy5.csv
 
 
       - name: Show local CSVs (after merge, before upload)

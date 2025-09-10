@@ -48,33 +48,152 @@ jobs:
       - name: Merge + Upload + Verify
         shell: bash
         run: |
-          set -euo pipefail
-          npx --yes wrangler --version
-          merge_csv() {
-            local rel="$1"
+            set -euo pipefail
+            export LC_ALL=C LANG=C
+
+            canon="draw_date,num1,num2,num3,num4,num5,special"
+
+            # Small Node helper to repair any CSV to canonical header.
+            make_repair_js() {
+            cat > /tmp/repair_csv.js <<'NODE'
+            const fs = require('fs');
+
+            function stripBOM(s){ return s && s.charCodeAt(0)===0xFEFF ? s.slice(1) : s; }
+            function toYMD(s){
+            if(!s) return '';
+            const m = String(s).match(/^(\d{4}-\d{2}-\d{2})/);
+            if (m) return m[1];
+            const d = new Date(s);
+            return isNaN(d) ? '' : d.toISOString().slice(0,10);
+            }
+
+            function repair(inPath, outPath){
+            if (!fs.existsSync(inPath) || fs.statSync(inPath).size === 0) {
+                fs.writeFileSync(outPath, '', 'utf8'); return;
+            }
+            const text = fs.readFileSync(inPath, 'utf8').replace(/\r/g,'');
+            const lines = text.split('\n').filter(Boolean);
+            if (lines.length === 0) { fs.writeFileSync(outPath, '', 'utf8'); return; }
+            let header = stripBOM(lines[0]).toLowerCase().trim();
+
+            // Already canonical?
+            if (header === 'draw_date,num1,num2,num3,num4,num5,special') {
+                fs.writeFileSync(outPath, lines.join('\n')+'\n', 'utf8'); return;
+            }
+
+            const cols = header.split(',');
+            const idx = Object.fromEntries(cols.map((c,i)=>[c,i]));
+
+            const hasWinning = 'winning_numbers' in idx;
+            const hasNums = ['num1','num2','num3','num4','num5'].every(k => k in idx);
+            const specialName = ['special','mega_ball','cash_ball','powerball'].find(k=>k in idx);
+
+            // Case A: legacy Socrata export: draw_date, winning_numbers[, mega_ball|cash_ball|powerball]
+            if (('draw_date' in idx) && hasWinning) {
+                const out = [ 'draw_date,num1,num2,num3,num4,num5,special' ];
+                for (let i=1;i<lines.length;i++){
+                const parts = lines[i].split(',');
+                if (parts.length < 2) continue;
+                const date = toYMD(parts[idx['draw_date']]);
+                const wn = String(parts[idx['winning_numbers']]||'');
+                const ints = wn.match(/\d+/g)?.map(Number) || [];
+                const whites = ints.slice(0,5);
+                let special = '';
+                if (specialName && specialName !== 'special' && idx[specialName] != null) {
+                    const sraw = parts[idx[specialName]];
+                    const sval = parseInt(sraw,10);
+                    special = Number.isFinite(sval) ? String(sval) : '';
+                } else if (ints.length >= 6) {
+                    special = String(ints[5]);
+                }
+                if (date && whites.length===5) {
+                    out.push([date, whites[0], whites[1], whites[2], whites[3], whites[4], special].join(','));
+                }
+                }
+                fs.writeFileSync(outPath, out.join('\n')+'\n', 'utf8'); return;
+            }
+
+            // Case B: same shape but special column named differently: rename header only
+            if (('draw_date' in idx) && hasNums && specialName) {
+                const mapName = (n)=> (n==='mega_ball'||n==='cash_ball'||n==='powerball') ? 'special' : n;
+                const newHeader = cols.map(mapName).join(',');
+                const out = [newHeader, ...lines.slice(1)];
+                fs.writeFileSync(outPath, out.join('\n')+'\n', 'utf8'); return;
+            }
+
+            // Unknown layout → fail, so the workflow surfaces it.
+            console.error('Unrecognized header layout:', header);
+            process.exit(2);
+            }
+
+            const [,,inPath, outPath] = process.argv;
+            repair(inPath, outPath);
+            NODE
+            }
+
+            merge_csv() {
+            local rel="$1"              # e.g. ga/cash4life.csv or multi/powerball.csv
             local local_file="public/data/$rel"
+
             sed -i 's/\r$//' "$local_file" 2>/dev/null || true
-            local tmpdir; tmpdir="$(mktemp -d)"
-            local r2_file="$tmpdir/r2.csv"
-            local merged="$tmpdir/merged.csv"
+
+            local tmpdir r2_file r2_fixed local_fixed merged
+            tmpdir="$(mktemp -d)"
+            r2_file="$tmpdir/r2.csv"
+            r2_fixed="$tmpdir/r2.fixed.csv"
+            local_fixed="$tmpdir/local.fixed.csv"
+            merged="$tmpdir/merged.csv"
+
             if npx --yes wrangler r2 object get "$R2_BUCKET/$rel" --pipe --remote > "$r2_file" 2>/dev/null; then
-              echo "Fetched existing $rel from R2"
+                echo "Fetched existing $rel from R2"
             else
-              echo "No existing $rel in R2; starting fresh"; : > "$r2_file"
+                echo "No existing $rel in R2; starting fresh"
+                : > "$r2_file"
             fi
-            local header new_header r2_header
-            header="$(head -n1 "$local_file")"
-            r2_header="$( [ -s "$r2_file" ] && head -n1 "$r2_file" || echo "$header" )"
-            [ "$r2_header" = "$header" ] || { echo "Header mismatch"; exit 1; }
-            [ -s "$r2_file" ] || echo "$header" > "$r2_file"
-            { echo "$header"; (tail -n +2 "$r2_file"; tail -n +2 "$local_file") \
-              | sed '/^[[:space:]]*$/d' | awk -F, '!seen[$1]++' | sort; } > "$merged"
-            mv "$merged" "$local_file"
+
+            make_repair_js
+
+            # Normalize R2 and local to canonical header
+            node /tmp/repair_csv.js "$r2_file" "$r2_fixed"
+            node /tmp/repair_csv.js "$local_file" "$local_fixed"
+
+            # If local is empty (no new rows), just keep R2
+            if [ ! -s "$local_fixed" ] || [ "$(tail -n +2 "$local_fixed" | sed '/^[[:space:]]*$/d' | wc -l)" -eq 0 ]; then
+                echo "No new local rows for $rel; keeping R2 version."
+                cp "$r2_fixed" "$local_file"
+                return 0
+            fi
+
+            # Final sanity: headers must be canonical now
+            head -n1 "$r2_fixed" | tr -d '\r' | grep -qx "$canon" || { echo "R2 header not canonical after repair"; exit 1; }
+            head -n1 "$local_fixed" | tr -d '\r' | grep -qx "$canon" || { echo "Local header not canonical after repair"; exit 1; }
+
+            # Track previous row count for anti-truncation
+            prev_rows=$(tail -n +2 "$r2_fixed" | sed '/^[[:space:]]*$/d' | wc -l || echo 0)
+
+            # Merge append-only, unique by draw_date, sorted by date
+            {
+                echo "$canon"
+                (tail -n +2 "$r2_fixed"; tail -n +2 "$local_fixed") \
+                | sed '/^[[:space:]]*$/d' \
+                | awk -F, '!seen[$1]++' \
+                | sort
+            } > "$merged"
+
+            merged_rows=$(tail -n +2 "$merged" | sed '/^[[:space:]]*$/d' | wc -l || echo 0)
+            if [ "$merged_rows" -lt "$prev_rows" ]; then
+                echo "ERROR: Anti-truncation triggered for $rel (merged $merged_rows < previous $prev_rows)."
+                cp "$r2_fixed" "$local_file"
+            else
+                mv "$merged" "$local_file"
+            fi
+
+            echo "Post-merge $rel rows: prev=$prev_rows → now=$merged_rows"
             npx wrangler r2 object put "$R2_BUCKET/$rel" --file="$local_file" --content-type=text/csv --cache-control=public,max-age=3600,must-revalidate --remote
             echo "Uploaded $rel"
-          }
-          case "${{ github.event.inputs.game }}" in
-            powerball)     merge_csv multi/powerball.csv ;;
-            megamillions)  merge_csv multi/megamillions.csv ;;
-            cash4life)     merge_csv ga/cash4life.csv ;;
-          esac
+            }
+
+            # Call for each file you’re seeding/merging
+            merge_csv multi/powerball.csv
+            merge_csv multi/megamillions.csv
+            merge_csv ga/cash4life.csv
