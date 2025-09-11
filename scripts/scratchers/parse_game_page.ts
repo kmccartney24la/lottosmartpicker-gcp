@@ -18,6 +18,10 @@ export async function fetchGameDetails(gameIds: string[]): Promise<GameDetail[]>
   for (const id of gameIds) {
     const url = `https://www.galottery.com/en-us/games/scratchers/${id}.html`;
     await page.goto(url, { waitUntil: 'domcontentloaded' });
+    async function acceptCookies(page: Page) { /* same as above */ }
+    // After page.goto(...):
+    await acceptCookies(page);
+    await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
     // Wait for “Game Number: <id>” or the headline to appear:
     await page.waitForSelector(`text=Game Number: ${id}`, { timeout: 15000 }).catch(() => {});
 
