@@ -33,7 +33,7 @@ export default function HintLegend() {
               tone={classifyHint(label)}
               title={tip}
               wrap
-              style={{ width: '80px' }}        // ✅ same as grid col for perfect alignment
+              style={{ width: '75px' }}        // ✅ same as grid col for perfect alignment
             >
               {label}
             </Pill>
