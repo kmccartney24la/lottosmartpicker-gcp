@@ -1,7 +1,7 @@
 'use client';
 import { useMemo, useRef, useState } from 'react';
 import Info from 'src/components/Info';
-import HintLegend, { explainHint } from './HintLegend';
+import { explainHint } from 'src/components/HintLegend';
 import {
   GameKey,
   LottoRow,

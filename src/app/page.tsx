@@ -6,7 +6,7 @@ import Generator from 'src/components/Generator';
 import AnalyzeSidebar from 'src/components/AnalyzeSidebar';
 import GameOverview from 'src/components/GameOverview';
 import SelectedLatest from 'src/components/SelectedLatest';
-import HintLegend from './HintLegend';
+import HintLegend from 'src/components/HintLegend';
 import {
   GameKey,
   LottoRow,
