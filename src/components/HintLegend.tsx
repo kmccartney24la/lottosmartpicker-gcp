@@ -15,16 +15,18 @@ export default function HintLegend() {
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <div style={{ fontWeight: 700 }}>Tag Legend</div>
       </div>
+
       <ul className="hint" style={{ margin: 6, paddingLeft: 18 }}>
         {Object.entries(EXPLAIN).map(([label, tip]) => (
           <li key={label} style={{ display: 'flex', gap: 8, alignItems: 'baseline' }}>
+            {/* fixed width + wrap for uniform pills in legend */}
             <Pill
-            tone={classifyHint(label)}
-            title={tip}
-            wrap
-            style={{ width: 140 }}  // pick a width that looks good (e.g. 120–160px)
+              tone={classifyHint(label)}
+              title={tip}
+              wrap
+              style={{ width: 140 }}
             >
-                {label}
+              {label}
             </Pill>
             <span>{tip}</span>
           </li>

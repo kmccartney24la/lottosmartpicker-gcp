@@ -8,28 +8,32 @@ export default function Pill({
   title,
   children,
   style,
+  wrap = false,          // ✅ destructure wrap
 }: {
   tone?: PillTone;
   title?: string;
   children: ReactNode;
   style?: React.CSSProperties;
-  wrap?: boolean; 
+  wrap?: boolean;
 }) {
   const base: React.CSSProperties = {
     display: 'inline-flex',
     alignItems: 'center',
+    justifyContent: wrap ? 'center' : undefined, // ✅ center when fixed width
     gap: 6,
     borderRadius: 9999,
     padding: '2px 8px',
     fontSize: 12,
-    lineHeight: 1.6,
+    lineHeight: 1.4,
     borderWidth: 1,
     borderStyle: 'solid',
-    whiteSpace: wrap ? 'normal' : 'nowrap',
+    whiteSpace: wrap ? 'normal' : 'nowrap',      // ✅ allow wrapping in legend
     textAlign: wrap ? 'center' : undefined,
+    overflowWrap: wrap ? 'anywhere' : undefined, // ✅ wrap long labels
+    wordBreak: wrap ? 'break-word' : undefined,
+    cursor: 'default',
   };
 
-  // use your CSS variables if present; otherwise fallback colors
   const tones: Record<PillTone, React.CSSProperties> = {
     hot:     { borderColor: 'var(--danger, #d33)', background: 'rgba(221,51,51,.08)', color: 'var(--danger, #b11)' },
     cold:    { borderColor: 'var(--accent, #276ef1)', background: 'rgba(39,110,241,.08)', color: 'var(--accent, #1d52b5)' },
