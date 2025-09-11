@@ -6,6 +6,7 @@ import Generator from 'src/components/Generator';
 import AnalyzeSidebar from 'src/components/AnalyzeSidebar';
 import GameOverview from 'src/components/GameOverview';
 import SelectedLatest from 'src/components/SelectedLatest';
+import HintLegend from './HintLegend';
 import {
   GameKey,
   LottoRow,
@@ -130,6 +131,9 @@ export default function Page() {
           <div style={{ display:'grid', gap: 12 }}>
             <GameOverview game={game} />
             <AnalyzeSidebar />
+          </div>
+          <div style={{ marginTop: 12 }}>
+            <HintLegend />
           </div>
         </section>
       </div>
