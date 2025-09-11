@@ -102,7 +102,7 @@ export default function Generator({
         </button>
         <Info
           tip={
-            'Recommended uses current-era stats with gentle safeguards:\n' +
+            'Recommended uses past drawing stats with gentle safeguards:\n' +
             '• Measures dispersion (CV) of hit counts for mains & special.\n' +
             '• Converts CV → hot/cold + α, then applies small per-game α clamps.\n' +
             '• Adds light smoothing to avoid overfitting when samples are small.\n' +
@@ -118,7 +118,7 @@ export default function Generator({
         <Info
           tip={
             'Main weighting:\n' +
-            '• hot: probability ∝ historical frequency (current era)\n' +
+            '• hot: probability ∝ historical frequency\n' +
             '• cold: probability ∝ inverse frequency (rarer → higher weight)\n' +
             '• α blends uniform with history (0=uniform, 1=hot/cold)\n' +
             '• A tiny smoothing prior reduces spiky behavior on low samples.'
@@ -134,6 +134,7 @@ export default function Generator({
         step={0.05}
         value={alphaMain}
         onChange={(e)=>setAlphaMain(parseFloat(e.target.value))}
+        style={{ width: '95%' }} 
       />
       <div className="hint" aria-live="polite">alpha = {alphaMain.toFixed(2)} ({modeMain})</div>
 
@@ -159,6 +160,7 @@ export default function Generator({
             step={0.05}
             value={alphaSpecial}
             onChange={(e)=>setAlphaSpecial(parseFloat(e.target.value))}
+            style={{ width: '95%' }} 
           />
           <div className="hint" aria-live="polite">alpha = {alphaSpecial.toFixed(2)} ({modeSpecial})</div>
         </>

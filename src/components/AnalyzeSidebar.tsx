@@ -64,13 +64,13 @@ export default function AnalyzeSidebar() {
             <div style={{ fontWeight:600, marginBottom:4 }}>{g.label}</div>
             {a ? (
               <ul className="hint" style={{ margin:0, paddingLeft: 18 }}>
-                <li><strong>Draws:</strong> {a.draws}</li>
+                <li><strong>Count of past draws:</strong> {a.draws}</li>
                 <li><strong>Jackpot odds:</strong> {`1 in ${jackpotOdds(g.key).toLocaleString()}`}</li>
                 {a.eraCfg.specialMax>0 && (
-                  <li><strong>Pick:</strong> mains <em>{a.recMain.mode}</em> (α={a.recMain.alpha.toFixed(2)}), special <em>{a.recSpec.mode}</em> (α={a.recSpec.alpha.toFixed(2)})</li>
+                  <li><strong>Recommended weighting:</strong> mains <em>{a.recMain.mode}</em> (α={a.recMain.alpha.toFixed(2)}), special <em>{a.recSpec.mode}</em> (α={a.recSpec.alpha.toFixed(2)})</li>
                 )}
                 {a.eraCfg.specialMax===0 && (
-                  <li><strong>Pick:</strong> mains <em>{a.recMain.mode}</em> (α={a.recMain.alpha.toFixed(2)})</li>
+                  <li><strong>Recommended weighting:</strong> mains <em>{a.recMain.mode}</em> (α={a.recMain.alpha.toFixed(2)})</li>
                 )}
               </ul>
             ) : <div className="hint">Unavailable.</div>}

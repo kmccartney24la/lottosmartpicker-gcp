@@ -1,8 +1,6 @@
 export const HINT_EXPLAIN: Record<string, string> = {
   'Balanced':
     'No strong hot/cold signals; no obvious sequences or tight clusters.',
-  'Pattern looks common':
-    'Contains patterns many people choose. Avoid to reduce shared-jackpot risk.',
   'Hot mains':
     'At least 3 mains show z-score > 1 (hit more than expected recently).',
 'Cold mains':
@@ -11,6 +9,8 @@ export const HINT_EXPLAIN: Record<string, string> = {
     'Special ball z-score > 1 (more frequent lately).',
   'Cold special':
     'Special ball z-score < -1 (less frequent lately).',
+'Pattern looks common':
+    'Contains patterns many people choose.',
 };
 
 // Map each hint to a visual tone
