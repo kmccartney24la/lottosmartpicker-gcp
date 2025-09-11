@@ -119,6 +119,7 @@ export default function Page() {
           </div>
           {/* Latest for selected game only */}
           <SelectedLatest game={game} />
+          </div>
       </section>
 
       {/* Main two-column: left = generator, right = info + analysis */}
