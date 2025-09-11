@@ -93,7 +93,7 @@ export default function Page() {
     <main>
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
         <h1 style={{ fontSize: 26, fontWeight: 800 }}>LottoSmartPicker</h1>
-        <div className="controls" style={{ gap: 8, alignItems:'center' }}>
+        <div className="controls" style={{ gap: 8 }}>
           <ThemeSwitcher />
           <button className="btn btn-ghost" onClick={() => setShowPast(true)} aria-controls="past-draws" aria-expanded={showPast}>
             Past Draws

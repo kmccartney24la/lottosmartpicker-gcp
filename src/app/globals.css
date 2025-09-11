@@ -8,6 +8,8 @@ html, body {font-family: var(--font-sans), system-ui, -apple-system, Segoe UI, R
 body{background:var(--bg);color:var(--fg);margin:0}
 .flex-1{flex:1}
 .card{background:var(--card);border:1px solid var(--card-bd);border-radius:14px;padding:16px}
+.header-controls{align-items:flex-end} /* bottom-align Theme + Past Draws */
+.controls label{display:flex;flex-direction:column;gap:4px} /* clean label+field stack */
 .btn{border-radius:10px;border:1px solid var(--card-bd);padding:10px 14px;cursor:pointer}
 .btn-primary{background:var(--accent);color:var(--accent-contrast);border-color:transparent}
 .btn-ghost{background:transparent;color:var(--fg)}
@@ -21,7 +23,7 @@ table{width:100%;border-collapse:collapse}
 th,td{padding:8px;border-bottom:1px solid var(--card-bd)}
 .mono{font-family: ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace}
 label > span{font-size:12px;opacity:.8}
-input,select{background:var(--card);color:var(--fg);border:1px solid var(--card-bd);border-radius:8px;padding:8px;min-height:var(--control-h);line-height:1.2}
+input,select{background:var(--card);color:var(--fg);border:1px solid var(--card-bd);border-radius:8px;padding:8px;min-height:var(--control-h);line-height:1.2;display:block}
 select{
   appearance:none;
   background-position:right 10px center;
