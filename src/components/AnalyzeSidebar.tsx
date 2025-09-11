@@ -1,8 +1,8 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   GameKey, analyzeGame, fetchRowsWithCache, getCurrentEraConfig,
-  jackpotOdds, fetchJackpotWithCache, formatJackpotAmount, nextRefreshAtNYFor,
+  jackpotOdds,
 } from '@lib/lotto';
 
 const ORDER: { key: GameKey; label: string }[] = [
@@ -13,7 +13,6 @@ const ORDER: { key: GameKey; label: string }[] = [
 ];
 
 type A = ReturnType<typeof analyzeGame>;
-type J = Awaited<ReturnType<typeof fetchJackpotWithCache>>;
 
 export default function AnalyzeSidebar() {
   const [data, setData] = useState<Record<GameKey, A | null>>({
@@ -22,13 +21,6 @@ export default function AnalyzeSidebar() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string|null>(null);
   const [okCount, setOkCount] = useState(0);
-
-  const [jackpots, setJackpots] = useState<Record<GameKey, J | null>>({
-    powerball: null, megamillions: null, ga_cash4life: null, ga_fantasy5: null,
-  });
-  const timeoutsRef = useRef<Record<GameKey, number | null>>({
-    powerball: null, megamillions: null, ga_cash4life: null, ga_fantasy5: null,
-  });
 
   // Load per-game analysis (current era only)
   useEffect(() => {
@@ -59,52 +51,6 @@ export default function AnalyzeSidebar() {
     return () => { alive = false; };
   }, []);
 
-  // Initial jackpot load, then schedule a refresh a few hours after each game's next drawing
-  useEffect(() => {
-    let alive = true;
-
-    const loadAll = async () => {
-      const settled = await Promise.allSettled(ORDER.map(g => fetchJackpotWithCache(g.key)));
-      if (!alive) return;
-      const next: Partial<Record<GameKey, J>> = {};
-      settled.forEach((r, i) => { if (r.status === 'fulfilled') next[ORDER[i].key] = r.value; });
-      setJackpots(prev => ({ ...prev, ...next }));
-    };
-
-    const scheduleFor = (g: GameKey, hoursAfter = 3) => {
-      if (timeoutsRef.current[g] != null) {
-        clearTimeout(timeoutsRef.current[g]!);
-        timeoutsRef.current[g] = null;
-      }
-      const when = nextRefreshAtNYFor(g, hoursAfter).getTime();
-      const delay = Math.max(0, when - Date.now());
-      timeoutsRef.current[g] = window.setTimeout(async () => {
-        try {
-          const q = await fetchJackpotWithCache(g);
-          if (alive) setJackpots(prev => ({ ...prev, [g]: q }));
-        } finally {
-          // schedule again for the following drawing
-          scheduleFor(g, hoursAfter);
-        }
-      }, delay);
-    };
-
-    // initial load now
-    void loadAll();
-    // schedule each game (tweak per-game hours if desired)
-    ORDER.forEach(x => scheduleFor(x.key, 3));
-
-    // if user returns to the tab long after a draw, refresh immediately
-    const onVis = () => { if (document.visibilityState === 'visible') void loadAll(); };
-    document.addEventListener('visibilitychange', onVis);
-
-    return () => {
-      alive = false;
-      document.removeEventListener('visibilitychange', onVis);
-      ORDER.forEach(x => { if (timeoutsRef.current[x.key] != null) clearTimeout(timeoutsRef.current[x.key]!); });
-    };
-  }, []);
-
   return (
     <aside aria-label="Analysis" className="card" style={{ position:'sticky', top: 8 }}>
       <div style={{ fontWeight:700, marginBottom: 8 }}>Analysis (All Games)</div>
@@ -120,15 +66,6 @@ export default function AnalyzeSidebar() {
               <ul className="hint" style={{ margin:0, paddingLeft: 18 }}>
                 <li><strong>Draws:</strong> {a.draws}</li>
                 <li><strong>Jackpot odds:</strong> {`1 in ${jackpotOdds(g.key).toLocaleString()}`}</li>
-                <li>
-                  <strong>Next jackpot:</strong>{' '}
-                  {formatJackpotAmount(jackpots[g.key]?.amount ?? null)}
-                  {jackpots[g.key]?.source && (
-                    <span className="mono" style={{ marginLeft: 6, opacity: 0.6 }}>
-                      (live)
-                    </span>
-                  )}
-                </li>
                 {a.eraCfg.specialMax>0 && (
                   <li><strong>Pick:</strong> mains <em>{a.recMain.mode}</em> (α={a.recMain.alpha.toFixed(2)}), special <em>{a.recSpec.mode}</em> (α={a.recSpec.alpha.toFixed(2)})</li>
                 )}
