@@ -12,42 +12,27 @@ export type TopPrizeRow = {
   asOf: string; // “Data as of …”
 };
 
-async function acceptCookies(page: Page) {
-  const selectors = [
-    '#onetrust-accept-btn-handler',
-    'button#onetrust-accept-btn-handler',
-    'button:has-text("Accept")',
-    'button:has-text("Accept All")',
-  ];
-  for (const sel of selectors) {
-    try {
-      const btn = page.locator(sel).first();
-      if (await btn.count()) {
-        await btn.click({ timeout: 3000 });
-        break;
-      }
-    } catch {}
-  }
+async function acceptCookies(p: Page) {
+  const btn = p.locator('#onetrust-accept-btn-handler, button:has-text("Accept"), button:has-text("Accept All")').first();
+  if (await btn.count()) await btn.click({ timeout: 2000 }).catch(()=>{});
 }
 
 export async function fetchTopPrizes(): Promise<TopPrizeRow[]> {
-  const browser = await chromium.launch({
-    args: ['--no-sandbox','--disable-setuid-sandbox','--disable-dev-shm-usage'],
-  });
-  const page = await browser.newPage();
-  page.setDefaultTimeout(60000);
+  const browser = await chromium.launch({ args: ['--no-sandbox','--disable-setuid-sandbox','--disable-dev-shm-usage'] });
+  const context = await browser.newContext({ locale: 'en-US', timezoneId: 'America/New_York' });
+  const page = await context.newPage();
 
   await page.goto('https://www.galottery.com/en-us/games/scratchers/scratchers-top-prizes-claimed.html', { waitUntil: 'domcontentloaded' });
   await acceptCookies(page);
   await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
 
-  // Wait for "table has at least one data row"
-  await page.waitForSelector('table tr:has(td)', { timeout: 30000 });
+  await page.waitForSelector('table tr >> nth=1', { timeout: 30000 });
+  const asOf = (await page.locator('text=Data as of').first().textContent().catch(()=>''))?.trim() || '';
 
-  const asOf = (await page.locator('text=Data as of').first().textContent().catch(()=>null) || '').trim();
-
-  const rows = await page.$$eval('table tr', trs => trs.map(tr => Array.from(tr.querySelectorAll('td')).map(td => td.textContent?.trim() || '')));
-  const body = rows.filter(cells => cells.length >= 6);
+  const rows = await page.$$eval('table tr', trs =>
+    trs.map(tr => Array.from(tr.querySelectorAll('td')).map(td => td.textContent?.trim() || ''))
+  );
+  const body = rows.filter(c => c.length >= 6);
 
   const out = body.map(c => ({
     gameId: c[0],
@@ -58,6 +43,8 @@ export async function fetchTopPrizes(): Promise<TopPrizeRow[]> {
     total: toNum(c[5]),
     asOf,
   }));
+
+  await context.close();
   await browser.close();
   return out;
 }

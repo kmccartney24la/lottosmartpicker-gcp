@@ -11,6 +11,7 @@ import { fetchGameDetails } from './parse_game_page';
 const OUT_DIR = path.resolve('public/data/ga_scratchers');
 const LATEST = path.join(OUT_DIR, 'index.latest.json');
 const MERGED = path.join(OUT_DIR, 'index.json');
+const sleep = (ms:number)=>new Promise(r=>setTimeout(r,ms));
 
 type Tier = { name: string; prizeValue: number; totalCount: number; remainingCount: number; };
 type Game = {
@@ -21,31 +22,52 @@ type Game = {
 };
 type Snapshot = { date: string; games: Game[] };
 
-async function withRetry<T>(fn: () => Promise<T>, attempts = 2, delayMs = 1200): Promise<T> {
+async function withRetry<T>(fn: () => Promise<T>, label: string, tries = 2, delayMs = 2000): Promise<T | null> {
   let lastErr: any;
-  for (let i = 0; i < attempts; i++) {
-    try { return await fn(); } catch (e) { lastErr = e; if (i < attempts - 1) await new Promise(r => setTimeout(r, delayMs)); }
+  for (let i = 0; i < tries; i++) {
+    try { return await fn(); } catch (e) { lastErr = e; await sleep(delayMs); }
   }
-  throw lastErr;
+  console.warn(`${label} failed after ${tries} tries:`, (lastErr && (lastErr as Error).message) || lastErr);
+  return null;
 }
 
 async function fetchActiveGames(): Promise<Game[]> {
-  // 1) Cards + links for active and ended
-  const { active, ended } = await withRetry(() => fetchGameLinks(), 2);
+  // 1) Try to scrape list pages (non-blocking)
+  const linkSets = await withRetry(fetchGameLinks, 'fetchGameLinks'); // { active, ended } | null
 
-  // 2) Top-prize table (claimed/total)
+  // 2) Always get Top-Prizes table (server-rendered, reliable)
   const top = await fetchTopPrizes();
 
-  // 3) Odds/dates per game
-  const ids = Array.from(new Set([...active, ...ended].map(g => g.gameId)));
+  // 3) Build a canonical link list
+  let links: { gameId: string; name: string; price: number; href: string; status: 'active'|'ended' }[] = [];
+
+  if (linkSets && linkSets.active?.length) {
+    links = linkSets.active;
+  } else {
+    // Fallback: synthesize from Top-Prizes (treat as active)
+    links = top.map(t => ({
+      gameId: t.gameId,
+      name: t.name,
+      price: t.price,
+      href: `https://www.galottery.com/en-us/games/scratchers/${t.gameId}.html`,
+      status: 'active',
+    }));
+  }
+
+  // Optionally add ended links if the ended page worked
+  if (linkSets?.ended?.length) {
+    links.push(...linkSets.ended);
+  }
+
+  // 4) Enrich with per-game details (best-effort)
+  const ids = Array.from(new Set(links.map(g => g.gameId)));
   const details = await fetchGameDetails(ids);
 
-  // Join helpers
-  const linkById = new Map([...active, ...ended].map(g => [g.gameId, g]));
-  const topById  = new Map(top.map(t => [t.gameId, t]));
+  const linkById = new Map(links.map(g => [g.gameId, g]));
   const detById  = new Map(details.map(d => [d.gameId, d]));
+  const topById  = new Map(top.map(t => [t.gameId, t]));
 
-  // Build canonical Game[]; seed a synthetic top-prize tier when available
+  // 5) Build Game[]
   const games: Game[] = ids.map(id => {
     const link = linkById.get(id)!;
     const det  = detById.get(id);
@@ -70,7 +92,7 @@ async function fetchActiveGames(): Promise<Game[]> {
       launchDate: det?.launchDate,
       endDate: det?.endDate,
       overallOdds: det?.overallOdds,
-      tiers, // add full tier parsing later
+      tiers,
     };
   });
 
