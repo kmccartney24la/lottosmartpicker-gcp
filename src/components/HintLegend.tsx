@@ -23,7 +23,7 @@ export default function HintLegend() {
             key={label}
             style={{
               display: 'grid',
-              gridTemplateColumns: '100px 1fr', // ✅ uniform pill column
+              gridTemplateColumns: '80px 1fr', // ✅ uniform pill column
               columnGap: 10,
               alignItems: 'start',              // ✅ top-align the row
               marginBottom: 8,
@@ -33,7 +33,7 @@ export default function HintLegend() {
               tone={classifyHint(label)}
               title={tip}
               wrap
-              style={{ width: '100px' }}        // ✅ same as grid col for perfect alignment
+              style={{ width: '80px' }}        // ✅ same as grid col for perfect alignment
             >
               {label}
             </Pill>
