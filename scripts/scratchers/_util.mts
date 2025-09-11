@@ -1,4 +1,4 @@
-// scripts/scratchers/_util.ts
+// scripts/scratchers/_util.mts
 export const sleep = (ms:number)=>new Promise(r=>setTimeout(r,ms));
 export const toNum = (s:string) => {
   const t = s.replace(/[,\$]/g,'').trim();

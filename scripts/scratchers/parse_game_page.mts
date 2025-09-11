@@ -1,6 +1,7 @@
-// scripts/scratchers/parse_game_page.ts
+// scripts/scratchers/parse_game_page.mts
 import { chromium, Page } from 'playwright';
-import { oddsFromText } from './_util';
+// Local utilities are ESM modules with explicit extension
+import { oddsFromText } from './_util.mts';
 
 export type GameDetail = {
   gameId: string;
