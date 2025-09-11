@@ -3,6 +3,7 @@ import { useMemo, useRef, useState } from 'react';
 import Info from 'src/components/Info';
 import Pill from './Pill';
 import { HINT_EXPLAIN, classifyHint } from './hints';
+import EvaluateTicket from './EvaluateTicket';
 import {
   GameKey,
   LottoRow,
@@ -32,6 +33,7 @@ export default function Generator({
   const [num, setNum] = useState(10);
   const [tickets, setTickets] = useState<{ mains: number[]; special?: number }[]>([]); // special optional for Fantasy 5
   const liveRef = useRef<HTMLDivElement|null>(null);
+  const [showEvaluate, setShowEvaluate] = useState(false);
 
   // ---- Era-aware data & stats (always current era) ----
   const eraCfg = useMemo(() => getCurrentEraConfig(game), [game]);
@@ -202,7 +204,33 @@ export default function Generator({
         >
           Copy tickets
         </button>
+        <button
+          className="btn btn-ghost"
+          style={{
+            marginTop: 10,
+            // subtle on/off affordance using your token colors
+            borderColor: showEvaluate ? 'var(--accent)' : 'var(--card-bd)',
+            outline: showEvaluate ? '2px solid rgba(37,99,235,.35)' : undefined,
+          }}
+          aria-pressed={showEvaluate}
+          aria-controls="evaluate-panel"
+          onClick={() => setShowEvaluate(v => !v)}
+          title={showEvaluate ? 'Hide Evaluate My Numbers' : 'Show Evaluate My Numbers'}
+        >
+          Evaluate
+        </button>
       </div>
+      
+{/* Evaluate My Numbers (togglable) */}
+      {showEvaluate && (
+        <div id="evaluate-panel" style={{ marginTop: 8 }}>
+          <EvaluateTicket
+            game={game}
+            rowsForGenerator={rowsForGenerator}
+            precomputedStats={stats}
+          />
+        </div>
+      )}
 
       {/* Results */}
       <div aria-live="polite" ref={liveRef} style={{ position:'absolute', width:1, height:1, clip:'rect(0 0 0 0)', overflow:'hidden' }} />

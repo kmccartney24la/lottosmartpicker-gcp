@@ -525,6 +525,14 @@ export function nextDrawLabelNYFor(game: GameKey): string {
   return 'Daily 11:34 PM ET';
 }
 
+export function evaluateTicket(
+  game: GameKey,
+  mains: number[],
+  special: number | 0,
+  stats: ReturnType<typeof computeStats>
+): string[] {
+  return ticketHints(game, mains, special ?? 0, stats);
+}
 /* ---------------- Stats / weighting ---------------- */
 
 export function computeStats(
