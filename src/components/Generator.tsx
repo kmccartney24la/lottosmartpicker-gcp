@@ -1,6 +1,6 @@
 'use client';
-import { useMemo, useState } from 'react';
-import Info from '@components/Info';
+import { useMemo, useRef, useState } from 'react';
+import Info from 'src/components/Info';
 import {
   GameKey,
   computeStats,
@@ -28,6 +28,7 @@ export default function Generator({
   const [avoidCommon, setAvoidCommon] = useState(true);
   const [num, setNum] = useState(10);
   const [tickets, setTickets] = useState<{ mains: number[]; special?: number }[]>([]); // special optional for Fantasy 5
+  const liveRef = useRef<HTMLDivElement|null>(null);
 
   // ---- Era-aware data & stats (always current era) ----
   const eraCfg = useMemo(() => getCurrentEraConfig(game), [game]);
@@ -63,6 +64,7 @@ export default function Generator({
       guard++;
     }
     setTickets(out);
+    if (liveRef.current) liveRef.current.textContent = `Generated ${out.length} tickets.`;
   }
 
   async function copyTicketsToClipboard() {
@@ -191,6 +193,13 @@ export default function Generator({
           Generate
         </button>
         <button
+          onClick={()=>generate()}
+          className="btn btn-ghost"
+          style={{ marginTop: 10 }}
+          disabled={tickets.length === 0}
+          aria-label="Regenerate tickets"
+        >Regenerate</button>
+        <button
           onClick={copyTicketsToClipboard}
           className="btn btn-ghost"
           style={{ marginTop: 10 }}
@@ -202,6 +211,7 @@ export default function Generator({
       </div>
 
       {/* Results */}
+      <div aria-live="polite" ref={liveRef} style={{ position:'absolute', width:1, height:1, clip:'rect(0 0 0 0)', overflow:'hidden' }} />
       <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 8 }}>
         {tickets.map((t, i) => {
           const hints = ticketHints(game, t.mains, t.special ?? 0, stats);

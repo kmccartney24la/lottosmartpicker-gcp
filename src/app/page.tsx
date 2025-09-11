@@ -1,11 +1,13 @@
 'use client';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import ThemeSwitcher from '@components/ThemeSwitcher';
-import Info from '@components/Info';
-import PastDrawsSidebar from '@components/PastDrawsSidebar';
-import Generator from '@components/Generator';
-import ExportCsvButton from '@components/ExportCsvButton';
-import EraBanner from '@components/EraBanner';
+import dynamic from 'next/dynamic';
+import ThemeSwitcher from 'src/components/ThemeSwitcher';
+import Info from 'src/components/Info';
+import PastDrawsSidebar from 'src/components/PastDrawsSidebar';
+import Generator from 'src/components/Generator';
+const FrequencyPanel = dynamic(() => import('src/components/FrequencyPanel'), { ssr: false });
+import ExportCsvButton from 'src/components/ExportCsvButton';
+import EraBanner from 'src/components/EraBanner';
 import {
   GameKey,
   LottoRow,
@@ -32,6 +34,7 @@ export default function Page() {
   const [autoRefresh, setAutoRefresh] = useState<boolean>(false);
 
   const [rows, setRows] = useState<LottoRow[]>([]);
+  const [sortDir, setSortDir] = useState<'desc'|'asc'>('desc'); // newest first by default
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -42,12 +45,27 @@ export default function Page() {
 
   const [compact, setCompact] = useState<boolean>(true);
   const [showPast, setShowPast] = useState<boolean>(false);
+  const [showFreq, setShowFreq] = useState<boolean>(false);
+  const [isMobile, setIsMobile] = useState<boolean>(false);
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 768px)');
+    const apply = () => setIsMobile(mq.matches);
+    apply(); mq.addEventListener?.('change', apply);
+    return () => mq.removeEventListener?.('change', apply);
+  }, []);
 
   const [page, setPage] = useState(1);
   const pageSize = 25;
 
-  const pageCount = Math.max(1, Math.ceil(rows.length / pageSize));
-  const pageRows = useMemo(() => rows.slice((page - 1) * pageSize, page * pageSize), [rows, page]);
+  const sortedRows = useMemo(() => {
+    const arr = [...rows];
+    arr.sort((a,b) => sortDir === 'desc'
+      ? (a.date < b.date ? 1 : a.date > b.date ? -1 : 0)
+      : (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+    return arr;
+  }, [rows, sortDir]);
+  const pageCount = Math.max(1, Math.ceil(sortedRows.length / pageSize));
+  const pageRows = useMemo(() => sortedRows.slice((page - 1) * pageSize, page * pageSize), [sortedRows, page]);
 
   // When latestOnly is on, we still fetch with latestOnly to avoid extra payloads.
   const rowsForGenerator = latestOnly ? rows.slice(0, 1) : rows;
@@ -106,15 +124,28 @@ export default function Page() {
         <div className="controls" style={{ gap: 8 }}>
           <ThemeSwitcher />
           <div className="hint">Accessible, high-contrast UI</div>
-          <button
-            className="btn btn-ghost"
-            onClick={() => setShowPast(true)}
-            aria-controls="past-draws"
-            aria-expanded={showPast}
-            aria-label="Open Past Draws panel"
-          >
-            Past Draws
-          </button>
+          <div className="tabbar" role="tablist" aria-label="Panels">
+            <button
+              role="tab"
+              aria-selected={showPast}
+              className="btn btn-ghost"
+              onClick={() => { setShowPast(true); setShowFreq(false); }}
+              aria-controls="past-draws"
+              aria-expanded={showPast}
+            >
+              Past Draws
+            </button>
+            <button
+              role="tab"
+              aria-selected={showFreq}
+              className="btn btn-ghost"
+              onClick={() => { setShowFreq(true); setShowPast(false); }}
+              aria-controls="frequency-panel"
+              aria-expanded={showFreq}
+            >
+              Frequency
+            </button>
+          </div>
         </div>
       </header>
 
@@ -223,6 +254,31 @@ export default function Page() {
           onEnsureRecommended={ensureRecommendedForSelected}
         />
       </section>
+
+      {/* Panels (mutually exclusive). On mobile, render as bottom sheets; on desktop, as right drawers. */}
+      <PastDrawsSidebar
+        open={showPast}
+        onClose={() => setShowPast(false)}
+        compact={compact}
+        setCompact={setCompact}
+        pageRows={pageRows}
+        page={page}
+        pageCount={pageCount}
+        setPage={setPage}
+        total={sortedRows.length}
+        side={isMobile ? 'bottom' : 'right'}
+        sortDir={sortDir}
+        onToggleSort={() => setSortDir(d => d === 'desc' ? 'asc' : 'desc')}
+      />
+
+      <FrequencyPanel
+        id="frequency-panel"
+        open={showFreq}
+        onClose={() => setShowFreq(false)}
+        rows={rows}
+        side={isMobile ? 'bottom' : 'right'}
+        game={game}
+      />
 
       <PastDrawsSidebar
         open={showPast}

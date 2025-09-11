@@ -18,10 +18,35 @@ export default function PastDrawsSidebar({
     return () => document.removeEventListener('keydown', onKey);
   }, [onClose]);
 
+  // Simple focus trap when open
+  useEffect(() => {
+    if (!open) return;
+    function trap(e: KeyboardEvent) {
+      if (e.key !== 'Tab') return;
+      const dlg = document.getElementById('past-draws');
+      if (!dlg) return;
+      const els = dlg.querySelectorAll<HTMLElement>('button,[href],input,select,textarea,[tabindex]:not([tabindex="-1"])');
+      if (!els.length) return;
+      const first = els[0], last = els[els.length-1];
+      const active = document.activeElement as HTMLElement | null;
+      if (e.shiftKey && active === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && active === last) { e.preventDefault(); first.focus(); }
+    }
+    document.addEventListener('keydown', trap);
+    return () => document.removeEventListener('keydown', trap);
+  }, [open]);
+
   return (
     <>
       {open && <div className="backdrop" onClick={onClose} aria-hidden="true" />}
-      <aside id="past-draws" className={`sidebar ${open ? 'open' : ''}`} role="complementary" aria-label="Past Draws" aria-hidden={!open}>
+      <aside
+        id="past-draws"
+        className={`sidebar ${open ? 'open' : ''}`}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Past Draws"
+        aria-hidden={!open}
+      >
         <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:16, borderBottom:'1px solid var(--card-bd)' }}>
           <div style={{ fontWeight:700 }}>Past Draws</div>
           <div style={{ display:'flex', alignItems:'center', gap:8 }}>
