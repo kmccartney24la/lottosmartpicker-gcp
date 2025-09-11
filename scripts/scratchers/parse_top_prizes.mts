@@ -1,6 +1,7 @@
-// scripts/scratchers/parse_top_prizes.ts
+// scripts/scratchers/parse_top_prizes.mts
 import { chromium, Page } from 'playwright';
-import { toNum, priceFromString } from './_util';
+// Local utilities are ESM modules with explicit extension
+import { toNum, priceFromString } from './_util.mts';
 
 export type TopPrizeRow = {
   gameId: string;

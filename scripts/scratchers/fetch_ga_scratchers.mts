@@ -4,9 +4,10 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
-import { fetchTopPrizes } from './parse_top_prizes';
-import { fetchGameLinks } from './parse_lists';
-import { fetchGameDetails } from './parse_game_page';
+// Explicit extensions keep ESM resolution happy when run via tsx
+import { fetchTopPrizes } from './parse_top_prizes.mts';
+import { fetchGameLinks } from './parse_lists.mts';
+import { fetchGameDetails } from './parse_game_page.mts';
 
 const OUT_DIR = path.resolve('public/data/ga_scratchers');
 const LATEST = path.join(OUT_DIR, 'index.latest.json');

@@ -1,4 +1,4 @@
-// scripts/scratchers/parse_lists.ts
+// scripts/scratchers/parse_lists.mts
 import { chromium, Page } from 'playwright';
 
 type GameLink = { gameId: string; name: string; price: number; href: string; status: 'active'|'ended' };
@@ -66,10 +66,14 @@ async function acceptCookies(page: Page) {
   }
 }
 
-async function openAndReady(page: Page, url: string) {
+// Open a list page and ensure scratcher cards are rendered. Sometimes the
+// GA site defaults to a different tab, so we optionally click the desired
+// tab before scraping.
+async function openAndReady(page: Page, url: string, which: 'active'|'ended') {
   await page.goto(url, { waitUntil: 'domcontentloaded' });
   await acceptCookies(page);
   await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+  await maybeClickTab(page, which);
   // Be tolerant: wait (optionally) for numeric links, but don't fail
   await waitForNumericGameLinks(page);
   await autoScroll(page);
@@ -134,6 +138,8 @@ async function collectFrom(page: Page, status: 'active'|'ended'): Promise<GameLi
 export async function fetchGameLinks() {
   const { browser, page } = await newPage();
 
+  // Open the active and ended lists sequentially. Passing the desired tab
+  // helps when the site defaults to the other tab on load.
   await openAndReady(page, 'https://www.galottery.com/en-us/games/scratchers/active-games.html', 'active');
   const active = await collectFrom(page, 'active');
 
