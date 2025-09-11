@@ -52,3 +52,8 @@ main{max-width:1180px;margin:0 auto;padding:24px}
 .tabbar{display:inline-flex;gap:8px;margin-left:8px}
 .tabbar .btn[aria-selected="true"]{border-color:var(--accent); outline: 2px solid rgba(37,99,235,.35)}
 @media (prefers-reduced-motion: reduce){.sidebar, .sidebar.bottom { transition: none !important; }}
+/* ---- Header alignment fix: bottom-align label+select with button ---- */
+/* Place AFTER .controls so it wins on specificity+order */
+.controls.header-controls{ align-items: flex-end; }
+/* Optional: ensure the button doesn't have stray baseline quirks */
+.controls.header-controls .btn{ align-self: flex-end; }
