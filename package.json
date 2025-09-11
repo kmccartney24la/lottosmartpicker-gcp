@@ -10,7 +10,6 @@
   "dependencies": {
     "clsx": "^2.1.1",
     "next": "^14.2.32",
-    "playwright": "1.55.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "tough-cookie": "6.0.0"
@@ -20,6 +19,7 @@
     "@types/react": "^19.1.12",
     "cheerio": "1.1.2",
     "got": "14.4.8",
+    "playwright": "^1.55.0",
     "tsx": "^4.20.5",
     "typescript": "^5.9.2"
   }

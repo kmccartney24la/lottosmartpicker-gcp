@@ -93,7 +93,7 @@ export default function EvaluateTicket({
         <Info tip={
 `Check your own pick using the same analysis used for generated tickets.
 • Validates against the game’s domain & uniqueness.
-• Tags (pills) mirror the generator’s ticketHints.
+• Tags mirror the generator’s ticketHints.
 • No prediction claims—just descriptive heuristics.`} />
       </div>
 

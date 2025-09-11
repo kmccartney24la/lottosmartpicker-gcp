@@ -1,0 +1,63 @@
+name: Update GA Scratchers
+
+on:
+  schedule:
+    # 09:30 America/New_York == 13:30 UTC
+    - cron: '30 13 * * *'
+  workflow_dispatch:
+
+jobs:
+  scrape-and-upload:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install deps
+        run: npm ci --prefer-offline
+
+      # Playwright is required because GA pages are client-rendered
+      - name: Install Playwright (Chromium)
+        run: npx playwright install --with-deps chromium
+
+      - name: Fetch GA scratchers (build latest + merge)
+        run: node --experimental-strip-types scripts/scratchers/fetch_ga_scratchers.mts
+
+      # OPTIONAL: keep a build artifact for debugging
+      - name: Upload snapshot artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ga-scratchers-json
+          path: |
+            public/data/ga_scratchers/index.latest.json
+            public/data/ga_scratchers/index.json
+
+      # ---- Cloudflare R2 upload (using Wrangler) ----
+      # Assumes you already use R2 in other workflows; reuse same secrets.
+      - name: Install Wrangler
+        run: npm i -g wrangler@3
+
+      - name: Upload to R2
+        env:
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }} # Either API token OR key pair below
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_PREFIX: ga/scratchers
+        run: |
+          # If your org uses API token auth (preferred):
+          wrangler r2 object put "$R2_BUCKET/$R2_PREFIX/index.latest.json" --file public/data/ga_scratchers/index.latest.json --content-type application/json
+          wrangler r2 object put "$R2_BUCKET/$R2_PREFIX/index.json"        --file public/data/ga_scratchers/index.json        --content-type application/json
+          
+          # If your project uses access/secret keys, uncomment and export them:
+          # export AWS_ACCESS_KEY_ID="$CF_R2_ACCESS_KEY_ID"
+          # export AWS_SECRET_ACCESS_KEY="$CF_R2_SECRET_ACCESS_KEY"
+          # wrangler r2 object put "$R2_BUCKET/$R2_PREFIX/index.latest.json" --file public/data/ga_scratchers/index.latest.json --content-type application/json
+          # wrangler r2 object put "$R2_BUCKET/$R2_PREFIX/index.json"        --file public/data/ga_scratchers/index.json        --content-type application/json

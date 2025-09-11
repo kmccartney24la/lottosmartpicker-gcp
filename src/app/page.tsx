@@ -87,7 +87,14 @@ export default function Page() {
   return (
     <main>
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-        <h1 style={{ fontSize: 26, fontWeight: 800 }}>LottoSmartPicker 9000</h1>
+        <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+          <h1 style={{ fontSize: 26, fontWeight: 800 }}>LottoSmartPicker 9000</h1>
+          {/* NEW: top-level tabbar */}
+          <nav className="tabbar" aria-label="Primary">
+            <a className="btn" href="/" aria-selected="true">Draw Games</a>
+            <a className="btn" href="/scratchers" aria-selected="false">GA Scratchers</a>
+          </nav>
+        </div>
         <div className="controls header-controls" style={{ gap: 8 }}>
           <ThemeSwitcher />
           <button className="btn btn-ghost" onClick={() => setShowPast(true)} aria-controls="past-draws" aria-expanded={showPast}>
