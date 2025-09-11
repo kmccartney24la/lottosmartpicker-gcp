@@ -23,7 +23,7 @@ export default function HintLegend() {
             key={label}
             style={{
               display: 'grid',
-              gridTemplateColumns: '80px 1fr', // ✅ uniform pill column
+              gridTemplateColumns: '90px 1fr', // ✅ uniform pill column
               columnGap: 10,
               alignItems: 'start',              // ✅ top-align the row
               marginBottom: 8,
