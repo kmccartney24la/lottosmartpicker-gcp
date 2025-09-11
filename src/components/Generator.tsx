@@ -76,7 +76,7 @@ export default function Generator({
   const hasSpecial = eraCfg.specialMax > 0;
 
   return (
-    <div className="card" style={{ maxWidth: 420 }}>
+    <div className="card" style={{ maxWidth: 720 }}>
       {/* Header */}
       <div style={{ fontWeight: 700, marginBottom: 8 }}>Generator</div>
       

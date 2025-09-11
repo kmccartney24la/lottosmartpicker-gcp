@@ -1,19 +1,18 @@
 'use client';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import ThemeSwitcher from 'src/components/ThemeSwitcher';
-import Info from 'src/components/Info';
 import PastDrawsSidebar from 'src/components/PastDrawsSidebar';
 import Generator from 'src/components/Generator';
 import ExportCsvButton from 'src/components/ExportCsvButton';
-import LatestStrip from 'src/components/LatestStrip';
 import AnalyzeSidebar from 'src/components/AnalyzeSidebar';
 import InfoOverview from 'src/components/InfoOverview';
+import GameOverview from 'src/components/GameOverview';
+import SelectedLatest from 'src/components/SelectedLatest';
 import {
   GameKey,
   LottoRow,
   fetchRowsWithCache,        // ⬅️ use the cache-aware fetch
   nextDrawLabelNYFor,
-  drawNightsLabel,
   getCurrentEraConfig,
 } from '@lib/lotto';
 
@@ -93,11 +92,8 @@ export default function Page() {
         </div>
       </header>
 
-      {/* Latest draws at a glance */}
-      <LatestStrip />
-
       <section className="card">
-        <div className="controls" style={{ gap: 12 }}>
+        <div className="controls" style={{ gap: 12, alignItems:'flex-end' }}>
           <label>
             <span>Game</span><br/>
             <select
@@ -110,6 +106,8 @@ export default function Page() {
               ))}
             </select>
           </label>
+          {/* Latest for selected game only */}
+          <SelectedLatest game={game} />
 
           {/* CSV export */}
           <div className="flex-1" />
@@ -130,33 +128,8 @@ export default function Page() {
         </div>
       </section>
 
-      <section className="grid" style={{ gridTemplateColumns: '1fr 1fr', marginTop: 12 }}>
-        <div className="card">
-          <div style={{ fontWeight: 700, marginBottom: 6 }}>Powerball</div>
-          {analysisPB ? (
-            <ul style={{ margin: 0, paddingLeft: 18 }}>
-              <li><strong>Draws:</strong> {analysisPB.draws}</li>
-              <li><strong>Recent mains:</strong> {(analysisPB.recencyHotFracMain*100).toFixed(1)}%</li>
-              <li><strong>Recent special:</strong> {(analysisPB.recencyHotFracSpec*100).toFixed(1)}%</li>
-              <li><strong>Pick:</strong> mains <em>{analysisPB.recMain.mode}</em> (α={analysisPB.recMain.alpha.toFixed(2)}), special <em>{analysisPB.recSpec.mode}</em> (α={analysisPB.recSpec.alpha.toFixed(2)})</li>
-            </ul>
-          ) : <div className="hint">No analysis yet.</div>}
-        </div>
-        <div className="card">
-          <div style={{ fontWeight: 700, marginBottom: 6 }}>Mega Millions</div>
-          {analysisMM ? (
-            <ul style={{ margin: 0, paddingLeft: 18 }}>
-              <li><strong>Draws:</strong> {analysisMM.draws}</li>
-              <li><strong>Recent mains:</strong> {(analysisMM.recencyHotFracMain*100).toFixed(1)}%</li>
-              <li><strong>Recent special:</strong> {(analysisMM.recencyHotFracSpec*100).toFixed(1)}%</li>
-              <li><strong>Pick:</strong> mains <em>{analysisMM.recMain.mode}</em> (α={analysisMM.recMain.alpha.toFixed(2)}), special <em>{analysisMM.recSpec.mode}</em> (α={analysisMM.recSpec.alpha.toFixed(2)})</li>
-            </ul>
-          ) : <div className="hint">No analysis yet.</div>}
-        </div>
-      </section>
-
       {/* Main two-column: left = generator, right = info + analysis */}
-      <div className="grid" style={{ gridTemplateColumns:'minmax(0,1fr) 340px', gap: 12 }}>
+       <div className="grid" style={{ gridTemplateColumns:'2fr 1fr', gap: 12 }}>
         <section>
           <Generator
             game={game}
@@ -167,7 +140,7 @@ export default function Page() {
           />
         </section>
         <section>
-          <InfoOverview />
+          <GameOverview game={game} />
           <AnalyzeSidebar />
         </section>
       </div>
