@@ -123,7 +123,7 @@ export function formatJackpotAmount(amount: number | null): string {
  */
 export function nextRefreshAtNYFor(game: GameKey, hoursAfter = 3): Date {
   // Schedule a refresh a few hours after the next drawing (NY wall-clock).
-+  const nextDrawNY = nextDrawInstantNYFor(game);
+  const nextDrawNY = nextDrawInstantNYFor(game);
   const t = new Date(nextDrawNY.getTime());
   t.setHours(t.getHours() + hoursAfter);
   return t;
