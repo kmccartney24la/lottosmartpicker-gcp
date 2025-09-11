@@ -2,11 +2,11 @@ export const HINT_EXPLAIN: Record<string, string> = {
   'Balanced':
     'No strong hot/cold signals; no obvious sequences or tight clusters.',
   'Pattern looks common':
-    'Contains patterns many people choose (runs, many ≤31 “date” numbers, arithmetic sequences, or tight clusters). Avoid to reduce shared-jackpot risk.',
-  'Cold mains':
-    'At least 3 mains have appeared ≤1 time — a colder mix.',
+    'Contains patterns many people choose. Avoid to reduce shared-jackpot risk.',
   'Hot mains':
     'At least 3 mains show z-score > 1 (hit more than expected recently).',
+'Cold mains':
+    'At least 3 mains have appeared ≤1 time — a colder mix.',
   'Hot special':
     'Special ball z-score > 1 (more frequent lately).',
   'Cold special':

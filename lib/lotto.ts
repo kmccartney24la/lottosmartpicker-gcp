@@ -649,9 +649,9 @@ export function ticketHints(game:GameKey, mains:number[], special:number, stats:
   const common = looksTooCommon(mains, game);
   if (common) hints.push('Pattern looks common');
   const lowCount = mains.filter(n=>(stats.countsMain.get(n)||0) <= 1).length;
-  if (lowCount >= 3) hints.push('Uncommon mix (many rare mains)');
+  if (lowCount >= 3) hints.push('Cold mains');
   const hotCount = mains.filter(n=> (stats.zMain.get(n)||0) > 1).length;
-  if (hotCount >= 3) hints.push('Hot-heavy mains');
+  if (hotCount >= 3) hints.push('Hot mains');
   if (stats.cfg.specialMax>0 && typeof special === 'number') {
     const specialZ = (stats.zSpecial.get(special)||0);
     if (specialZ > 1) hints.push('Hot special');
