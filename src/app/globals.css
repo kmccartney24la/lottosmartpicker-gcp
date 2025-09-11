@@ -1,5 +1,5 @@
 
-:root{--bg:#0a0a0a;--fg:#ffffff;--font-sans: ui-sans-serif;--muted:#cbd5e1;--card:#111318;--card-bd:#243244;--accent:#2563eb;--accent-contrast:#ffffff;--danger:#ef4444;--info-bg:rgba(37,99,235,.08)}
+:root{--bg:#0a0a0a;--fg:#ffffff;--font-sans: ui-sans-serif;--muted:#cbd5e1;--card:#111318;--card-bd:#243244;--accent:#2563eb;--accent-contrast:#ffffff;--danger:#ef4444;--info-bg:rgba(37,99,235,.08);--control-h:40px}
 html, body {font-family: var(--font-sans), system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";line-height: 1.55;letter-spacing: 0.01em}
 @media(prefers-color-scheme:light){:root{--bg:#f8fafc;--fg:#0b1220;--muted:#475569;--card:#ffffff;--card-bd:#d0d7e2;--accent:#1e40af;--accent-contrast:#ffffff;--danger:#b91c1c}}
 [data-theme="light"]{--bg:#f8fafc;--fg:#0b1220;--muted:#475569;--card:#ffffff;--card-bd:#d0d7e2;--accent:#1e40af;--accent-contrast:#ffffff;--danger:#b91c1c}
@@ -11,6 +11,7 @@ body{background:var(--bg);color:var(--fg);margin:0}
 .btn{border-radius:10px;border:1px solid var(--card-bd);padding:10px 14px;cursor:pointer}
 .btn-primary{background:var(--accent);color:var(--accent-contrast);border-color:transparent}
 .btn-ghost{background:transparent;color:var(--fg)}
+.btn{min-height:var(--control-h);display:inline-flex;align-items:center;line-height:1.2}
 .chip{display:inline-block;border:1px solid var(--card-bd);border-radius:999px;padding:4px 8px;font-size:12px;margin:2px}
 .chip.warn{border-color:var(--danger);color:var(--danger)}
 .btn:focus{outline:3px solid rgba(37,99,235,.5);outline-offset:2px}
@@ -20,7 +21,7 @@ table{width:100%;border-collapse:collapse}
 th,td{padding:8px;border-bottom:1px solid var(--card-bd)}
 .mono{font-family: ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace}
 label > span{font-size:12px;opacity:.8}
-input,select{background:var(--card);color:var(--fg);border:1px solid var(--card-bd);border-radius:8px;padding:8px}
+input,select{background:var(--card);color:var(--fg);border:1px solid var(--card-bd);border-radius:8px;padding:8px;min-height:var(--control-h);line-height:1.2}
 select{
   appearance:none;
   background-position:right 10px center;

@@ -4,7 +4,6 @@ import ThemeSwitcher from 'src/components/ThemeSwitcher';
 import PastDrawsSidebar from 'src/components/PastDrawsSidebar';
 import Generator from 'src/components/Generator';
 import AnalyzeSidebar from 'src/components/AnalyzeSidebar';
-import InfoOverview from 'src/components/InfoOverview';
 import GameOverview from 'src/components/GameOverview';
 import SelectedLatest from 'src/components/SelectedLatest';
 import {
@@ -94,7 +93,7 @@ export default function Page() {
     <main>
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
         <h1 style={{ fontSize: 26, fontWeight: 800 }}>LottoSmartPicker</h1>
-        <div className="controls" style={{ gap: 8 }}>
+        <div className="controls" style={{ gap: 8, alignItems:'center' }}>
           <ThemeSwitcher />
           <button className="btn btn-ghost" onClick={() => setShowPast(true)} aria-controls="past-draws" aria-expanded={showPast}>
             Past Draws
@@ -123,7 +122,7 @@ export default function Page() {
       </section>
 
       {/* Main two-column: left = generator, right = info + analysis */}
-       <div className="grid" style={{ gridTemplateColumns:'2fr 1fr', gap: 12 }}>
+       <div className="grid" style={{ gridTemplateColumns:'2fr 1fr', gap: 12, marginTop: 12 }}>
         <section>
           <Generator
             game={game}
@@ -134,8 +133,10 @@ export default function Page() {
           />
         </section>
         <section>
-          <GameOverview game={game} />
-          <AnalyzeSidebar />
+          <div style={{ display:'grid', gap: 12 }}>
+            <GameOverview game={game} />
+            <AnalyzeSidebar />
+          </div>
         </section>
       </div>
 
