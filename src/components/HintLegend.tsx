@@ -1,3 +1,4 @@
+// src/components/HintLegend.tsx
 'use client';
 import Info from 'src/components/Info';
 import Pill from 'src/components/Pill';
@@ -16,19 +17,28 @@ export default function HintLegend() {
         <div style={{ fontWeight: 700 }}>Tag Legend</div>
       </div>
 
-      <ul className="hint" style={{ margin: 6, paddingLeft: 18 }}>
+      <ul className="hint" style={{ margin: 6, paddingLeft: 0, listStyle: 'none' }}>
         {Object.entries(EXPLAIN).map(([label, tip]) => (
-          <li key={label} style={{ display: 'flex', gap: 8, alignItems: 'baseline' }}>
-            {/* fixed width + wrap for uniform pills in legend */}
+          <li
+            key={label}
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '150px 1fr', // ✅ uniform pill column
+              columnGap: 10,
+              alignItems: 'start',              // ✅ top-align the row
+              marginBottom: 8,
+            }}
+          >
             <Pill
               tone={classifyHint(label)}
               title={tip}
               wrap
-              style={{ width: 160 }}
+              style={{ width: '150px' }}        // ✅ same as grid col for perfect alignment
             >
               {label}
             </Pill>
-            <span>{tip}</span>
+
+            <div style={{ maxWidth: '100%' }}>{tip}</div>
           </li>
         ))}
       </ul>
