@@ -104,10 +104,10 @@ export async function fetchJackpotWithCache(game: GameKey): Promise<JackpotQuote
   return out;
 }
 
-export function formatJackpotAmount(cents: number | null): string {
-  if (cents == null) return '—';
+export function formatJackpotAmount(amount: number | null): string {
+  if (amount == null) return '—';
   // Format in **whole dollars**; abbreviate big numbers (B/M)
-  const n = Math.round(cents);
+  const n = Math.round(amount);
   if (n >= 1_000_000_000) return `$${(n / 1_000_000_000).toFixed(2)}B`;
   if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`;
   if (n >= 1_000) return `$${(n / 1_000).toFixed(0)}K`;
@@ -122,12 +122,36 @@ export function formatJackpotAmount(cents: number | null): string {
  * so this stays consistent with what the UI already shows.
  */
 export function nextRefreshAtNYFor(game: GameKey, hoursAfter = 3): Date {
-  // Assume you already have an internal function that finds the next draw Date
-  // in America/New_York (the same schedule used by nextDrawLabelNYFor).
-  const nextDrawNY = nextDrawInstantNYFor(game); // <- use your existing schedule source
+  // Schedule a refresh a few hours after the next drawing (NY wall-clock).
++  const nextDrawNY = nextDrawInstantNYFor(game);
   const t = new Date(nextDrawNY.getTime());
   t.setHours(t.getHours() + hoursAfter);
   return t;
+}
+
+/**
++ * Returns the next drawing Date (NY wall-clock) for the given game.
++ * Matches the same schedule semantics used by nextDrawLabelNYFor so UI & timers agree.
++ */
+export function nextDrawInstantNYFor(game: GameKey): Date {
+  const targets = DRAW_DOWS[game];
+  // Target wall-clock HH:MM in NY by game
+  const H = game === 'ga_cash4life' ? 21 : game === 'ga_fantasy5' ? 23 : 23;
+  const M = game === 'ga_cash4life' ? 0  : game === 'ga_fantasy5' ? 34 : 0;  // PB/MM ≈ 23:00
+  const now = new Date();
+  for (let i = 0; i < 8; i++) {
+    const d = new Date(now);
+    d.setDate(now.getDate() + i);
+    const { dow } = getNYParts(d);
+    if (!targets.has(dow)) continue;
+    const cand = new Date(d);
+    cand.setHours(H, M, 0, 0);
+    // If it's today and we're past the draw time, keep searching
+    if (cand.getTime() <= now.getTime()) continue;
+    return cand;
+  }
+  // Fallback: 24h from now
+  return new Date(now.getTime() + 24 * 60 * 60 * 1000);
 }
 
 function getRowISODate(row: any): string | null {
@@ -700,17 +724,18 @@ export function weightedSampleDistinct(k:number, weights:number[]): number[] {
 
 export function looksTooCommon(mains:number[], game:GameKey): boolean {
   const mainMax = getCurrentEraConfig(game).mainMax;
+  const arr = [...mains].sort((a,b)=>a-b); // harden against unsorted input
   // Any 3-in-a-row (triplet)
-  const tripleRun = mains.some((_,i)=> i>=2 && mains[i-2]+2===mains[i-1]+1 && mains[i-1]+1===mains[i]);
+  const tripleRun = arr.some((_,i)=> i>=2 && arr[i-2]+2===arr[i-1]+1 && arr[i-1]+1===arr[i]);
   // Any 4-in-a-row (strictly stronger; catches very obvious sequences)
-  const fourRun = mains.some((_,i)=> i>=3 && mains[i-3]+3===mains[i-2]+2 && mains[i-2]+2===mains[i-1]+1 && mains[i-1]+1===mains[i]);
+  const fourRun = arr.some((_,i)=> i>=3 && arr[i-3]+3===arr[i-2]+2 && arr[i-2]+2===arr[i-1]+1 && arr[i-1]+1===arr[i]);
   // “Date bias”: ≥4 numbers ≤31
-  const lowBias = mains.filter(n=>n<=31).length >= 4;
+  const lowBias = arr.filter(n=>n<=31).length >= 4;
   // Pure arithmetic progression
-  const d1 = mains[1]-mains[0];
-  const arithmetic = mains.every((_,i)=>(i===0?true:mains[i]-mains[i-1]===d1));
+  const d1 = arr[1]-arr[0];
+  const arithmetic = arr.every((_,i)=>(i===0?true:arr[i]-arr[i-1]===d1));
   // Tight cluster: span narrower than ~1/7 of the domain
-  const span = mains[mains.length-1]-mains[0];
+  const span = arr[arr.length-1]-arr[0];
   const clustered = span <= Math.floor(mainMax/7);
   return fourRun || tripleRun || lowBias || arithmetic || clustered;
 }
@@ -776,7 +801,7 @@ function clampAlphaFor(game:GameKey, domain:'main'|'special', alpha:number, draw
     if (era.mainMax <= 45) { lo = 0.40; hi = 0.70; }  // Fantasy 5
     else { lo = 0.50; hi = 0.75; }                    // PB/MM/C4L
   } else {
-    if (era.specialMax <= 5) { lo = 0.35; hi = 0.75; } // C4L
+    if (era.specialMax <= 5) { lo = 0.35; hi = 0.65; } // C4L: tiny domain, keep conservative
     else { lo = 0.45; hi = 0.75; }                     // PB/MM
   }
   // Early-era guard: before ~one full domain of draws, avoid very spiky alphas

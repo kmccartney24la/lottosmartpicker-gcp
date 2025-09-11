@@ -10,7 +10,6 @@ import {
   GameKey,
   LottoRow,
   fetchRowsWithCache,        // ⬅️ use the cache-aware fetch
-  nextDrawLabelNYFor,
   getCurrentEraConfig,
   analyzeGame,
 } from '@lib/lotto';
@@ -29,11 +28,6 @@ export default function Page() {
   const [sortDir, setSortDir] = useState<'desc'|'asc'>('desc'); // newest first by default
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const [analysisPB, setAnalysisPB] = useState<any|null>(null);
-  const [analysisMM, setAnalysisMM] = useState<any|null>(null);
-  const [anLoading, setAnLoading] = useState(false);
-  const [anError, setAnError] = useState<string | null>(null);
 
   const [compact, setCompact] = useState<boolean>(true);
   const [showPast, setShowPast] = useState<boolean>(false);
