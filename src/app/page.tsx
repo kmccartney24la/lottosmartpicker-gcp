@@ -1,23 +1,21 @@
 'use client';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import dynamic from 'next/dynamic';
 import ThemeSwitcher from 'src/components/ThemeSwitcher';
 import Info from 'src/components/Info';
 import PastDrawsSidebar from 'src/components/PastDrawsSidebar';
 import Generator from 'src/components/Generator';
-const FrequencyPanel = dynamic(() => import('src/components/FrequencyPanel'), { ssr: false });
 import ExportCsvButton from 'src/components/ExportCsvButton';
-import EraBanner from 'src/components/EraBanner';
+import LatestStrip from 'src/components/LatestStrip';
+import AnalyzeSidebar from 'src/components/AnalyzeSidebar';
+import InfoOverview from 'src/components/InfoOverview';
 import {
   GameKey,
   LottoRow,
   fetchRowsWithCache,        // ⬅️ use the cache-aware fetch
   nextDrawLabelNYFor,
   drawNightsLabel,
-  analyzeGame,
   getCurrentEraConfig,
 } from '@lib/lotto';
-import { useAutoRefresh } from '@hooks/useAutoRefresh';
 
 const GAME_OPTIONS: { key: GameKey; label: string }[] = [
   { key: 'powerball',    label: 'Powerball (5/69 + 1/26)' },
@@ -28,10 +26,6 @@ const GAME_OPTIONS: { key: GameKey; label: string }[] = [
 
 export default function Page() {
   const [game, setGame] = useState<GameKey>('powerball');
-
-  // removed since/until state entirely
-  const [latestOnly, setLatestOnly] = useState<boolean>(false);
-  const [autoRefresh, setAutoRefresh] = useState<boolean>(false);
 
   const [rows, setRows] = useState<LottoRow[]>([]);
   const [sortDir, setSortDir] = useState<'desc'|'asc'>('desc'); // newest first by default
@@ -45,7 +39,6 @@ export default function Page() {
 
   const [compact, setCompact] = useState<boolean>(true);
   const [showPast, setShowPast] = useState<boolean>(false);
-  const [showFreq, setShowFreq] = useState<boolean>(false);
   const [isMobile, setIsMobile] = useState<boolean>(false);
   useEffect(() => {
     const mq = window.matchMedia('(max-width: 768px)');
@@ -67,15 +60,13 @@ export default function Page() {
   const pageCount = Math.max(1, Math.ceil(sortedRows.length / pageSize));
   const pageRows = useMemo(() => sortedRows.slice((page - 1) * pageSize, page * pageSize), [sortedRows, page]);
 
-  // When latestOnly is on, we still fetch with latestOnly to avoid extra payloads.
-  const rowsForGenerator = latestOnly ? rows.slice(0, 1) : rows;
+  const rowsForGenerator = rows
 
   const load = useCallback(async () => {
     try {
       setLoading(true); setError(null);
       const sinceEra = getCurrentEraConfig(game).start; // current era only
-      // ⬇️ cache-aware fetching; respects latestOnly (won’t cache that path)
-      const data = await fetchRowsWithCache({ game, since: sinceEra, latestOnly });
+      const data = await fetchRowsWithCache({ game, since: sinceEra });
       setRows(data);
       setPage(1);
     } catch (e: any) {
@@ -85,37 +76,9 @@ export default function Page() {
     } finally {
       setLoading(false);
     }
-  }, [game, latestOnly]);
+  }, [game]);
 
   useEffect(() => { void load(); }, [load]);
-  useAutoRefresh(autoRefresh, game, load);
-
-  async function analyzeBoth() {
-    try {
-      setAnLoading(true); setAnError(null);
-      // Fetch both games from THEIR respective current-era starts
-      const pbSince = getCurrentEraConfig('powerball').start;
-      const mmSince = getCurrentEraConfig('megamillions').start;
-      const [pb, mm] = await Promise.all([
-        fetchRowsWithCache({ game: 'powerball', since: pbSince }),
-        fetchRowsWithCache({ game: 'megamillions', since: mmSince }),
-      ]);
-      setAnalysisPB(analyzeGame(pb, 'powerball'));
-      setAnalysisMM(analyzeGame(mm, 'megamillions'));
-    } catch (e:any) {
-      setAnError(e?.message || String(e));
-    } finally {
-      setAnLoading(false);
-    }
-  }
-
-  async function ensureRecommendedForSelected() {
-    const a = game === 'powerball' ? analysisPB : analysisMM;
-    if (a) return { recMain: a.recMain, recSpec: a.recSpec };
-    await analyzeBoth();
-    const b = game === 'powerball' ? analysisPB : analysisMM;
-    return b ? { recMain: b.recMain, recSpec: b.recSpec } : null;
-  }
 
   return (
     <main>
@@ -124,30 +87,14 @@ export default function Page() {
         <div className="controls" style={{ gap: 8 }}>
           <ThemeSwitcher />
           <div className="hint">Accessible, high-contrast UI</div>
-          <div className="tabbar" role="tablist" aria-label="Panels">
-            <button
-              role="tab"
-              aria-selected={showPast}
-              className="btn btn-ghost"
-              onClick={() => { setShowPast(true); setShowFreq(false); }}
-              aria-controls="past-draws"
-              aria-expanded={showPast}
-            >
-              Past Draws
-            </button>
-            <button
-              role="tab"
-              aria-selected={showFreq}
-              className="btn btn-ghost"
-              onClick={() => { setShowFreq(true); setShowPast(false); }}
-              aria-controls="frequency-panel"
-              aria-expanded={showFreq}
-            >
-              Frequency
-            </button>
-          </div>
+          <button className="btn btn-ghost" onClick={() => setShowPast(true)} aria-controls="past-draws" aria-expanded={showPast}>
+            Past Draws
+          </button>
         </div>
       </header>
+
+      {/* Latest draws at a glance */}
+      <LatestStrip />
 
       <section className="card">
         <div className="controls" style={{ gap: 12 }}>
@@ -164,35 +111,9 @@ export default function Page() {
             </select>
           </label>
 
-          {/* Current-era banner + CSV export */}
-          <EraBanner game={game} />
+          {/* CSV export */}
           <div className="flex-1" />
           <ExportCsvButton game={game} />
-
-          <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <input
-              aria-label="Latest only"
-              type="checkbox"
-              checked={latestOnly}
-              onChange={(e) => setLatestOnly(e.target.checked)}
-            />
-            <span>Latest only</span>
-            <Info tip={'If on, fetches only the most recent draw and also uses that single draw for generator weights.'} />
-          </label>
-
-          <label style={{ display: 'flex', gap: 8, alignItems: 'center', marginLeft: 'auto' }}>
-            <input
-              aria-label="Auto-refresh on draw nights"
-              type="checkbox"
-              checked={autoRefresh}
-              onChange={(e) => setAutoRefresh(e.target.checked)}
-            />
-            <span className="hint">Auto-refresh on {drawNightsLabel(game)} 10:30p–1:30a ET</span>
-            <Info tip={'Efficient: refreshes more often during draw-night windows for the *selected game* only. Otherwise, refreshes less often.'} />
-          </label>
-
-          <button onClick={load} className="btn btn-primary" aria-label="Refresh results">Refresh</button>
-        </div>
 
         <div className="hint" style={{ marginTop: 8, display: 'flex', gap: 16, flexWrap: 'wrap' }}>
           <div>
@@ -205,17 +126,7 @@ export default function Page() {
             </div>
           <div><strong>Rows (current era):</strong> {rows.length}</div>
           <div><strong>Next expected draw:</strong> {nextDrawLabelNYFor(game)}</div>
-          {latestOnly && <div><strong>Generator source:</strong> latest draw only</div>}
         </div>
-      </section>
-
-      <section className="card" style={{ marginTop: 16 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div style={{ fontWeight: 700 }}>Analyze both (current era)</div>
-          <button onClick={analyzeBoth} className="btn btn-primary">Analyze now</button>
-        </div>
-        {anLoading && <div className="hint" style={{ marginTop: 8 }}>Analyzing…</div>}
-        {anError && <div className="hint" style={{ marginTop: 8, color: 'var(--danger)' }}>Error: {anError}</div>}
       </section>
 
       <section className="grid" style={{ gridTemplateColumns: '1fr 1fr', marginTop: 12 }}>
@@ -243,17 +154,22 @@ export default function Page() {
         </div>
       </section>
 
-      <section style={{ marginTop: 16 }}>
-        <Generator
-          game={game}
-          rowsForGenerator={rowsForGenerator}
-          analysisForGame={(game==='powerball'?analysisPB:analysisMM)
-            ? { recMain:(game==='powerball'?analysisPB:analysisMM).recMain, recSpec:(game==='powerball'?analysisPB:analysisMM).recSpec }
-            : null}
-          anLoading={anLoading}
-          onEnsureRecommended={ensureRecommendedForSelected}
-        />
-      </section>
+      {/* Main two-column: left = generator, right = info + analysis */}
+      <div className="grid" style={{ gridTemplateColumns:'minmax(0,1fr) 340px', gap: 12 }}>
+        <section>
+          <Generator
+            game={game}
+            rowsForGenerator={rowsForGenerator}
+            analysisForGame={null}
+            anLoading={false}
+            onEnsureRecommended={async ()=>null}
+          />
+        </section>
+        <section>
+          <InfoOverview />
+          <AnalyzeSidebar />
+        </section>
+      </div>
 
       {/* Panels (mutually exclusive). On mobile, render as bottom sheets; on desktop, as right drawers. */}
       <PastDrawsSidebar
@@ -271,26 +187,6 @@ export default function Page() {
         onToggleSort={() => setSortDir(d => d === 'desc' ? 'asc' : 'desc')}
       />
 
-      <FrequencyPanel
-        id="frequency-panel"
-        open={showFreq}
-        onClose={() => setShowFreq(false)}
-        rows={rows}
-        side={isMobile ? 'bottom' : 'right'}
-        game={game}
-      />
-
-      <PastDrawsSidebar
-        open={showPast}
-        onClose={() => setShowPast(false)}
-        compact={compact}
-        setCompact={setCompact}
-        pageRows={pageRows}
-        page={page}
-        pageCount={pageCount}
-        setPage={setPage}
-        total={rows.length}
-      />
     </main>
   );
 }

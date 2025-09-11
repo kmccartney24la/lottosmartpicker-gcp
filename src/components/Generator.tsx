@@ -3,6 +3,7 @@ import { useMemo, useRef, useState } from 'react';
 import Info from 'src/components/Info';
 import {
   GameKey,
+  LottoRow,
   computeStats,
   generateTicket,
   ticketHints,
@@ -14,7 +15,7 @@ export default function Generator({
   game, rowsForGenerator, analysisForGame, anLoading, onEnsureRecommended
 }: {
   game: GameKey;
-  rowsForGenerator: any[];
+  rowsForGenerator: LottoRow[];
   analysisForGame: { recMain:{mode:'hot'|'cold';alpha:number}; recSpec:{mode:'hot'|'cold';alpha:number} } | null;
   anLoading: boolean;
   onEnsureRecommended: () => Promise<{ recMain:{mode:'hot'|'cold';alpha:number}; recSpec:{mode:'hot'|'cold';alpha:number} } | null>;
@@ -32,10 +33,7 @@ export default function Generator({
 
   // ---- Era-aware data & stats (always current era) ----
   const eraCfg = useMemo(() => getCurrentEraConfig(game), [game]);
-  const rowsEra = useMemo(
-    () => filterRowsForCurrentEra(rowsForGenerator as any[], game),
-    [rowsForGenerator, game]
-  );
+  const rowsEra = useMemo(() => filterRowsForCurrentEra(rowsForGenerator, game), [rowsForGenerator, game]);
   const stats = useMemo(
     () => computeStats(rowsEra as any, game, eraCfg),
     [rowsEra, game, eraCfg]
@@ -78,13 +76,10 @@ export default function Generator({
   const hasSpecial = eraCfg.specialMax > 0;
 
   return (
-    <div className="card">
+    <div className="card" style={{ maxWidth: 420 }}>
       {/* Header */}
       <div style={{ fontWeight: 700, marginBottom: 8 }}>Generator</div>
-      <div className="hint" style={{ marginBottom: 8 }}>
-        Using current era only. Tune weights, then generate unique tickets.
-      </div>
-
+      
       {/* Recommended */}
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6, flexWrap: 'wrap' }}>
         <button
@@ -192,13 +187,6 @@ export default function Generator({
         <button onClick={()=>generate()} className="btn btn-primary" style={{ marginTop: 10 }}>
           Generate
         </button>
-        <button
-          onClick={()=>generate()}
-          className="btn btn-ghost"
-          style={{ marginTop: 10 }}
-          disabled={tickets.length === 0}
-          aria-label="Regenerate tickets"
-        >Regenerate</button>
         <button
           onClick={copyTicketsToClipboard}
           className="btn btn-ghost"
