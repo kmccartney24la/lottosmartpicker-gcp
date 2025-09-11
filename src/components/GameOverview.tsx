@@ -1,8 +1,18 @@
 'use client';
-import { GameKey, CURRENT_ERA, drawNightsLabel, nextDrawLabelNYFor } from '@lib/lotto';
+import { GameKey, CURRENT_ERA, drawNightsLabel, nextDrawLabelNYFor, fetchJackpotWithCache, formatJackpotAmount } from '@lib/lotto';
+import { useEffect, useState } from 'react';
 
 export default function GameOverview({ game }: { game: GameKey }) {
   const era = CURRENT_ERA[game];
+  const [jackpot, setJackpot] = useState<string>('—');
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const q = await fetchJackpotWithCache(game);
+      if (alive) setJackpot(formatJackpotAmount(q.amount));
+    })();
+    return () => { alive = false; };
+  }, [game]);
   const names: Record<GameKey, string> = {
     powerball: 'Powerball',
     megamillions: 'Mega Millions',
@@ -16,6 +26,7 @@ export default function GameOverview({ game }: { game: GameKey }) {
         <li><strong>Current era:</strong> {era.label} (since <span className="mono">{era.start}</span>)</li>
         <li><strong>Draw nights:</strong> {drawNightsLabel(game)}</li>
         <li><strong>Next expected:</strong> {nextDrawLabelNYFor(game)}</li>
+        <li><strong>Next jackpot:</strong> {jackpot}</li>
       </ul>
     </section>
   );

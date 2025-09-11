@@ -40,6 +40,96 @@ export type LottoRow = {
   return null;
 }
 
+// ---- Jackpot quotes (optional, env-driven) -------------------------------
+export type JackpotQuote = { amount: number | null; asOf: string; source?: string };
+
+const JACKPOT_CACHE = new Map<string, JackpotQuote>();
+const JACKPOT_TTL_MS = 5 * 60 * 1000; // 5 min soft cache
+
+function parseMoney(x: string | number | null | undefined): number | null {
+  if (x == null) return null;
+  if (typeof x === 'number') return x;
+  const s = x.replace(/[, $]/g, '').trim().toLowerCase();
+  // support "2.4m", "550k", plain integers, etc.
+  if (s.endsWith('m')) return Math.round(parseFloat(s) * 1_000_000);
+  if (s.endsWith('k')) return Math.round(parseFloat(s) * 1_000);
+  const n = Number(s);
+  return Number.isFinite(n) ? Math.round(n) : null;
+}
+
+/**
+ * Fetches the advertised next-drawing jackpot for a game.
+ * Sources are **env-driven** so you stay in control of where this comes from:
+ *   NEXT_PUBLIC_JACKPOT_URL_POWERBALL
+ *   NEXT_PUBLIC_JACKPOT_URL_MEGAMILLIONS
+ *   NEXT_PUBLIC_JACKPOT_URL_GA_CASH4LIFE
+ *   NEXT_PUBLIC_JACKPOT_URL_GA_FANTASY5
+ * Optionally provide a static fallback:
+ *   NEXT_PUBLIC_JACKPOT_STATIC_POWERBALL="2.4m" (or "$240000000")
+ * … same for the other games. If nothing is set, returns {amount:null}.
+ */
+export async function fetchJackpotWithCache(game: GameKey): Promise<JackpotQuote> {
+  const key = game.toUpperCase();
+  const url = (process.env as any)[`NEXT_PUBLIC_JACKPOT_URL_${key}`] as string | undefined;
+  const staticFallback = (process.env as any)[`NEXT_PUBLIC_JACKPOT_STATIC_${key}`] as string | undefined;
+
+  // TTL cache
+  const prev = JACKPOT_CACHE.get(game);
+  if (prev) {
+    const age = Date.now() - Date.parse(prev.asOf);
+    if (age < JACKPOT_TTL_MS) return prev;
+  }
+
+  let amount: number | null = parseMoney(staticFallback ?? null);
+  let source: string | undefined;
+
+  if (url) {
+    try {
+      const res = await fetch(url, { cache: 'no-store' });
+      // Expect a tiny JSON payload; you control the shape via your endpoint.
+      // We try common fields: {jackpot}, {amount}, {nextJackpot}, or nested.
+      const json = await res.json();
+      const candidates = [
+        json?.jackpot, json?.amount, json?.nextJackpot, json?.next?.jackpot, json?.data?.jackpot,
+      ];
+      const parsed = candidates.map(parseMoney).find(v => v != null) ?? null;
+      if (parsed != null) { amount = parsed; source = url; }
+    } catch {
+      // ignore; we'll fall back to static
+    }
+  }
+
+  const out: JackpotQuote = { amount, asOf: new Date().toISOString(), source };
+  JACKPOT_CACHE.set(game, out);
+  return out;
+}
+
+export function formatJackpotAmount(cents: number | null): string {
+  if (cents == null) return '—';
+  // Format in **whole dollars**; abbreviate big numbers (B/M)
+  const n = Math.round(cents);
+  if (n >= 1_000_000_000) return `$${(n / 1_000_000_000).toFixed(2)}B`;
+  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`;
+  if (n >= 1_000) return `$${(n / 1_000).toFixed(0)}K`;
+  return `$${n.toLocaleString()}`;
+}
+
+/**
+ * Returns the Date when we should refresh external quotes (e.g., jackpot)
+ * a few hours after the next scheduled drawing for this game (NY time).
+ *
+ * The internal "next draw" computation is the same one used by nextDrawLabelNYFor,
+ * so this stays consistent with what the UI already shows.
+ */
+export function nextRefreshAtNYFor(game: GameKey, hoursAfter = 3): Date {
+  // Assume you already have an internal function that finds the next draw Date
+  // in America/New_York (the same schedule used by nextDrawLabelNYFor).
+  const nextDrawNY = nextDrawInstantNYFor(game); // <- use your existing schedule source
+  const t = new Date(nextDrawNY.getTime());
+  t.setHours(t.getHours() + hoursAfter);
+  return t;
+}
+
 function getRowISODate(row: any): string | null {
   return toISODateOnly(row?.draw_date) ?? toISODateOnly(row?.date);
 }
