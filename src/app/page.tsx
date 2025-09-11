@@ -60,7 +60,7 @@ export default function Page() {
   const pageCount = Math.max(1, Math.ceil(sortedRows.length / pageSize));
   const pageRows = useMemo(() => sortedRows.slice((page - 1) * pageSize, page * pageSize), [sortedRows, page]);
 
-  const rowsForGenerator = rows
+  const rowsForGenerator = rows;
 
   const load = useCallback(async () => {
     try {
@@ -114,6 +114,7 @@ export default function Page() {
           {/* CSV export */}
           <div className="flex-1" />
           <ExportCsvButton game={game} />
+        </div>
 
         <div className="hint" style={{ marginTop: 8, display: 'flex', gap: 16, flexWrap: 'wrap' }}>
           <div>
