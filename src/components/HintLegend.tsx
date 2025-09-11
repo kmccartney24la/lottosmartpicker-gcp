@@ -18,7 +18,14 @@ export default function HintLegend() {
       <ul className="hint" style={{ margin: 6, paddingLeft: 18 }}>
         {Object.entries(EXPLAIN).map(([label, tip]) => (
           <li key={label} style={{ display: 'flex', gap: 8, alignItems: 'baseline' }}>
-            <Pill tone={classifyHint(label)} title={tip}>{label}</Pill>
+            <Pill
+            tone={classifyHint(label)}
+            title={tip}
+            wrap
+            style={{ width: 140 }}  // pick a width that looks good (e.g. 120–160px)
+            >
+                {label}
+            </Pill>
             <span>{tip}</span>
           </li>
         ))}

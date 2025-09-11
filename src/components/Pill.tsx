@@ -13,6 +13,7 @@ export default function Pill({
   title?: string;
   children: ReactNode;
   style?: React.CSSProperties;
+  wrap?: boolean; 
 }) {
   const base: React.CSSProperties = {
     display: 'inline-flex',
@@ -24,8 +25,8 @@ export default function Pill({
     lineHeight: 1.6,
     borderWidth: 1,
     borderStyle: 'solid',
-    whiteSpace: 'nowrap',
-    cursor: 'default',
+    whiteSpace: wrap ? 'normal' : 'nowrap',
+    textAlign: wrap ? 'center' : undefined,
   };
 
   // use your CSS variables if present; otherwise fallback colors
