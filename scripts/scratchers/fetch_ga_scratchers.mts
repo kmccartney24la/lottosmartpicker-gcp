@@ -21,9 +21,17 @@ type Game = {
 };
 type Snapshot = { date: string; games: Game[] };
 
+async function withRetry<T>(fn: () => Promise<T>, attempts = 2, delayMs = 1200): Promise<T> {
+  let lastErr: any;
+  for (let i = 0; i < attempts; i++) {
+    try { return await fn(); } catch (e) { lastErr = e; if (i < attempts - 1) await new Promise(r => setTimeout(r, delayMs)); }
+  }
+  throw lastErr;
+}
+
 async function fetchActiveGames(): Promise<Game[]> {
   // 1) Cards + links for active and ended
-  const { active, ended } = await fetchGameLinks();
+  const { active, ended } = await withRetry(() => fetchGameLinks(), 2);
 
   // 2) Top-prize table (claimed/total)
   const top = await fetchTopPrizes();

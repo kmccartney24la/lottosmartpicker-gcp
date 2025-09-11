@@ -24,6 +24,33 @@ async function newPage() {
   return { browser, context, page };
 }
 
+async function waitForNumericGameLinks(page: Page, timeout = 60000) {
+  await page.waitForFunction(() => {
+    const anchors = Array.from(document.querySelectorAll('a[href*="/games/scratchers/"]')) as HTMLAnchorElement[];
+    // Only consider real game-detail links like .../scratchers/12345.html that are actually visible
+    return anchors.some(a =>
+      /\/games\/scratchers\/\d+\.html$/i.test(a.href) &&
+      (a as unknown as HTMLElement).offsetParent !== null
+    );
+  }, { timeout });
+}
+
+async function maybeClickTab(page: Page, which: 'active'|'ended') {
+  const hasNumericLinks = await page.evaluate(() => {
+    const anchors = Array.from(document.querySelectorAll('a[href*="/games/scratchers/"]')) as HTMLAnchorElement[];
+    return anchors.some(a => /\/games\/scratchers\/\d+\.html$/i.test(a.href));
+  });
+  if (!hasNumericLinks) {
+    const sel = which === 'active'
+      ? 'a[href$="/scratchers/active-games.html"], a:has-text("Active Games")'
+      : 'a[href$="/scratchers/ended-games.html"], a:has-text("Ended Games")';
+    const tab = page.locator(sel).first();
+    if ((await tab.count()) > 0) {
+      await tab.click({ timeout: 3000 }).catch(() => {});
+    }
+  }
+}
+
 async function acceptCookies(page: Page) {
   const selectors = [
     '#onetrust-accept-btn-handler',
@@ -42,14 +69,21 @@ async function acceptCookies(page: Page) {
   }
 }
 
-async function openAndReady(page: Page, url: string) {
+async function openAndReady(page: Page, url: string, which: 'active'|'ended') {
   await page.goto(url, { waitUntil: 'domcontentloaded' });
   await acceptCookies(page);
-  // Let client JS run; if network never fully idles, don't fail
+
+  // Let client JS settle; don't crash if it never "idles"
   await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
-  // Wait for at least one scratcher link rather than a heading string
-  await page.waitForSelector('a[href*="/games/scratchers/"]', { timeout: 45000 });
+
+  // If the page uses in-page tabs, click the right tab
+  await maybeClickTab(page, which);
+
+  // Ensure we load all lazy content
   await autoScroll(page);
+
+  // ✅ Wait specifically for at least one visible numeric game link
+  await waitForNumericGameLinks(page, 60000);
 }
 
 async function autoScroll(page: Page) {
@@ -111,10 +145,10 @@ async function collectFrom(page: Page, status: 'active'|'ended'): Promise<GameLi
 export async function fetchGameLinks() {
   const { browser, page } = await newPage();
 
-  await openAndReady(page, 'https://www.galottery.com/en-us/games/scratchers/active-games.html');
+  await openAndReady(page, 'https://www.galottery.com/en-us/games/scratchers/active-games.html', 'active');
   const active = await collectFrom(page, 'active');
 
-  await openAndReady(page, 'https://www.galottery.com/en-us/games/scratchers/ended-games.html');
+  await openAndReady(page, 'https://www.galottery.com/en-us/games/scratchers/ended-games.html', 'ended');
   const ended  = await collectFrom(page, 'ended');
 
   await browser.close();
