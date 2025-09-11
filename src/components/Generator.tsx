@@ -1,6 +1,8 @@
 'use client';
 import { useMemo, useRef, useState } from 'react';
 import Info from 'src/components/Info';
+import Pill from './Pill';
+import { HINT_EXPLAIN, classifyHint } from './hints';
 import {
   GameKey,
   LottoRow,
@@ -145,8 +147,6 @@ export default function Generator({
                 'Special ball weighting mirrors mains:\n' +
                 '• hot: weight by frequency; cold: weight by inverse frequency.\n' +
                 '• α blends uniform with history (0 = uniform, 1 = pure hot/cold).\n' +
-                'Domains reflect the current era.' +
-                '• α blends uniform with history (0=uniform, 1=hot/cold).\n' +
                 '• Very small domains (like 1–4) use conservative α clamps.'
               }
             />
@@ -213,7 +213,13 @@ export default function Generator({
                 {hasSpecial ? `${t.mains.join('-')} | ${t.special}` : t.mains.join('-')}
               </div>
               <div style={{ marginTop: 6 }}>
-                {hints.map(h => <span key={h} className="badge">{h}</span>)}
+                <div style={{ display:'flex', flexWrap:'wrap', gap: 6 }}>
+                  {hints.map(h => (
+                    <Pill key={h} tone={classifyHint(h)} title={HINT_EXPLAIN[h]}>
+                      {h}
+                    </Pill>
+                  ))}
+                </div>
               </div>
             </div>
           );
