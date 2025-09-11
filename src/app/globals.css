@@ -33,7 +33,7 @@ select option{background:var(--card);color:var(--fg)}
 input[type="range"]{width:100%}
 .hint{font-size:12px;opacity:.8}
 .help{position:relative;display:inline-flex;justify-content:center;align-items:center;margin-left:6px;cursor:help;border:1px solid var(--card-bd);border-radius:999px;padding:0 6px;font-size:11px;line-height:18px;min-width:18px;height:18px}
-.help[data-tip]:hover::after,.help[data-tip]:focus-visible::after{content:attr(data-tip);position:absolute;left:50%;transform:translateX(-50%);bottom:calc(100% + 8px);background:var(--card);color:var(--fg);border:1px solid var(--card-bd);border-radius:8px;padding:8px 10px;width:min(280px,80vw);z-index:20;pointer-events:none;white-space:normal}
+.help[data-tip]:hover::after,.help[data-tip]:focus-visible::after{content:attr(data-tip);position:absolute;left:50%;transform:translateX(-50%);bottom:calc(100% + 8px);background:var(--card);color:var(--fg);border:1px solid var(--card-bd);border-radius:8px;padding:8px 10px;width:min(320px,80vw);z-index:20;pointer-events:none;white-space:pre-wrap}
 .help[data-tip]:hover::before,.help[data-tip]:focus-visible::before{content:'';position:absolute;width:8px;height:8px;background:var(--card);border-left:1px solid var(--card-bd);border-top:1px solid var(--card-bd);transform:translateX(-50%) rotate(45deg);left:50%;bottom:calc(100% + 4px)}
 .compact table th,.compact table td{padding:4px 6px;font-size:12px}
 

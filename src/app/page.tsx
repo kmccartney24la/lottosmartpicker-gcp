@@ -3,7 +3,6 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import ThemeSwitcher from 'src/components/ThemeSwitcher';
 import PastDrawsSidebar from 'src/components/PastDrawsSidebar';
 import Generator from 'src/components/Generator';
-import ExportCsvButton from 'src/components/ExportCsvButton';
 import AnalyzeSidebar from 'src/components/AnalyzeSidebar';
 import InfoOverview from 'src/components/InfoOverview';
 import GameOverview from 'src/components/GameOverview';
@@ -97,7 +96,6 @@ export default function Page() {
         <h1 style={{ fontSize: 26, fontWeight: 800 }}>LottoSmartPicker</h1>
         <div className="controls" style={{ gap: 8 }}>
           <ThemeSwitcher />
-          <div className="hint">Accessible, high-contrast UI</div>
           <button className="btn btn-ghost" onClick={() => setShowPast(true)} aria-controls="past-draws" aria-expanded={showPast}>
             Past Draws
           </button>
@@ -106,8 +104,9 @@ export default function Page() {
 
       <section className="card">
         <div className="controls" style={{ gap: 12, alignItems:'flex-end' }}>
-          <label>
-            <span>Game</span><br/>
+          {/* Single, tall dropdown panel */}
+          <div className="card" style={{ padding: 12, minHeight: 92 }}>
+            <div style={{ fontWeight: 700, marginBottom: 4 }}>Game</div>
             <select
               aria-label="Select game"
               value={game}
@@ -117,41 +116,9 @@ export default function Page() {
                 <option key={opt.key} value={opt.key}>{opt.label}</option>
               ))}
             </select>
-          </label>
-          <div className="card" style={{ padding: 12, minHeight: 92 }}>
-            <label>
-              <span>Game</span><br/>
-              <select
-                aria-label="Select game"
-                value={game}
-                onChange={(e) => setGame(e.target.value as GameKey)}
-              >
-                {GAME_OPTIONS.map(opt => (
-                  <option key={opt.key} value={opt.key}>{opt.label}</option>
-                ))}
-              </select>
-            </label>
           </div>
           {/* Latest for selected game only */}
           <SelectedLatest game={game} />
-
-          {/* CSV export */}
-          <div className="flex-1" />
-          <ExportCsvButton game={game} />
-        </div>
-
-        <div className="hint" style={{ marginTop: 8, display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-          <div>
-            <strong>Status:</strong>{' '}
-            {loading
-            ? 'Loading…'
-            : error
-            ? <span style={{ color: 'var(--danger)' }}>Error: {error}</span>
-            : 'Idle'}
-            </div>
-          <div><strong>Rows (current era):</strong> {rows.length}</div>
-          <div><strong>Next expected draw:</strong> {nextDrawLabelNYFor(game)}</div>
-        </div>
       </section>
 
       {/* Main two-column: left = generator, right = info + analysis */}

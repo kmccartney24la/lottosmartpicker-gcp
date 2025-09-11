@@ -11,7 +11,6 @@ export default function Info({ tip, label = 'Info' }: { tip: string; label?: str
       data-tip={tip}
       aria-label={label}
       tabIndex={0}
-      title={tip}
     >
       i
     </span>
