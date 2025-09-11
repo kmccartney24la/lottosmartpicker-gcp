@@ -14,6 +14,7 @@ import {
   fetchRowsWithCache,        // ⬅️ use the cache-aware fetch
   nextDrawLabelNYFor,
   getCurrentEraConfig,
+  analyzeGame,
 } from '@lib/lotto';
 
 const GAME_OPTIONS: { key: GameKey; label: string }[] = [
@@ -48,6 +49,7 @@ export default function Page() {
 
   const [page, setPage] = useState(1);
   const pageSize = 25;
+  const [analysisByGame, setAnalysisByGame] = useState<Partial<Record<GameKey, any>>>({});
 
   const sortedRows = useMemo(() => {
     const arr = [...rows];
@@ -79,6 +81,16 @@ export default function Page() {
 
   useEffect(() => { void load(); }, [load]);
 
+  const ensureRecommendedForSelected = useCallback(async () => {
+    // Use cached analysis if present; otherwise compute from loaded rows.
+    const existing = analysisByGame[game];
+    if (existing) return { recMain: existing.recMain, recSpec: existing.recSpec };
+    // analyzeGame internally filters to current era; rows are already era-only as well.
+    const a = analyzeGame(rows, game);
+    setAnalysisByGame(prev => ({ ...prev, [game]: a }));
+    return { recMain: a.recMain, recSpec: a.recSpec };
+  }, [analysisByGame, game, rows]);
+
   return (
     <main>
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
@@ -106,6 +118,20 @@ export default function Page() {
               ))}
             </select>
           </label>
+          <div className="card" style={{ padding: 12, minHeight: 92 }}>
+            <label>
+              <span>Game</span><br/>
+              <select
+                aria-label="Select game"
+                value={game}
+                onChange={(e) => setGame(e.target.value as GameKey)}
+              >
+                {GAME_OPTIONS.map(opt => (
+                  <option key={opt.key} value={opt.key}>{opt.label}</option>
+                ))}
+              </select>
+            </label>
+          </div>
           {/* Latest for selected game only */}
           <SelectedLatest game={game} />
 
@@ -134,9 +160,9 @@ export default function Page() {
           <Generator
             game={game}
             rowsForGenerator={rowsForGenerator}
-            analysisForGame={null}
+            analysisForGame={analysisByGame[game] ?? null}
             anLoading={false}
-            onEnsureRecommended={async ()=>null}
+            onEnsureRecommended={ensureRecommendedForSelected}
           />
         </section>
         <section>

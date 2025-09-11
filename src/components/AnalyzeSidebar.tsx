@@ -13,6 +13,20 @@ const ORDER: { key: GameKey; label: string }[] = [
 
 type A = ReturnType<typeof analyzeGame>;
 
+function choose(n:number, k:number): number {
+  // small k; safe iterative comb
+  let r = 1;
+  for (let i=1;i<=k;i++) r = (r * (n - (k - i))) / i;
+  return Math.round(r);
+}
+
+function jackpotOddsString(game: GameKey): string {
+  const era = getCurrentEraConfig(game);
+  const mainComb = choose(era.mainMax, era.mainPick);
+  const total = mainComb * (era.specialMax > 0 ? era.specialMax : 1);
+  return `1 in ${total.toLocaleString()}`;
+}
+
 export default function AnalyzeSidebar() {
   const [data, setData] = useState<Record<GameKey, A | null>>({
     powerball: null, megamillions: null, ga_cash4life: null, ga_fantasy5: null,
@@ -64,6 +78,7 @@ export default function AnalyzeSidebar() {
             {a ? (
               <ul className="hint" style={{ margin:0, paddingLeft: 18 }}>
                 <li><strong>Draws:</strong> {a.draws}</li>
+                <li><strong>Jackpot odds:</strong> {jackpotOddsString(g.key)}</li>
                 {a.eraCfg.specialMax>0 && (
                   <li><strong>Pick:</strong> mains <em>{a.recMain.mode}</em> (α={a.recMain.alpha.toFixed(2)}), special <em>{a.recSpec.mode}</em> (α={a.recSpec.alpha.toFixed(2)})</li>
                 )}

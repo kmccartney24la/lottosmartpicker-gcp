@@ -22,7 +22,7 @@ export default function SelectedLatest({ game }: { game: GameKey }) {
   }, [game]);
 
   return (
-    <div className="card" style={{ padding: 12, minWidth: 260 }}>
+    <div className="card" style={{ padding: 12, minWidth: 260, minHeight: 92 }}>
       <div style={{ fontWeight: 700, marginBottom: 4 }}>Latest draw</div>
       {busy && <div className="hint">Loading…</div>}
       {!busy && row && (
