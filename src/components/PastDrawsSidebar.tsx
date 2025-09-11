@@ -4,10 +4,18 @@ import { LottoRow } from '@lib/lotto';
 import { useEffect, useRef } from 'react';
 
 export default function PastDrawsSidebar({
-  open, onClose, compact, setCompact, pageRows, page, pageCount, setPage, total
+  open, onClose, compact, setCompact, pageRows, page, pageCount, setPage, total,
+  side = 'right',
+  sortDir,
+  onToggleSort,
 }: {
   open: boolean; onClose: () => void; compact: boolean; setCompact: (v:boolean)=>void;
   pageRows: LottoRow[]; page: number; pageCount: number; setPage: (fn:(p:number)=>number)=>void; total: number;
+  /** Optional: render as right drawer (default) or bottom sheet on mobile */
+  side?: 'right'|'bottom';
+  /** Optional: if provided, shows a button to toggle sort direction */
+  sortDir?: 'desc'|'asc';
+  onToggleSort?: () => void;
 }) {
   const closeRef = useRef<HTMLButtonElement|null>(null);
   useEffect(()=>{ if (open) closeRef.current?.focus(); }, [open]);
@@ -41,7 +49,7 @@ export default function PastDrawsSidebar({
       {open && <div className="backdrop" onClick={onClose} aria-hidden="true" />}
       <aside
         id="past-draws"
-        className={`sidebar ${open ? 'open' : ''}`}
+        className={`sidebar ${side==='bottom' ? 'bottom' : ''} ${open ? 'open' : ''}`}
         role="dialog"
         aria-modal="true"
         aria-label="Past Draws"
@@ -50,6 +58,16 @@ export default function PastDrawsSidebar({
         <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:16, borderBottom:'1px solid var(--card-bd)' }}>
           <div style={{ fontWeight:700 }}>Past Draws</div>
           <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+            {typeof sortDir !== 'undefined' && onToggleSort && (
+              <button
+                className="btn btn-ghost"
+                title="Toggle sort order by date"
+                onClick={onToggleSort}
+                aria-label="Toggle sort order by date"
+              >
+                Sort: {sortDir === 'desc' ? 'Newest → Oldest' : 'Oldest → Newest'}
+              </button>
+            )}
             <label className="hint" style={{ display:'flex', alignItems:'center', gap:6 }} title="Compact reduces padding and font size to show more rows per page.">
               <input type="checkbox" checked={compact} onChange={(e)=>setCompact(e.target.checked)} /> Compact
             </label>
