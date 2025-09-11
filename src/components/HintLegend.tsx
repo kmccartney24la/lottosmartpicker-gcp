@@ -24,7 +24,7 @@ export default function HintLegend() {
               tone={classifyHint(label)}
               title={tip}
               wrap
-              style={{ width: 140 }}
+              style={{ width: 160 }}
             >
               {label}
             </Pill>
