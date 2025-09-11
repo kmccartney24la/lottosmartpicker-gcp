@@ -100,11 +100,12 @@ export default function Generator({
         </button>
         <Info
           tip={
-            'Recommended derives weights from current-era stats:\n' +
-            '• It measures dispersion (CV) of hit counts for mains & special.\n' +
-            '• From CV, it picks hot/cold modes and α (blend strength).\n' +
-            '• “Hot” leans toward numbers that hit more often recently; “Cold” toward those that haven’t.\n' +
-            'This does not guarantee outcomes; it just biases random sampling.'
+            'Recommended uses current-era stats with gentle safeguards:\n' +
+            '• Measures dispersion (CV) of hit counts for mains & special.\n' +
+            '• Converts CV → hot/cold + α, then applies small per-game α clamps.\n' +
+            '• Adds light smoothing to avoid overfitting when samples are small.\n' +
+            '• “Hot” leans toward frequent hitters; “Cold” toward underrepresented.\n' +
+            'This biases random sampling; it does not predict outcomes.'
           }
         />
       </div>
@@ -114,10 +115,11 @@ export default function Generator({
         <div style={{ fontWeight: 600 }}>Main numbers weighting</div>
         <Info
           tip={
-            'How main weighting works:\n' +
+            'Main weighting:\n' +
             '• hot: probability ∝ historical frequency (current era)\n' +
             '• cold: probability ∝ inverse frequency (rarer → higher weight)\n' +
-            '• α: 0 = uniform; 1 = pure hot/cold; values in between blend uniform with history.'
+            '• α blends uniform with history (0=uniform, 1=hot/cold)\n' +
+            '• A tiny smoothing prior reduces spiky behavior on low samples.'
           }
         />
       </div>
@@ -143,7 +145,9 @@ export default function Generator({
                 'Special ball weighting mirrors mains:\n' +
                 '• hot: weight by frequency; cold: weight by inverse frequency.\n' +
                 '• α blends uniform with history (0 = uniform, 1 = pure hot/cold).\n' +
-                'Domains reflect the current era.'
+                'Domains reflect the current era.' +
+                '• α blends uniform with history (0=uniform, 1=hot/cold).\n' +
+                '• Very small domains (like 1–4) use conservative α clamps.'
               }
             />
           </div>

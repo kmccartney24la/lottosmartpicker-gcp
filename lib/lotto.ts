@@ -532,10 +532,9 @@ export function computeStats(
   game: GameKey,
   overrideCfg?: { mainMax: number; specialMax: number; mainPick: number }
 ) {
-  // Use override if provided (e.g., current era), else legacy default.
-  const cfg = overrideCfg
-    ? overrideCfg
-    : (game === 'powerball' ? { mainMax:69, specialMax:26, mainPick:5 } : { mainMax:70, specialMax:25, mainPick:5 });
+  // Use override if provided (e.g., current era), else the current era.
+  // This keeps Mega Millions (24) correct and future-proofs defaults.
+  const cfg = overrideCfg ?? getCurrentEraConfig(game);
 
   const countsMain = new Map<number, number>();
   const countsSpecial = new Map<number, number>();
@@ -567,9 +566,14 @@ export function computeStats(
 }
 
 export function buildWeights(domainMax: number, counts: Map<number,number>, mode:'hot'|'cold', alpha:number): number[] {
+  // Add a light smoothing prior to reduce early-era overfit.
   const arr = Array.from({length:domainMax},(_,i)=>counts.get(i+1)||0);
   const total = arr.reduce((a,b)=>a+b,0);
-  const freq = total>0 ? arr.map(c=>c/total) : arr.map(()=>1/domainMax);
+  const avg = domainMax > 0 ? (total / domainMax) : 0;
+  const eps = Math.min(0.5, Math.max(0.05, 0.05 * avg)); // in [0.05, 0.5]
+  const arrSmooth = arr.map(c => c + eps);
+  const totalSmooth = arrSmooth.reduce((a,b)=>a+b,0);
+  const freq = totalSmooth>0 ? arrSmooth.map(c=>c/totalSmooth) : Array(domainMax).fill(1/domainMax);
   const max = Math.max(...freq);
   const invRaw = freq.map(p=>(max-p)+1e-9);
   const invSum = invRaw.reduce((a,b)=>a+b,0);
@@ -605,13 +609,20 @@ export function weightedSampleDistinct(k:number, weights:number[]): number[] {
 }
 
 export function looksTooCommon(mains:number[], game:GameKey): boolean {
-  const mainMax = game==='powerball'?69:70; // current-era main domains
-  const consecutive = mains.some((_,i)=> i>=2 && mains[i-2]+2===mains[i-1]+1 && mains[i-1]+1===mains[i]);
+  const mainMax = getCurrentEraConfig(game).mainMax;
+  // Any 3-in-a-row (triplet)
+  const tripleRun = mains.some((_,i)=> i>=2 && mains[i-2]+2===mains[i-1]+1 && mains[i-1]+1===mains[i]);
+  // Any 4-in-a-row (strictly stronger; catches very obvious sequences)
+  const fourRun = mains.some((_,i)=> i>=3 && mains[i-3]+3===mains[i-2]+2 && mains[i-2]+2===mains[i-1]+1 && mains[i-1]+1===mains[i]);
+  // “Date bias”: ≥4 numbers ≤31
   const lowBias = mains.filter(n=>n<=31).length >= 4;
+  // Pure arithmetic progression
   const d1 = mains[1]-mains[0];
-  const arithmetic = mains.every((n,i)=>(i===0?true:mains[i]-mains[i-1]===d1));
-  const clustered = mains[mains.length-1]-mains[0] <= Math.floor(mainMax/6);
-  return consecutive || lowBias || arithmetic || clustered;
+  const arithmetic = mains.every((_,i)=>(i===0?true:mains[i]-mains[i-1]===d1));
+  // Tight cluster: span narrower than ~1/7 of the domain
+  const span = mains[mains.length-1]-mains[0];
+  const clustered = span <= Math.floor(mainMax/7);
+  return fourRun || tripleRun || lowBias || arithmetic || clustered;
 }
 
 export function generateTicket(
@@ -668,6 +679,21 @@ export function recommendFromDispersion(cv:number, domain:'main'|'special'):{mod
   }
 }
 
+function clampAlphaFor(game:GameKey, domain:'main'|'special', alpha:number, draws:number): number {
+  const era = getCurrentEraConfig(game);
+  let lo = 0.5, hi = 0.75;
+  if (domain==='main') {
+    if (era.mainMax <= 45) { lo = 0.40; hi = 0.70; }  // Fantasy 5
+    else { lo = 0.50; hi = 0.75; }                    // PB/MM/C4L
+  } else {
+    if (era.specialMax <= 5) { lo = 0.35; hi = 0.75; } // C4L
+    else { lo = 0.45; hi = 0.75; }                     // PB/MM
+  }
+  // Early-era guard: before ~one full domain of draws, avoid very spiky alphas
+  if (draws < era.mainMax) { hi = Math.max(lo, hi - 0.10); }
+  return Math.min(hi, Math.max(lo, alpha));
+}
+
 export function analyzeGame(rows:LottoRow[], game:GameKey) {
   // Always analyze the CURRENT era only
   const era = getCurrentEraConfig(game);
@@ -680,8 +706,10 @@ export function analyzeGame(rows:LottoRow[], game:GameKey) {
   const cvSpec = s.cfg.specialMax>0 ? coefVar(specialCounts) : 0;
   const recencyHotFracMain = (()=>{ const threshold=10; let hot=0; for (let i=1;i<=s.cfg.mainMax;i++) if ((s.lastSeenMain.get(i)||Infinity)<=threshold) hot++; return hot/s.cfg.mainMax; })();
   const recencyHotFracSpec = s.cfg.specialMax>0 ? (()=>{ const threshold=10; let hot=0; for (let i=1;i<=s.cfg.specialMax;i++) if ((s.lastSeenSpecial.get(i)||Infinity)<=threshold) hot++; return hot/s.cfg.specialMax; })() : 0;
-  const recMain = recommendFromDispersion(cvMain, 'main');
-  const recSpec = s.cfg.specialMax>0 ? recommendFromDispersion(cvSpec, 'special') : { mode:'hot' as const, alpha:0.60 }; // neutral default
+  const recMain0 = recommendFromDispersion(cvMain, 'main');
+  const recSpec0 = s.cfg.specialMax>0 ? recommendFromDispersion(cvSpec,'special') : { mode:'hot' as const, alpha:0.60 };
+  const recMain = { ...recMain0, alpha: clampAlphaFor(game, 'main', recMain0.alpha, s.totalDraws) };
+  const recSpec = s.cfg.specialMax>0 ? { ...recSpec0, alpha: clampAlphaFor(game, 'special', recSpec0.alpha, s.totalDraws) } : recSpec0;
 
   return {
     game,
@@ -692,4 +720,19 @@ export function analyzeGame(rows:LottoRow[], game:GameKey) {
     eraStart: era.start,
     eraCfg: { mainMax: era.mainMax, specialMax: era.specialMax, mainPick: era.mainPick, label: era.label, description: era.description }
   };
+}
+
+// ---- Jackpot odds (exact, era-aware) ---------------------------------------
+function nCk(n:number,k:number): number {
+  if (k<0 || k>n) return 0;
+  k = Math.min(k, n-k);
+  let num=1, den=1;
+  for (let i=1;i<=k;i++){ num *= (n - (k - i)); den *= i; }
+  return Math.round(num/den);
+}
+export function jackpotOdds(game:GameKey): number {
+  const era = getCurrentEraConfig(game);
+  const mains = nCk(era.mainMax, era.mainPick);
+  const specials = Math.max(era.specialMax, 1);
+  return mains * specials; // “1 in <return value>”
 }
