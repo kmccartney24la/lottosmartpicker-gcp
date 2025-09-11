@@ -1,7 +1,6 @@
 'use client';
 import { useMemo, useRef, useState } from 'react';
 import Info from 'src/components/Info';
-import { explainHint } from 'src/components/HintLegend';
 import {
   GameKey,
   LottoRow,
@@ -214,11 +213,7 @@ export default function Generator({
                 {hasSpecial ? `${t.mains.join('-')} | ${t.special}` : t.mains.join('-')}
               </div>
               <div style={{ marginTop: 6 }}>
-                {hints.map(h => (
-                  <span key={h} className="badge" title={explainHint(h) ?? 'Tag'}>
-                    {h}
-                    </span>
-                  ))}
+                {hints.map(h => <span key={h} className="badge">{h}</span>)}
               </div>
             </div>
           );
