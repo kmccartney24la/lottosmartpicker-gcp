@@ -12,20 +12,17 @@ export type GameDetail = {
 };
 
 async function acceptCookies(page: Page) {
-  const selectors = [
+  const sels = [
     '#onetrust-accept-btn-handler',
     'button#onetrust-accept-btn-handler',
     'button:has-text("Accept")',
     'button:has-text("Accept All")',
   ];
-  for (const sel of selectors) {
+  for (const s of sels) {
     try {
-      const btn = page.locator(sel).first();
-      if (await btn.count()) {
-        await btn.click({ timeout: 3000 });
-        break;
-      }
-    } catch { /* ignore */ }
+      const btn = page.locator(s).first();
+      if (await btn.count()) { await btn.click({ timeout: 3000 }).catch(()=>{}); break; }
+    } catch {}
   }
 }
 

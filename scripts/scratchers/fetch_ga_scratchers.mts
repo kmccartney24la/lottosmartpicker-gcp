@@ -23,14 +23,16 @@ type Game = {
 };
 type Snapshot = { date: string; games: Game[] };
 
-async function withRetry<T>(fn: () => Promise<T>, label: string, tries = 2, delayMs = 2000): Promise<T | null> {
-  let lastErr: any;
+async function withRetry<T>(fn: () => Promise<T>, tries = 2) {
+  let lastErr: unknown;
   for (let i = 0; i < tries; i++) {
-    try { return await fn(); } catch (e) { lastErr = e; await sleep(delayMs); }
+    try { return await fn(); } catch (e) { lastErr = e; }
   }
-  console.warn(`${label} failed after ${tries} tries:`, (lastErr && (lastErr as Error).message) || lastErr);
-  return null;
+  throw lastErr;
 }
+
+// ...
+const top = await withRetry(() => fetchTopPrizes(), 2);
 
 async function fetchActiveGames(): Promise<Game[]> {
   // 1) Try to scrape list pages (non-blocking)
