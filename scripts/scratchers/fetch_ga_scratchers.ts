@@ -1,98 +1,103 @@
 // scripts/scratchers/fetch_ga_scratchers.ts
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { ensureError, withRetry } from './_util';
-import { fetchTopPrizes, type TopPrizeRow } from './parse_top_prizes';
+import { withRetry, newBrowser, newContext, closeAll, saveDebug } from './_util';
 import { fetchGameLinks } from './parse_lists';
-import { fetchGameDetails, type GameDetail } from './parse_game_page';
+import { parseGamePage } from './parse_game_page';
+import { parseTopPrizes } from './parse_top_prizes';
 
 const OUT_DIR = 'public/data/ga_scratchers';
-const LATEST = path.join(OUT_DIR, 'index.latest.json');
-const MERGED = path.join(OUT_DIR, 'index.json');
+const LATEST_PATH = path.join(OUT_DIR, 'index.latest.json');
+const MERGED_PATH = path.join(OUT_DIR, 'index.json');
 
-type IndexRecord = GameDetail & {
+type Game = {
+  url: string;
+  name?: string;
+  number?: string | number;
+  price?: number;
+  overallOdds?: number;
   topPrize?: number;
-  topPrizeClaimed?: number;
-  topPrizeTotal?: number;
-  topPrizeAsOf?: string;
+  prizes?: any;
+  [k: string]: any;
 };
 
 async function ensureOutDir() {
   await fs.mkdir(OUT_DIR, { recursive: true });
 }
 
-function byIdOrUrlKey(x: { gameId?: string; url?: string }) {
-  return (x.gameId && x.gameId.trim()) || (x.url ?? '').replace(/\/$/, '');
-}
-
-function merge(existing: IndexRecord[], latest: IndexRecord[]): IndexRecord[] {
-  const map = new Map<string, IndexRecord>();
-  for (const r of existing) map.set(byIdOrUrlKey(r), r);
-  for (const r of latest) map.set(byIdOrUrlKey(r), { ...(map.get(byIdOrUrlKey(r)) || {}), ...r });
-  // Stable-ish sort: numeric id asc, then name
-  return Array.from(map.values()).sort((a, b) => {
-    const ai = Number(a.gameId || 0);
-    const bi = Number(b.gameId || 0);
-    if (ai !== bi) return ai - bi;
-    return (a.name || '').localeCompare(b.name || '');
-  });
-}
-
-async function writeJson(file: string, data: unknown) {
+async function writeJson(file: string, data: any) {
   await ensureOutDir();
-  await fs.writeFile(file, JSON.stringify(data, null, 2) + '\n', 'utf8');
-  console.log(`Wrote ${file}`);
+  await fs.writeFile(file, JSON.stringify(data, null, 2), 'utf8');
 }
 
 async function readJson<T>(file: string): Promise<T | null> {
   try {
-    return JSON.parse(await fs.readFile(file, 'utf8')) as T;
+    const s = await fs.readFile(file, 'utf8');
+    return JSON.parse(s) as T;
   } catch {
     return null;
   }
 }
 
-async function main() {
-  await ensureOutDir();
+async function fetchDetails(urls: string[]): Promise<Game[]> {
+  const { browser } = await newBrowser();
+  const { context } = await newContext(browser);
 
-  const { active } = await withRetry(fetchGameLinks, { label: 'links', attempts: 3 });
+  const results: Game[] = [];
+  for (const url of urls) {
+    const page = await context.newPage();
+    try {
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+      const game = await parseGamePage(page, url);
+      // optional: top prizes live elsewhere or on-page; keep function tolerant
+      const top = await parseTopPrizes(page, url).catch(() => null);
+      if (top && typeof top === 'object') Object.assign(game, { prizes: top });
+      results.push({ url, ...game });
+    } catch (e) {
+      await saveDebug(page, `game_fail_${Buffer.from(url).toString('base64').slice(0, 12)}`);
+    } finally {
+      await page.close().catch(() => {});
+    }
+  }
 
-  const [details, top] = await Promise.all([
-    withRetry(() => fetchGameDetails(active), { label: 'game_details', attempts: 2 }),
-    withRetry(fetchTopPrizes, { label: 'top_prizes', attempts: 2 }),
-  ]);
-
-  // Join by gameId
-  const topById = new Map<string, TopPrizeRow>();
-  for (const t of top) topById.set(t.gameId, t);
-
-  const latest: IndexRecord[] = details.map((g) => {
-    const t = topById.get(g.gameId);
-    return {
-      ...g,
-      topPrize: t?.topPrize,
-      topPrizeClaimed: t?.claimed,
-      topPrizeTotal: t?.total,
-      topPrizeAsOf: t?.asOf,
-    };
-  });
-
-  await writeJson(LATEST, latest);
-
-  const existing = (await readJson<IndexRecord[]>(MERGED)) || [];
-  const merged = merge(existing, latest);
-  await writeJson(MERGED, merged);
+  await closeAll(browser, context);
+  return results;
 }
 
-// Hard-fail on any unhandled async errors so CI surfaces it
-process.on('unhandledRejection', (e) => {
-  const err = ensureError(e);
-  console.error('UNHANDLED REJECTION:', err.stack || err.message);
-  process.exit(1);
-});
+function mergeIndex(existing: { games: Game[] } | null, latest: { games: Game[] }) {
+  if (!existing) return latest;
+  const byUrl = new Map(existing.games.map(g => [g.url, g]));
+  for (const g of latest.games) byUrl.set(g.url, { ...(byUrl.get(g.url) || {}), ...g });
+  return { games: Array.from(byUrl.values()).sort((a, b) => String(a.url).localeCompare(String(b.url))) };
+}
 
-main().catch((e) => {
-  const err = ensureError(e);
-  console.error(err.stack || err.message || err);
-  process.exit(1);
-});
+export async function main() {
+  await ensureOutDir();
+
+  const { active, ended } = await withRetry(fetchGameLinks, {
+    attempts: 3,
+    label: 'links',
+  });
+
+  const all = Array.from(new Set([...active, ...ended])).sort();
+  if (all.length === 0) {
+    throw new Error('No scratcher links discovered from SPA or sitemap.');
+  }
+
+  const games = await fetchDetails(all);
+
+  const latest = { generatedAt: new Date().toISOString(), count: games.length, games };
+  await writeJson(LATEST_PATH, latest);
+
+  // merge with historical index.json if exists
+  const prior = await readJson<{ games: Game[] }>(MERGED_PATH);
+  const merged = mergeIndex(prior, { games });
+  await writeJson(MERGED_PATH, merged);
+}
+
+if (require.main === module) {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}

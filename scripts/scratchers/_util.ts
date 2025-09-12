@@ -3,12 +3,12 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { chromium, type Page, type Browser, type BrowserContext } from 'playwright';
 
+// ---------- small utils ----------
+export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 export function ensureError(e: unknown): Error {
   if (e instanceof Error) return e;
   return new Error(typeof e === 'string' ? e : 'Unknown failure');
 }
-
-export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 type RetryOpts = {
   attempts?: number;
@@ -19,10 +19,7 @@ type RetryOpts = {
   jitter?: boolean;
 };
 
-export async function withRetry<T>(
-  fn: () => Promise<T>,
-  opts: RetryOpts = {},
-): Promise<T> {
+export async function withRetry<T>(fn: () => Promise<T>, opts: RetryOpts = {}): Promise<T> {
   const attempts = opts.attempts ?? 3;
   const baseMs = opts.baseMs ?? 1500;
   const maxMs = opts.maxMs ?? 6000;
@@ -36,8 +33,9 @@ export async function withRetry<T>(
     } catch (e) {
       const err = ensureError(e);
       lastErr = err;
-      const sleepMs = Math.min(maxMs, baseMs * i) * (jitter ? (0.7 + Math.random() * 0.6) : 1);
-      console.warn(`[retry ${label}] attempt ${i}/${attempts} failed: ${err.message}; sleeping ${Math.round(sleepMs)}ms`);
+      const backoff = Math.min(maxMs, baseMs * Math.pow(1.5, i - 1));
+      const sleepMs = jitter ? Math.round(backoff * (0.7 + Math.random() * 0.6)) : backoff;
+      console.warn(`[retry ${label}] attempt ${i}/${attempts} failed: ${err.message}; sleeping ${sleepMs}ms`);
       await opts.onError?.(err, i);
       if (i < attempts) await sleep(sleepMs);
     }
@@ -45,21 +43,27 @@ export async function withRetry<T>(
   throw lastErr ?? new Error(`withRetry(${label}) failed`);
 }
 
+// ---------- paths & debug ----------
 const OUT_DIR = 'public/data/ga_scratchers';
+
 async function ensureOutDir() {
   await fs.mkdir(OUT_DIR, { recursive: true });
 }
 
 export async function saveDebug(page: Page, nameBase: string): Promise<void> {
-  await ensureOutDir();
-  const html = await page.content();
-  const pngPath = path.join(OUT_DIR, `_debug_${nameBase}.png`);
-  const htmlPath = path.join(OUT_DIR, `_debug_${nameBase}.html`);
-  await fs.writeFile(htmlPath, html, 'utf8');
-  await page.screenshot({ path: pngPath, fullPage: true }).catch(() => {});
-  console.log(`Saved debug artifacts: ${htmlPath}, ${pngPath}`);
+  try {
+    await ensureOutDir();
+    const htmlPath = path.join(OUT_DIR, `_debug_${nameBase}.html`);
+    const pngPath = path.join(OUT_DIR, `_debug_${nameBase}.png`);
+    await fs.writeFile(htmlPath, await page.content(), 'utf8').catch(() => {});
+    await page.screenshot({ path: pngPath, fullPage: true }).catch(() => {});
+    console.log(`Saved debug artifacts: ${htmlPath}, ${pngPath}`);
+  } catch {
+    // ignore
+  }
 }
 
+// ---------- browser setup ----------
 export async function newBrowser(): Promise<{ browser: Browser }> {
   const headless = process.env.HEADFUL ? false : true;
   const browser = await chromium.launch({
@@ -82,7 +86,7 @@ export async function newContext(browser?: Browser): Promise<{ browser: Browser;
     userAgent:
       'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125 Safari/537.36',
     locale: 'en-US',
-    geolocation: { longitude: -84.3880, latitude: 33.7490 }, // Atlanta-ish
+    geolocation: { longitude: -84.3880, latitude: 33.7490 },
     permissions: ['geolocation'],
   });
   return { browser: b, context };
@@ -97,6 +101,7 @@ export async function newPage(): Promise<{ browser: Browser; context: BrowserCon
   return { browser, context, page };
 }
 
+// ---------- hydration & cookies ----------
 async function hydrateList(page: Page, { maxScrolls = 14, stepPx = 1400 } = {}) {
   let lastHeight = 0;
   for (let i = 0; i < maxScrolls; i++) {
@@ -105,20 +110,24 @@ async function hydrateList(page: Page, { maxScrolls = 14, stepPx = 1400 } = {}) 
       await new Promise((r) => setTimeout(r, 250));
     }, stepPx);
 
-    const loadMore = page.locator('button:has-text("Load more"), button:has-text("Show more"), a:has-text("Load more")');
+    const loadMore = page.locator(
+      'button:has-text("Load more"), button:has-text("Show more"), a:has-text("Load more"), a:has-text("Show more")',
+    );
     if (await loadMore.first().isVisible().catch(() => false)) {
       await loadMore.first().click().catch(() => {});
       await page.waitForTimeout(600);
     }
 
-    const newHeight = await page.evaluate(() => document.scrollingElement?.scrollHeight ?? document.body.scrollHeight ?? 0);
+    const newHeight = await page.evaluate(
+      () => document.scrollingElement?.scrollHeight ?? document.body.scrollHeight ?? 0,
+    );
     if (newHeight <= lastHeight) break;
     lastHeight = newHeight;
   }
   await page.evaluate(() => window.scrollTo({ top: 0 }));
 }
 
-/** Open URL and bring SPA to a steady state */
+/** Bring a SPA page to a steady state (usable DOM) */
 export async function openAndReady(url: string): Promise<{ browser: Browser; context: BrowserContext; page: Page }> {
   const { browser, context, page } = await newPage();
   await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60_000 }).catch(() => {});
@@ -130,13 +139,35 @@ export async function openAndReady(url: string): Promise<{ browser: Browser; con
   return { browser, context, page };
 }
 
+export async function acceptCookies(page: Page) {
+  const selectors = [
+    '#onetrust-accept-btn-handler',
+    'button#onetrust-accept-btn-handler',
+    'button:has-text("Accept")',
+    'button:has-text("I Accept")',
+    'button:has-text("Agree")',
+    'button:has-text("Got it")',
+  ];
+  for (const sel of selectors) {
+    try {
+      const btn = page.locator(sel).first();
+      if (await btn.isVisible({ timeout: 500 }).catch(() => false)) {
+        await btn.click({ timeout: 1500 }).catch(() => {});
+        await page.waitForTimeout(250);
+        break;
+      }
+    } catch {}
+  }
+}
+
+// ---------- link discovery ----------
 function looksLikeGameLinkText(txt: string): boolean {
   const t = (txt || '').trim();
   if (!t) return false;
-  if (/#\s*\d{2,4}\b/i.test(t)) return true;
-  if (/\bNo\.?\s*\d{2,4}\b/i.test(t)) return true;
-  if (/\bGame\s*\d{2,4}\b/i.test(t)) return true;
-  if (/\$\d+\b/.test(t)) return true;
+  if (/#\s*\d{2,4}\b/i.test(t)) return true;        // "#1234"
+  if (/\bNo\.?\s*\d{2,4}\b/i.test(t)) return true;  // "No. 1234"
+  if (/\bGame\s*\d{2,4}\b/i.test(t)) return true;   // "Game 1234"
+  if (/\$\s*\d+/.test(t)) return true;              // "$1" (often price badge near the link)
   return false;
 }
 
@@ -145,7 +176,7 @@ function numericFromUrl(href: string): string | null {
   return m?.[1] ?? null;
 }
 
-/** Wait for a reasonable set of candidate scratcher anchors to exist */
+/** Returns candidate scratcher detail URLs (deduped). Throws only after saving debug artifacts. */
 export async function waitForNumericGameLinks(page: Page, minCount = 3, timeoutMs = 60_000): Promise<string[]> {
   const started = Date.now();
   let last: string[] = [];
@@ -185,19 +216,17 @@ export async function waitForNumericGameLinks(page: Page, minCount = 3, timeoutM
   throw new Error(`waitForNumericGameLinks: timed out without reaching minCount=${minCount}; gathered=${last.length}`);
 }
 
-// Number helpers
+// ---------- number helpers ----------
 export function toNum(s: string | null | undefined): number {
   if (!s) return 0;
   const m = (s.match(/[\d,]+/) || [])[0];
   return m ? Number(m.replace(/,/g, '')) : 0;
 }
-
 export function priceFromString(s: string | null | undefined): number {
   if (!s) return 0;
   const m = s.match(/\$?\s*([0-9]+)(?:\.\d{2})?/);
   return m ? Number(m[1]) : 0;
 }
-
 export function oddsFromText(s: string | null | undefined): number | undefined {
   if (!s) return;
   const m = s.match(/\b1\s*in\s*([0-9,.]+)/i);
@@ -205,29 +234,11 @@ export function oddsFromText(s: string | null | undefined): number | undefined {
   return;
 }
 
-/** Best-effort cookie banner handler */
-export async function acceptCookies(page: Page) {
-  const selectors = [
-    '#onetrust-accept-btn-handler',
-    'button#onetrust-accept-btn-handler',
-    'button:has-text("Accept")',
-    'button:has-text("I Accept")',
-    'button:has-text("Agree")',
-  ];
-  for (const sel of selectors) {
-    const btn = page.locator(sel);
-    if (await btn.first().isVisible().catch(() => false)) {
-      await btn.first().click({ timeout: 2000 }).catch(() => {});
-      await page.waitForTimeout(200);
-      break;
-    }
-  }
-}
-
-/** Close and flush tracing if enabled */
+// ---------- trace close ----------
 export async function closeAll(browser: Browser, context: BrowserContext) {
   try {
     if (process.env.TRACE) {
+      await ensureOutDir();
       await context.tracing.stop({ path: path.join(OUT_DIR, `_debug_trace.zip`) });
     }
   } catch {}
@@ -235,50 +246,41 @@ export async function closeAll(browser: Browser, context: BrowserContext) {
   await browser.close().catch(() => {});
 }
 
-/* ----------------------- HTTP helpers (sitemap fallback) ------------------- */
-
+// ---------- HTTP + sitemap fallback ----------
 export async function httpGet(url: string, init?: RequestInit): Promise<string> {
-  // Node 20 global fetch
   const res = await fetch(url, {
     ...init,
     headers: {
-      'user-agent': 'Mozilla/5.0 (compatible; GA-ScratchersBot/1.0; +https://example.invalid)',
+      'user-agent': 'Mozilla/5.0 (compatible; GA-ScratchersBot/1.0)',
       'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-      ...init?.headers,
-    } as any,
+      ...(init?.headers as any),
+    },
   });
   if (!res.ok) throw new Error(`GET ${url} -> ${res.status}`);
   return await res.text();
 }
 
-/** Extract absolute URLs from the galottery sitemap that are scratcher detail pages */
+/** Crawl sitemap(s) and return all scratcher detail page URLs. */
 export async function scrapeScratchersFromSitemap(): Promise<string[]> {
-  // robots.txt points to https://www.galottery.com/sitemap.xml
-  const xml = await httpGet('https://www.galottery.com/sitemap.xml');
-  // Some sites index nested sitemaps; follow any that look like "sitemap-*.xml"
-  const nested = Array.from(xml.matchAll(/<loc>([^<]+?)<\/loc>/g)).map(m => m[1]);
-  const allXmls = new Set<string>([...nested.filter(u => u.endsWith('.xml'))]);
+  const root = 'https://www.galottery.com/sitemap.xml';
+  const xml = await httpGet(root);
+  const locs = Array.from(xml.matchAll(/<loc>([^<]+?)<\/loc>/g)).map(m => m[1]);
+
+  // collect nested sitemaps and any direct URLs in the root
+  const sitemapXmls = new Set<string>(locs.filter(u => u.endsWith('.xml')));
+  const directUrls  = locs.filter(u => u.includes('/en-us/games/scratchers/') && u.endsWith('.html'));
 
   const urls: string[] = [];
-  for (const sm of allXmls) {
-    const body = sm === 'https://www.galottery.com/sitemap.xml' ? xml : await httpGet(sm);
-    const locs = Array.from(body.matchAll(/<loc>([^<]+?)<\/loc>/g)).map(m => m[1]);
-    for (const loc of locs) {
-      if (/\/en-us\/games\/scratchers\/.+\.html$/.test(loc)) {
-        urls.push(loc.replace(/\/$/, ''));
+  if (directUrls.length) urls.push(...directUrls);
+
+  for (const sm of sitemapXmls) {
+    const body = await httpGet(sm);
+    const nestedLocs = Array.from(body.matchAll(/<loc>([^<]+?)<\/loc>/g)).map(m => m[1]);
+    for (const u of nestedLocs) {
+      if (u.includes('/en-us/games/scratchers/') && u.endsWith('.html')) {
+        urls.push(u.replace(/\/$/, ''));
       }
     }
   }
-
-  // Fallback: if the first-level sitemap directly contained URLs
-  if (urls.length === 0) {
-    for (const loc of nested) {
-      if (/\/en-us\/games\/scratchers\/.+\.html$/.test(loc)) {
-        urls.push(loc.replace(/\/$/, ''));
-      }
-    }
-  }
-
-  // Dedup + sort
   return Array.from(new Set(urls)).sort();
 }
