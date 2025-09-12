@@ -11,3 +11,8 @@ export const oddsFromText = (s:string)=> {
   const m = s.match(/1\s*in\s*([0-9.]+)/i);
   return m ? parseFloat(m[1]) : undefined;
 };
+export function ensureError(e: unknown): Error {
+  if (e instanceof Error) return e;
+  if (typeof e === 'string') return new Error(e);
+  try { return new Error(JSON.stringify(e)); } catch { return new Error(String(e)); }
+}

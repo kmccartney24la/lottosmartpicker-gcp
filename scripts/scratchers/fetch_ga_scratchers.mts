@@ -3,6 +3,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { ensureError } from './_util.mts';
 
 // Explicit extensions keep ESM resolution happy when run via tsx
 import { fetchTopPrizes } from './parse_top_prizes.mts';
@@ -23,13 +24,19 @@ type Game = {
 };
 type Snapshot = { date: string; games: Game[] };
 
-async function withRetry<T>(fn: () => Promise<T>, tries = 2) {
-  let lastErr: unknown;
-  for (let i = 0; i < tries; i++) {
-    try { return await fn(); } catch (e) { lastErr = e; }
+async function withRetry<T>(fn: ()=>Promise<T>, tries=2, label='step'): Promise<T> {
+  let lastErr: unknown = undefined;
+  for (let i=1; i<=tries; i++) {
+    try { return await fn(); }
+    catch (e) {
+      lastErr = e;
+      console.warn(`[${label}] attempt ${i} failed:`, e instanceof Error ? e.message : e);
+      await new Promise(r=>setTimeout(r, 1500*i));
+    }
   }
-  throw lastErr;
+  throw ensureError(lastErr ?? 'Unknown failure');
 }
+
 
 // ...
 const top = await withRetry(() => fetchTopPrizes(), 2);
@@ -146,4 +153,15 @@ async function main() {
   console.log('merged.md5', md5(mergedStr));
 }
 
-main().catch(e => { console.error(e); process.exit(1); });
+// (optional but helpful)
+process.on('unhandledRejection', (e) => {
+  const err = ensureError(e);
+  console.error('UNHANDLED REJECTION:', err.stack || err.message);
+  process.exit(1);
+});
+
+main().catch((e) => {
+  const err = ensureError(e);
+  console.error(err.stack || err.message || err);
+  process.exit(1);
+});

@@ -72,3 +72,14 @@ jobs:
             --file public/data/ga_scratchers/index.json \
             --content-type application/json \
             --account-id "${CLOUDFLARE_ACCOUNT_ID}"
+      
+      - name: Upload snapshot + debug artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ga-scratchers-json
+          path: |
+            public/data/ga_scratchers/index.latest.json
+            public/data/ga_scratchers/index.json
+            public/data/ga_scratchers/_debug_top_prizes.png
+            public/data/ga_scratchers/_debug_top_prizes.html
+          if-no-files-found: warn
