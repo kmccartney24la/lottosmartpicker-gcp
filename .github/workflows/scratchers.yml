@@ -51,27 +51,20 @@ jobs:
           test -n "${{ secrets.CLOUDFLARE_API_TOKEN }}" || { echo "❌ Missing CLOUDFLARE_API_TOKEN secret"; exit 1; }
           test -n "${{ secrets.R2_BUCKET }}" || { echo "❌ Missing R2_BUCKET secret"; exit 1; }
 
+      - name: Install Wrangler
+        run: npm i -g wrangler@4
+
       - name: Upload to R2
         env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.CF_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN:  ${{ secrets.CLOUDFLARE_API_TOKEN  || secrets.CF_API_TOKEN  }}
-          R2_BUCKET:             ${{ secrets.R2_BUCKET }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN:  ${{ secrets.CF_API_TOKEN }}
+          R2_BUCKET:             ${{ secrets.R2_BUCKET }}   # e.g. "my-bucket"
           R2_PREFIX:             ga/scratchers
         run: |
-          set -euo pipefail
-          PREFIX="${R2_PREFIX#/}"  # strip any leading slash if someone adds it later
-
-          # Push latest
-          npx wrangler@4 r2 object put "${R2_BUCKET}/${PREFIX}/index.latest.json" \
-            --file public/data/ga_scratchers/index.latest.json \
-            --content-type application/json \
-            --account-id "${CLOUDFLARE_ACCOUNT_ID}"
-
-          # Push archive
-          npx wrangler@4 r2 object put "${R2_BUCKET}/${PREFIX}/index.json" \
-            --file public/data/ga_scratchers/index.json \
-            --content-type application/json \
-            --account-id "${CLOUDFLARE_ACCOUNT_ID}"
+          npx wrangler r2 object put "$R2_BUCKET/$R2_PREFIX/index.latest.json" \
+            --file public/data/ga_scratchers/index.latest.json --content-type application/json
+          npx wrangler r2 object put "$R2_BUCKET/$R2_PREFIX/index.json" \
+            --file public/data/ga_scratchers/index.json --content-type application/json
       
       - name: Upload snapshot + debug artifacts
         uses: actions/upload-artifact@v4

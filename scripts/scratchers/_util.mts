@@ -16,3 +16,27 @@ export function ensureError(e: unknown): Error {
   if (typeof e === 'string') return new Error(e);
   try { return new Error(JSON.stringify(e)); } catch { return new Error(String(e)); }
 }
+
+export function sleep(ms:number){ return new Promise(r=>setTimeout(r,ms)); }
+
+export function ensureError(e: unknown): Error {
+  if (e instanceof Error) return e;
+  if (typeof e === 'string') return new Error(e);
+  try { return new Error(`Non-Error thrown: ${JSON.stringify(e)}`); }
+  catch { return new Error(`Non-Error thrown: ${String(e)}`); }
+}
+
+export async function withRetry<T>(fn: () => Promise<T>, label: string, tries = 3) {
+  let last: Error | null = null;
+  for (let i = 1; i <= tries; i++) {
+    try { return await fn(); }
+    catch (e) {
+      const err = ensureError(e);
+      last = err;
+      console.warn(`[${label}] attempt ${i}/${tries} failed: ${err.message}`);
+      if (i < tries) await sleep(1500 * i);
+    }
+  }
+  throw last ?? new Error(`[${label}] Unknown failure`);
+}
+

@@ -6,9 +6,21 @@ import crypto from 'node:crypto';
 import { ensureError } from './_util.mts';
 
 // Explicit extensions keep ESM resolution happy when run via tsx
-import { fetchTopPrizes } from './parse_top_prizes.mts';
-import { fetchGameLinks } from './parse_lists.mts';
-import { fetchGameDetails } from './parse_game_page.mts';
+import { withRetry } from './_util';
+import { fetchTopPrizes } from './parse_top_prizes';
+import { fetchGameLinks } from './parse_lists';
+import { fetchGameDetails } from './parse_game_page';
+
+// ...
+async function fetchActiveGames(): Promise<Game[]> {
+  const { active, ended } = await withRetry(() => fetchGameLinks(), 'fetchGameLinks', 3);
+
+  // If the table is flaky, this will try a few times and, if it still fails,
+  // the thrown error will have the real message (not "Unknown failure").
+  const top = await withRetry(() => fetchTopPrizes(), 'fetchTopPrizes', 3);
+
+  const ids = Array.from(new Set([...active, ...ended].map(g => g.gameId)));
+  const details = await withRetry(() => fetchGameDetails(ids), 'fetchGameDetails', 2);
 
 const OUT_DIR = path.resolve('public/data/ga_scratchers');
 const LATEST = path.join(OUT_DIR, 'index.latest.json');
