@@ -22,6 +22,7 @@ export type ActiveGame = {
   oddsImageUrl?: string;    // modal (optional)
   ticketImageUrl?: string;  // modal (optional)
   updatedAt: string;        // Top Prizes “last updated”
+  lifecycle?: 'new' | 'continuing'; // UI hint (derived from delta)
 };
 
 type ModalDetail = {
@@ -550,6 +551,8 @@ async function main() {
     const newNums = activeIdsFromGrid.filter(n => !prevSet.has(n));
     const continuingNums = activeIdsFromGrid.filter(n => prevSet.has(n));
     const endedNums = prev ? prev.games.map(g => g.gameNumber).filter(n => !activeNow.has(n)) : [];
+    const newSet = new Set<number>(newNums);
+    const contSet = new Set<number>(continuingNums);
 
     await writeJson("_debug_delta.json", {
       new: newNums,
@@ -584,6 +587,11 @@ async function main() {
 
     // 4) Compose
     const updatedAt = pickUpdatedAt(topPrizesMap);
+
+      // Index (published) set = grid ∩ union
+    const indexNowSet = new Set<number>(activeNumsUnion.filter(n => activeNow.has(n)));
+    const newOnIndex = newNums.filter(n => indexNowSet.has(n));
+    const continuingOnIndex = continuingNums.filter(n => indexNowSet.has(n));
 
     const games: ActiveGame[] = activeNumsUnion
       .filter(n => activeNow.has(n)) // only keep currently active ones
@@ -626,6 +634,9 @@ async function main() {
           oddsImageUrl: det?.oddsImageUrl ?? prevG?.oddsImageUrl,
           ticketImageUrl: det?.ticketImageUrl ?? prevG?.ticketImageUrl,
           updatedAt,
+          lifecycle: newOnIndex.includes(num) ? 'new'
+                    : continuingOnIndex.includes(num) ? 'continuing'
+                    : undefined,
         };
       });
 
@@ -721,7 +732,23 @@ async function main() {
     });
 
     // 7) Persist
-    const payload = { updatedAt, count: gamesSorted.length, games: gamesSorted };
+    const payload = {
+      updatedAt,
+      count: gamesSorted.length,
+      deltaGrid: {
+        new: newNums,
+        continuing: continuingNums,
+        ended: endedNums,
+        counts: { grid: activeIdsFromGrid.length, union: activeNumsUnion.length }
+      },
+      deltaIndex: {
+        new: newOnIndex,
+        continuing: continuingOnIndex,
+        ended: [], // ended items never appear in the published index
+        counts: { index: gamesSorted.length }
+      },
+      games: gamesSorted
+    };
     const latest = await writeJson("index.latest.json", payload);
     await writeJson("index.json", payload);
 
