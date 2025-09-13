@@ -55,10 +55,34 @@ async function scrapeActiveModalDetails(context: BrowserContext): Promise<Map<nu
       '[data-game-id], [data-ga-game], [data-scratchers-tile]',
     ];
     const selector = tileSelectors.join(", ");
+
     await page.waitForSelector(selector, { timeout: 10_000 }).catch(() => {});
     let tiles = await page.$$(selector);
     if (!tiles.length) {
       tiles = await page.$$('.scratchers-grid *:not(script):not(style)');
+    }
+
+    // Grow the tile list (infinite scroll / load-more variants)
+    for (let pass = 0; pass < 8; pass++) {
+      const before = tiles.length;
+
+      for (const text of ["Load more", "Show more", "View more", "Load more games", "More games", "Show all"]) {
+        const btn = await page.$(`button:has-text("${text}")`).catch(() => null);
+        if (btn) {
+          try { await btn.click({ timeout: 2000 }); await page.waitForTimeout(900); } catch {}
+        }
+      }
+
+      await page.evaluate(async () => {
+        const el = document.scrollingElement || document.documentElement;
+        window.scrollTo(0, el.scrollHeight);
+        await new Promise(r => setTimeout(r, 800));
+        window.scrollTo(0, 0);
+        await new Promise(r => setTimeout(r, 300));
+      }).catch(() => {});
+
+      tiles = await page.$$(selector);
+      if (tiles.length <= before) break;
     }
 
     const byNum = new Map<number, ModalDetail>();
@@ -77,7 +101,6 @@ async function scrapeActiveModalDetails(context: BrowserContext): Promise<Map<nu
         await page.waitForSelector(modalSel, { timeout: 6000 });
 
         const info = await page.evaluate((sel) => {
-          // Strong image picking
           const abs = (u: string) => new URL(u, location.origin).href;
 
           const ticketImgEl =
@@ -104,50 +127,32 @@ async function scrapeActiveModalDetails(context: BrowserContext): Promise<Map<nu
             ? abs(((oddsImgEl as HTMLImageElement).currentSrc || (oddsImgEl as HTMLImageElement).src))
             : undefined;
 
-          // If only one image and it's clearly the odds card, don't fake a ticket image
           const imgsAll = Array.from(document.querySelectorAll('.modal-scratchers-content img')) as HTMLImageElement[];
           if (!ticketImageUrl && imgsAll.length === 1 && /\/odds\.jpg$/i.test(imgsAll[0].src)) {
-            // keep ticketImageUrl undefined
+            // leave ticketImageUrl undefined
           }
 
           const root = document.querySelector(sel) as HTMLElement | null;
           if (!root) return null;
 
           const pickText = (el: Element | null) => (el?.textContent || "").trim();
-
-          // Prefer explicit selectors under the modal content:
           const nameFromSelectors =
             pickText(root.querySelector("h2.game-name")) ||
             pickText(root.querySelector(".game-name")) ||
             pickText(root.querySelector(".modal-scratchers-header h2")) ||
             "";
-
-          // Ultra-defensive: if above were empty, try any prominent heading inside the modal
-          const name =
-            nameFromSelectors ||
-            pickText(root.querySelector("h1, h2, h3")) || "";
-
-          // Keep the rest as-is
+          const name = nameFromSelectors || pickText(root.querySelector("h1, h2, h3")) || "";
           const text = (root.textContent || "").replace(/\s+/g, " ");
 
-          return {
-            name,
-            text,
-            ticketImageUrl,
-            oddsImageUrl,
-          };
+          return { name, text, ticketImageUrl, oddsImageUrl };
         }, modalSel);
+
         if (info) {
           const numMatch = info.text.match(/Game\s*(?:Number|#)\s*[:#]?\s*(\d{3,5})/i);
           const gameNumber = numMatch ? Number(numMatch[1]) : NaN;
 
-          const overall = ((): number | undefined => {
-            // oddsFromText expects e.g., "1 in 3.47"
-            const n = oddsFromText(info.text);
-            return n;
-          })();
-
-          const startDate = ((): string | undefined => {
+          const overall = oddsFromText(info.text);
+          const startDate = (() => {
             const m = info.text.match(/(?:Start|Launch)\s*Date\s*[:\-]?\s*([A-Za-z]{3,9}\s+\d{1,2},\s+\d{4}|\d{1,2}\/\d{1,2}\/\d{2,4}|[A-Za-z]{3,9}\s+\d{4})/i);
             return m ? m[1] : undefined;
           })();
@@ -164,7 +169,6 @@ async function scrapeActiveModalDetails(context: BrowserContext): Promise<Map<nu
           }
         }
 
-        // Close modal
         await page.keyboard.press("Escape").catch(() => {});
         await page.click('body', { timeout: 300 }).catch(() => {});
         await page.waitForTimeout(60);
@@ -173,10 +177,8 @@ async function scrapeActiveModalDetails(context: BrowserContext): Promise<Map<nu
       }
     }
 
-    // Persist details snapshot
     const sample = Array.from(byNum.values()).slice(0, 10);
     await writeJson("_debug_active.details.json", { count: byNum.size, sample });
-
     return byNum;
   } finally {
     await page.close().catch(() => {});
@@ -201,14 +203,23 @@ async function main() {
   await maybeStartTracing(context);
 
   try {
-    // 1) Get active/ended numbers (numbers only; robust to SPA)
-    const { activeNums } = await fetchActiveEndedNumbers(context);
-    if (!activeNums.length) throw new Error("No active game numbers discovered.");
-
-    // 2) Parse Top Prizes table
+    // 1) Lists
+    const { activeNums: activeFromList } = await fetchActiveEndedNumbers(context);
     const topPrizesMap = await fetchTopPrizes(context); // Map<number, TopPrizeRow>
 
-    // 3) Overlay modal details from Active page
+    // 2) Union to avoid missing titles when the grid doesn't fully load
+    const activeFromTopPrizes = Array.from(topPrizesMap.keys());
+    const activeNums = Array.from(new Set([...activeFromList, ...activeFromTopPrizes])).sort((a, b) => a - b);
+
+    if (!activeNums.length) throw new Error("No active game numbers discovered.");
+
+    await writeJson("_debug_active.sources.json", {
+      fromActiveList: { count: activeFromList.length },
+      fromTopPrizes:  { count: activeFromTopPrizes.length },
+      union:          { count: activeNums.length }
+    });
+
+    // 3) Modal details
     const detailsByNum = await withRetry(() => scrapeActiveModalDetails(context), {
       label: "modal details",
       attempts: 2,
@@ -217,7 +228,7 @@ async function main() {
       console.warn(`[guard] modal details sparse: ${detailsByNum.size}/${activeNums.length} games enriched from modals`);
     }
 
-    // 4) Compose ActiveGame list
+    // 4) Compose
     const updatedAt = pickUpdatedAt(topPrizesMap);
 
     const games: ActiveGame[] = activeNums.map((num) => {
@@ -228,12 +239,11 @@ async function main() {
         (det?.name && det.name.trim()) ||
         (row?.gameName && row.gameName.trim()) ||
         `Game #${num}`;
-
       const name = nameRaw.toUpperCase();
 
       const overall = det?.overallOdds;
       const orig = row?.originalTopPrizes;
-      const rem = row?.topPrizesRemaining;
+      const rem  = row?.topPrizesRemaining;
 
       let adjusted: number | undefined = undefined;
       if (overall && orig && orig > 0 && typeof rem === "number") {
@@ -243,7 +253,7 @@ async function main() {
         adjusted = overall;
       }
 
-      // @ts-expect-error topPrizeValue may or may not be present in TopPrizeRow; tolerate undefined
+      // @ts-expect-error tolerate undefined (depends on table)
       const topPrizeValue: number | undefined = (row as any)?.topPrizeValue ?? undefined;
 
       return {
@@ -262,27 +272,20 @@ async function main() {
       };
     });
 
-    // ---- Guardrails & CI assertions
+    // 5) Guardrails
     const missingTopPrizeNums = games
       .filter(g => g.price == null || g.topPrizesOriginal == null || g.topPrizesRemaining == null)
       .map(g => g.gameNumber);
 
-    // Basic sanity
-    if (games.length === 0) {
-      throw new Error("CI assertion: No active games were returned.");
-    }
-    if (topPrizesMap.size === 0) {
-      throw new Error("CI assertion: Top Prizes table parsed 0 rows.");
-    }
+    if (games.length === 0) throw new Error("CI assertion: No active games were returned.");
+    if (topPrizesMap.size === 0) throw new Error("CI assertion: Top Prizes table parsed 0 rows.");
 
-    // Too many missing enrichments → fail hard
     if (missingTopPrizeNums.length / games.length > 0.5) {
       throw new Error(
         `CI assertion: ${missingTopPrizeNums.length}/${games.length} active games missing Top-Prizes fields: ${missingTopPrizeNums.join(", ")}`
       );
     }
 
-    // Soft warnings (non-fatal)
     if (missingTopPrizeNums.length) {
       console.warn(`[guard] ${missingTopPrizeNums.length}/${games.length} games missing Top-Prizes fields: ${missingTopPrizeNums.join(", ")}`);
     }
@@ -293,21 +296,17 @@ async function main() {
       console.warn(`[guard] ${identicalImgNums.length} games have identical ticket/odds images: ${identicalImgNums.join(", ")}`);
     }
 
-    // ---- Stable sort (price desc, adjustedOdds asc, overallOdds asc, gameNumber asc)
+    // 6) Stable sort
     const gamesSorted = games.slice().sort((a, b) => {
-      const pA = a.price ?? -Infinity, pB = b.price ?? -Infinity;            // desc; undefined last
+      const pA = a.price ?? -Infinity, pB = b.price ?? -Infinity;              // desc
       if (pA !== pB) return pB - pA;
-
-      const aaA = a.adjustedOdds ?? Infinity, aaB = b.adjustedOdds ?? Infinity; // asc; undefined last
+      const aaA = a.adjustedOdds ?? Infinity, aaB = b.adjustedOdds ?? Infinity; // asc
       if (aaA !== aaB) return aaA - aaB;
-
-      const boA = a.overallOdds ?? Infinity, boB = b.overallOdds ?? Infinity;   // asc; undefined last
+      const boA = a.overallOdds ?? Infinity, boB = b.overallOdds ?? Infinity;   // asc
       if (boA !== boB) return boA - boB;
-
-      return a.gameNumber - b.gameNumber; // final tiebreaker
+      return a.gameNumber - b.gameNumber;                                       // asc
     });
 
-    // (Optional) tiny debug summary to help future diffs
     await writeJson("_debug_summary.json", {
       updatedAt,
       counts: {
@@ -320,15 +319,10 @@ async function main() {
       }))
     });
 
-    // 5) Save active-only payload
-    const payload = {
-      updatedAt,
-      count: gamesSorted.length,
-      games: gamesSorted,
-    };
-
+    // 7) Persist
+    const payload = { updatedAt, count: gamesSorted.length, games: gamesSorted };
     const latest = await writeJson("index.latest.json", payload);
-    await writeJson("index.json", payload); // mirror for convenience
+    await writeJson("index.json", payload);
 
     console.log(`Wrote ${gamesSorted.length} active games → ${latest}`);
   } finally {
