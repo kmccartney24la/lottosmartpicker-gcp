@@ -12,6 +12,8 @@ permissions:
 jobs:
   scrape-and-upload:
     runs-on: ubuntu-24.04
+    environment:
+      name: r2-prod
     timeout-minutes: 35
     concurrency:
       group: ga-scratchers
@@ -46,6 +48,15 @@ jobs:
       - name: Install Playwright (Chromium only)
         run: npx playwright install --with-deps chromium
 
+
+      - name: Validate required secrets
+        run: |
+          [[ -n "${R2_BUCKET}" ]] || { echo "::error title=Missing secret::R2_BUCKET is not set"; exit 1; }
+          [[ -n "${CF_ACCOUNT_ID}" ]] || { echo "::error title=Missing secret::CF_ACCOUNT_ID is not set"; exit 1; }
+          [[ -n "${CF_API_TOKEN}" ]] || { echo "::error title=Missing secret::CF_API_TOKEN is not set"; exit 1; }
+          echo "R2 upload path will be: ${R2_BUCKET}/ga/scratchers/index.latest.json"
+
+
       - name: Scrape GA scratchers
         run: npx --yes tsx scripts/scratchers/fetch_ga_scratchers.ts
 
@@ -75,13 +86,17 @@ jobs:
       - name: Guarded R2 upload (index.latest.json)
         if: success() && hashFiles('public/data/ga_scratchers/index.latest.json') != ''
         run: |
-          npx wrangler r2 object put "${R2_BUCKET}/ga/scratchers/index.latest.json" \
+          npx wrangler r2 object put --remote \
+            --account-id "${CLOUDFLARE_ACCOUNT_ID}" \
+            "${R2_BUCKET}/ga/scratchers/index.latest.json" \
             --file=public/data/ga_scratchers/index.latest.json \
             --content-type=application/json
 
       - name: Guarded R2 upload (index.json)
         if: success() && hashFiles('public/data/ga_scratchers/index.json') != ''
         run: |
-          npx wrangler r2 object put "${R2_BUCKET}/ga/scratchers/index.json" \
+          npx wrangler r2 object put --remote \
+            --account-id "${CLOUDFLARE_ACCOUNT_ID}" \
+            "${R2_BUCKET}/ga/scratchers/index.json" \
             --file=public/data/ga_scratchers/index.json \
             --content-type=application/json
