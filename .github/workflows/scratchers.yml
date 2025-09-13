@@ -54,16 +54,17 @@ jobs:
           [[ -n "${CLOUDFLARE_ACCOUNT_ID}" ]] || { echo "::error title=Missing secret::CLOUDFLARE_ACCOUNT_ID is not set"; exit 1; }
           [[ -n "${CLOUDFLARE_API_TOKEN}" ]] || { echo "::error title=Missing secret::CLOUDFLARE_API_TOKEN is not set"; exit 1; }
           echo "R2 bucket: ${R2_BUCKET}"
+          npx -y wrangler@4.36.0 --version
 
-      # 🔁 MOVE THIS BEFORE THE SCRAPE so carry-forward works
+      # Fetch previous index for carry-forward (best effort)
       - name: Fetch previous index.latest.json from R2 (best-effort)
         continue-on-error: true
         run: |
           mkdir -p public/data/ga_scratchers
-          npx wrangler r2 object get \
-            --bucket "${R2_BUCKET}" \
-            ga/scratchers/index.latest.json \
-            --file public/data/ga_scratchers/index.latest.json
+          npx -y wrangler@4.36.0 r2 object get \
+            "${R2_BUCKET}/ga/scratchers/index.latest.json" \
+            --file public/data/ga_scratchers/index.latest.json \
+            --remote
 
       - name: Scrape GA scratchers
         run: npx --yes tsx scripts/scratchers/fetch_ga_scratchers.ts
@@ -88,25 +89,23 @@ jobs:
             public/data/ga_scratchers/_debug_*.json
             public/data/ga_scratchers/_debug_*.html
             public/data/ga_scratchers/_debug_*.png
-            public/data/ga_scratchers/_debug_trace.zip
           if-no-files-found: warn
           retention-days: 7
 
-      # ✅ Correct Wrangler syntax: use --bucket and a KEY (no --remote)
       - name: Guarded R2 upload (index.latest.json)
         if: success() && hashFiles('public/data/ga_scratchers/index.latest.json') != ''
         run: |
-          npx wrangler r2 object put \
-            --bucket "${R2_BUCKET}" \
-            ga/scratchers/index.latest.json \
+          npx -y wrangler@4.36.0 r2 object put \
+            "${R2_BUCKET}/ga/scratchers/index.latest.json" \
             --file public/data/ga_scratchers/index.latest.json \
-            --content-type=application/json
+            --content-type application/json \
+            --remote
 
       - name: Guarded R2 upload (index.json)
         if: success() && hashFiles('public/data/ga_scratchers/index.json') != ''
         run: |
-          npx wrangler r2 object put \
-            --bucket "${R2_BUCKET}" \
-            ga/scratchers/index.json \
+          npx -y wrangler@4.36.0 r2 object put \
+            "${R2_BUCKET}/ga/scratchers/index.json" \
             --file public/data/ga_scratchers/index.json \
-            --content-type=application/json
+            --content-type application/json \
+            --remote
