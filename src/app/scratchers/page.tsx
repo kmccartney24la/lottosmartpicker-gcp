@@ -3,16 +3,39 @@
 
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
-import {
-  fetchScratchersWithDelta,
-  rankScratchers,
-  DEFAULT_WEIGHTS,
-  filters,
-  sorters,
-  type ActiveGame,
-  type Weights,
-  type SortKey,
-} from 'lib/scratchers';
+
+/** --- Types that mirror /data/ga_scratchers/index.latest.json --- */
+type ActiveGame = {
+  gameNumber: number;
+  name: string;
+  price?: number;
+  topPrizeValue?: number;
+  topPrizesOriginal?: number;
+  topPrizesRemaining?: number;
+  overallOdds?: number | null;
+  adjustedOdds?: number | null;
+  startDate?: string;
+  oddsImageUrl?: string;
+  ticketImageUrl?: string;
+  updatedAt: string;
+  lifecycle?: 'new' | 'continuing';
+};
+
+type IndexPayload = {
+  updatedAt: string;
+  count: number;
+  games: ActiveGame[];
+};
+
+type SortKey =
+  | 'best'            // price desc, then adjusted asc, then printed asc (matches generator’s stable sort)
+  | 'adjusted'
+  | 'odds'
+  | 'price'
+  | 'topPrizeValue'
+  | 'topPrizesRemain'
+  | '%topAvail'
+  | 'name';
 
 export default function ScratchersPage() {
   const [games, setGames] = useState<ActiveGame[]>([]);
@@ -23,51 +46,102 @@ export default function ScratchersPage() {
   const [q, setQ] = useState('');
   const [priceMin, setPriceMin] = useState<number>(1);
   const [priceMax, setPriceMax] = useState<number>(50);
-  const [minTopAvail, setMinTopAvail] = useState<number>(0); // 0..1
-  const [minTopRemain, setMinTopRemain] = useState<number>(0);
-  const [lifecycle, setLifecycle] = useState<'all' | 'new' | 'continuing'>('all');
+  const [minTopAvail, setMinTopAvail] = useState<number>(0);    // 0..1
+  const [minTopRemain, setMinTopRemain] = useState<number>(0);  // integer
+  const [lifecycle, setLifecycle] = useState<'all'|'new'|'continuing'>('all');
   const [sortKey, setSortKey] = useState<SortKey>('best');
-
-  // --- Weights (for "Best" score) ---
-  const [w, setW] = useState<Weights>(DEFAULT_WEIGHTS);
 
   useEffect(() => {
     (async () => {
       setLoading(true);
-      const { games, updatedAt } = await fetchScratchersWithDelta();
-      setGames(games);
-      setUpdatedAt(updatedAt);
-      setLoading(false);
+      try {
+        // Load the R2-published JSON (no-cache to keep it fresh)
+        const res = await fetch('/data/ga_scratchers/index.latest.json', { cache: 'no-store' });
+        if (!res.ok) throw new Error(`scratchers ${res.status}`);
+        const payload: IndexPayload = await res.json();
+        setGames(payload.games || []);
+        setUpdatedAt(payload.updatedAt);
+      } catch (err) {
+        console.error(err);
+        setGames([]);
+      } finally {
+        setLoading(false);
+      }
     })();
   }, []);
 
-  const scored = useMemo(() => rankScratchers(games, w), [games, w]);
+  /** Helpers */
+  const pctTopPrizesRemain = (g: ActiveGame) => {
+    const orig = g.topPrizesOriginal ?? 0;
+    const rem = g.topPrizesRemaining ?? 0;
+    return orig > 0 ? rem / orig : 0;
+  };
 
+  /** Filtering */
   const filtered = useMemo(() => {
-    const fns = [
-      filters.byPrice(priceMin, priceMax),
-      filters.minTopPrizeAvailability(minTopAvail),
-      filters.minTopPrizesRemaining(minTopRemain),
-      filters.search(q),
-      filters.lifecycle(lifecycle === 'all' ? undefined : lifecycle),
-    ];
-    return scored.filter(({ game }) => fns.every(fn => fn(game)));
-  }, [scored, priceMin, priceMax, minTopAvail, minTopRemain, q, lifecycle]);
+    const s = q.trim().toLowerCase();
+    return games.filter((g) => {
+      if (g.price != null && (g.price < priceMin || g.price > priceMax)) return false;
+      if (lifecycle !== 'all' && g.lifecycle !== lifecycle) return false;
 
+      const pct = pctTopPrizesRemain(g);
+      if (pct < minTopAvail) return false;
+      if ((g.topPrizesRemaining ?? 0) < minTopRemain) return false;
+
+      if (s) {
+        const hay = `${g.name} ${g.gameNumber}`.toLowerCase();
+        if (!hay.includes(s)) return false;
+      }
+      return true;
+    });
+  }, [games, q, priceMin, priceMax, lifecycle, minTopAvail, minTopRemain]);
+
+  /** Sorting */
   const sorted = useMemo(() => {
-    const sorter = sorters(sortKey, scored);
-    return filtered.map(f => f.game).sort(sorter);
-  }, [filtered, sortKey, scored]);
+    const out = filtered.slice();
+    out.sort((a, b) => {
+      const adjA = a.adjustedOdds ?? Infinity;
+      const adjB = b.adjustedOdds ?? Infinity;
+      const odA = a.overallOdds ?? Infinity;
+      const odB = b.overallOdds ?? Infinity;
+      const pA = a.price ?? -Infinity;
+      const pB = b.price ?? -Infinity;
+      const tpvA = a.topPrizeValue ?? -Infinity;
+      const tpvB = b.topPrizeValue ?? -Infinity;
+      const remA = a.topPrizesRemaining ?? -Infinity;
+      const remB = b.topPrizesRemaining ?? -Infinity;
+      const pctA = pctTopPrizesRemain(a);
+      const pctB = pctTopPrizesRemain(b);
+
+      switch (sortKey) {
+        case 'best':
+          // Mirrors generator’s “stable sort” idea: price ↓, adjusted ↑, printed ↑, id ↑
+          if (pA !== pB) return pB - pA;
+          if (adjA !== adjB) return adjA - adjB;
+          if (odA !== odB) return odA - odB;
+          return a.gameNumber - b.gameNumber;
+
+        case 'adjusted':       return adjA === adjB ? a.gameNumber - b.gameNumber : adjA - adjB;      // asc (lower = better)
+        case 'odds':           return odA === odB   ? a.gameNumber - b.gameNumber : odA - odB;        // asc
+        case 'price':          return pA === pB     ? a.gameNumber - b.gameNumber : pB - pA;          // desc
+        case 'topPrizeValue':  return tpvA === tpvB ? a.gameNumber - b.gameNumber : tpvB - tpvA;      // desc
+        case 'topPrizesRemain':return remA === remB ? a.gameNumber - b.gameNumber : remB - remA;      // desc
+        case '%topAvail':      return pctA === pctB ? a.gameNumber - b.gameNumber : pctB - pctA;      // desc
+        case 'name': default:  return a.name.localeCompare(b.name);
+      }
+    });
+    return out;
+  }, [filtered, sortKey]);
 
   return (
     <main>
-      {/* Header with tabbar (same placement as home) */}
+      {/* Header with tabbar */}
       <header style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6 }}>
         <div>
           <h1 style={{ fontSize: 26, fontWeight: 800, margin: 0 }}>GA Scratchers</h1>
           {updatedAt && (
             <div className="hint" aria-live="polite" style={{ marginTop: 2 }}>
-              Updated {new Date(updatedAt).toLocaleString()}
+              Updated {updatedAt}
             </div>
           )}
         </div>
@@ -80,7 +154,7 @@ export default function ScratchersPage() {
       <section className="grid" style={{ gridTemplateColumns: '300px 1fr' }}>
         {/* Left: sticky controls */}
         <aside className="card" style={{ position:'sticky', top:16, alignSelf:'start' }}>
-          <div style={{ fontWeight:700, marginBottom:8 }}>Filters &amp; Sort</div>
+          <div style={{ fontWeight:700, marginBottom:8 }}>Filters & Sort</div>
 
           <label className="controls" style={{ display:'grid', gap:8 }}>
             <span>Search</span>
@@ -130,168 +204,90 @@ export default function ScratchersPage() {
 
           <label><span>Sort by</span>
             <select value={sortKey} onChange={e=>setSortKey(e.target.value as SortKey)}>
-              <option value="best">Best value (score)</option>
-              <option value="adjusted">Adjusted odds</option>
-              <option value="odds">Printed odds</option>
+              <option value="best">Best (price ↓ then adjusted ↑)</option>
+              <option value="adjusted">Adjusted odds (lower=better)</option>
+              <option value="odds">Printed odds (lower=better)</option>
+              <option value="price">Ticket price</option>
               <option value="topPrizeValue">Top prize $</option>
               <option value="topPrizesRemain">Top prizes remaining</option>
-              <option value="price">Ticket price</option>
-              <option value="launch">Launch date</option>
+              <option value="%topAvail">% top-prizes remaining</option>
+              <option value="name">Name (A→Z)</option>
             </select>
           </label>
-
-          {/* Weights */}
-          <div style={{ marginTop:12, fontWeight:700 }}>Weights</div>
-          {(
-            [
-              ['w_jackpot','Top prize $'],
-              ['w_prizes','Top-prize availability %'],
-              ['w_odds','Odds (1 / adjusted)'],
-              ['w_price','Price (penalty)'],
-              // w_value retained for compatibility but unused in current shape
-            ] as [keyof Weights, string][]
-          ).map(([k, label]) => (
-            <label key={k}><span>{label}: {Number.isFinite(DEFAULT_WEIGHTS[k] as number) ? w[k].toFixed(2) : String(w[k])}</span>
-              <input
-                type="range"
-                min={0} max={1} step={0.01}
-                value={Number(w[k])}
-                onChange={e=>setW({...w, [k]: +e.target.value})}
-              />
-            </label>
-          ))}
-          <button className="btn btn-ghost" onClick={()=>setW(DEFAULT_WEIGHTS)} style={{ marginTop:8 }}>
-            Reset weights
-          </button>
         </aside>
 
-        {/* Right: results grid */}
-        <section
-          className="grid"
-          style={{ gridTemplateColumns:'repeat(auto-fill, minmax(260px,1fr))' }}
-          aria-busy={loading}
-        >
-          {loading && <div className="card">Loading scratchers…</div>}
-          {!loading && sorted.map(g => <ScratcherCard key={g.gameNumber} g={g} />)}
-          {!loading && sorted.length === 0 && <div className="card">No games match your filters.</div>}
+        {/* Right: results table */}
+        <section className="card" aria-busy={loading} style={{ overflowX:'auto' }}>
+          {loading && <div>Loading scratchers…</div>}
+          {!loading && sorted.length === 0 && <div>No games match your filters.</div>}
+
+          {!loading && sorted.length > 0 && (
+            <table className="compact" role="table" aria-label="GA Scratchers comparison">
+              <thead>
+                <tr>
+                  <th style={{ minWidth: 220, textAlign:'left' }}>Name</th>
+                  <th className="mono" style={{ textAlign:'right' }}>Game #</th>
+                  <th className="mono" style={{ textAlign:'right' }}>Price</th>
+                  <th className="mono" style={{ textAlign:'right' }}>Adjusted odds</th>
+                  <th className="mono" style={{ textAlign:'right' }}>Printed odds</th>
+                  <th className="mono" style={{ textAlign:'right' }}>Top prize</th>
+                  <th className="mono" style={{ textAlign:'right' }}>Remain / Orig</th>
+                  <th className="mono" style={{ textAlign:'right' }}>% Top-prize left</th>
+                  <th>Lifecycle</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sorted.map((g) => {
+                  const pct = pctTopPrizesRemain(g);
+                  return (
+                    <tr key={g.gameNumber}>
+                      <td style={{ whiteSpace:'nowrap' }}>
+                        <div style={{ fontWeight:700, lineHeight:1.2 }}>
+                          {g.name}{' '}
+                          {g.lifecycle === 'new' && (
+                            <span className="pill" title="New game">New</span>
+                          )}
+                        </div>
+                        <div className="hint" style={{ marginTop:2 }}>
+                          {g.startDate ? `Launch: ${g.startDate}` : ''}
+                          {g.ticketImageUrl ? (
+                            <>
+                              {' '}&middot; <a href={g.ticketImageUrl} target="_blank" rel="noreferrer">Ticket</a>
+                            </>
+                          ) : null}
+                          {g.oddsImageUrl ? (
+                            <>
+                              {' '}&middot; <a href={g.oddsImageUrl} target="_blank" rel="noreferrer">Odds img</a>
+                            </>
+                          ) : null}
+                        </div>
+                      </td>
+                      <td className="mono" style={{ textAlign:'right' }}>{g.gameNumber}</td>
+                      <td className="mono" style={{ textAlign:'right' }}>{g.price != null ? `$${g.price}` : '—'}</td>
+                      <td className="mono" style={{ textAlign:'right' }}>
+                        {g.adjustedOdds != null ? `1 in ${Number(g.adjustedOdds).toFixed(2)}` : '—'}
+                      </td>
+                      <td className="mono" style={{ textAlign:'right' }}>
+                        {g.overallOdds != null ? `1 in ${g.overallOdds}` : '—'}
+                      </td>
+                      <td className="mono" style={{ textAlign:'right' }}>
+                        {g.topPrizeValue != null ? `$${g.topPrizeValue.toLocaleString()}` : '—'}
+                      </td>
+                      <td className="mono" style={{ textAlign:'right' }}>
+                        {(g.topPrizesRemaining ?? 0).toLocaleString()} / {(g.topPrizesOriginal ?? 0).toLocaleString()}
+                      </td>
+                      <td className="mono" style={{ textAlign:'right' }}>
+                        {`${Math.round(pct * 100)}%`}
+                      </td>
+                      <td>{g.lifecycle ? (g.lifecycle[0].toUpperCase() + g.lifecycle.slice(1)) : '—'}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
         </section>
       </section>
     </main>
-  );
-}
-
-function pctTopPrizesRemain(g: ActiveGame): number {
-  const orig = g.topPrizesOriginal ?? 0;
-  const rem  = g.topPrizesRemaining ?? 0;
-  if (orig <= 0) return 0;
-  return rem / orig;
-}
-
-function bar(pct: number) {
-  const clamped = Math.max(0, Math.min(1, pct));
-  return (
-    <div style={{ height: 6, background: 'var(--card-bd)', borderRadius: 999 }}>
-      <div style={{ width: `${clamped*100}%`, height: 6, borderRadius: 999, background: 'var(--accent)' }} />
-    </div>
-  );
-}
-
-function ScratcherCard({ g }: { g: ActiveGame }) {
-  const [open, setOpen] = useState(false);
-  const pctRemain = pctTopPrizesRemain(g);
-
-  return (
-    <article className="card" aria-expanded={open}>
-      <div style={{ display:'flex', justifyContent:'space-between', gap:8 }}>
-        <div>
-          <div style={{ fontWeight:700, lineHeight:1.2 }}>
-            {g.name}{' '}
-            {g.lifecycle === 'new' && (
-              <span className="pill" aria-label="New game" title="New game">New</span>
-            )}
-          </div>
-          <div className="hint">
-            #{g.gameNumber} • {g.price ? `$${g.price}` : '$—'} ticket •{' '}
-            {g.overallOdds ? `1 in ${g.overallOdds}` : '—'} odds
-          </div>
-          {g.adjustedOdds && g.overallOdds && (
-            <div className="hint">Adjusted: 1 in {g.adjustedOdds.toFixed(1)} • Printed: 1 in {g.overallOdds}</div>
-          )}
-        </div>
-        <button className="btn" onClick={()=>setOpen(o=>!o)} aria-label={open ? 'Collapse details' : 'Expand details'}>
-          {open ? 'Hide' : 'Details'}
-        </button>
-      </div>
-
-      <div style={{ marginTop:8 }}>
-        <div className="hint" style={{ marginBottom:4 }}>
-          Top-prize availability
-        </div>
-        <div aria-label={`${Math.round(pctRemain*100)}% top prizes remaining`}>
-          {bar(pctRemain)}
-        </div>
-      </div>
-
-      {/* Compact “top prize” summary that matches available fields */}
-      <div className="compact" style={{ marginTop:8 }}>
-        <table>
-          <thead>
-            <tr>
-              <th>Top prize</th>
-              <th className="mono" style={{ textAlign:'right' }}>Remain</th>
-              <th className="mono" style={{ textAlign:'right' }}>Original</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>{g.topPrizeValue ? `$${g.topPrizeValue.toLocaleString()}` : '—'}</td>
-              <td className="mono" style={{ textAlign:'right' }}>
-                {(g.topPrizesRemaining ?? 0).toLocaleString()}
-              </td>
-              <td className="mono" style={{ textAlign:'right' }}>
-                {(g.topPrizesOriginal ?? 0).toLocaleString()}
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-      {open && (
-        <div className="compact" style={{ marginTop:8 }}>
-          <table>
-            <thead>
-              <tr>
-                <th>Images</th>
-                <th className="mono" style={{ textAlign:'right' }}>Link</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td>Ticket</td>
-                <td className="mono" style={{ textAlign:'right' }}>
-                  {g.ticketImageUrl
-                    ? <a href={g.ticketImageUrl} target="_blank" rel="noreferrer">Open</a>
-                    : '—'}
-                </td>
-              </tr>
-              <tr>
-                <td>Odds</td>
-                <td className="mono" style={{ textAlign:'right' }}>
-                  {g.oddsImageUrl
-                    ? <a href={g.oddsImageUrl} target="_blank" rel="noreferrer">Open</a>
-                    : '—'}
-                </td>
-              </tr>
-              {g.startDate && (
-                <tr>
-                  <td>Launch</td>
-                  <td className="mono" style={{ textAlign:'right' }}>{g.startDate}</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </article>
   );
 }
