@@ -2,7 +2,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { chromium, BrowserContext } from "playwright";
-import { ensureDir, maybeStartTracing, maybeStopTracing, openAndReady, oddsFromText, withRetry } from "./_util";
+import { ensureDir, maybeStartTracing, maybeStopTracing, openAndReady, withRetry } from "./_util";
 import { fetchActiveEndedNumbers } from "./parse_lists";
 import { fetchTopPrizes, type TopPrizeRow } from "./parse_top_prizes";
 
@@ -33,6 +33,14 @@ type ModalDetail = {
   oddsImageUrl?: string;
 };
 
+function carryForward<T extends keyof ActiveGame>(
+  current: ActiveGame[T] | undefined,
+  prev: ActiveGame | undefined,
+  key: T
+): ActiveGame[T] | undefined {
+  return current ?? prev?.[key];
+}
+
 function normalizeUrl(u?: string | null): string | undefined {
   if (!u) return undefined;
   try {
@@ -55,7 +63,7 @@ function parseSrcset(ss?: string | null): Array<{ url: string; w: number }> {
     .filter(Boolean) as Array<{ url: string; w: number }>;
 }
 
-function chooseBestImage(img: HTMLImageElement): string | undefined {
+function chooseBestImage(img: any): string | undefined {
   // Prefer currentSrc, then src, then largest srcset candidate
   const cs = (img as any).currentSrc as string | undefined;
   if (cs) return normalizeUrl(cs);
@@ -90,7 +98,67 @@ async function writeJson(basename: string, data: unknown) {
   return fp;
 }
 
-async function scrapeActiveModalDetails(context: BrowserContext): Promise<Map<number, ModalDetail>> {
+async function readPrevIndex(): Promise<null | { updatedAt: string; count: number; games: ActiveGame[] }> {
+  try {
+    const fp = path.join(OUT_DIR, "index.latest.json");
+    const txt = await fs.readFile(fp, "utf8");
+    return JSON.parse(txt);
+  } catch {
+    return null;
+  }
+}
+
+// Lightweight collector: just return the game IDs visible in the Active grid
+async function collectActiveIds(context: BrowserContext): Promise<number[]> {
+  const page = await context.newPage();
+  const z = (ms: number) => new Promise(r => setTimeout(r, ms));
+  try {
+    await openAndReady(page, ACTIVE_URL, { loadMore: true });
+
+    const MAX_PASSES = 40;
+    let last = -1, stable = 0;
+
+    await page.waitForSelector("#instantsGrid", { timeout: 15000 }).catch(() => {});
+    await page.waitForSelector('.catalog-item[data-game-id]', { timeout: 15000 }).catch(() => {});
+
+    for (let p = 0; p < MAX_PASSES; p++) {
+      await page.evaluate(() => {
+        const el = document.scrollingElement || document.documentElement;
+        el.scrollTop = el.scrollHeight;
+        window.dispatchEvent(new Event("scroll"));
+        window.dispatchEvent(new Event("resize"));
+      }).catch(() => {});
+      await page.waitForLoadState("networkidle", { timeout: 2000 }).catch(() => {});
+      await z(900);
+
+      const loading = await page.$("#instantsGrid.loading").catch(() => null);
+      if (loading) await z(600);
+
+      const count = await page.$$eval('.catalog-item[data-game-id]', els => els.length).catch(() => 0);
+      if (count > 0 && count === last) {
+        if (++stable >= 2) break;
+      } else {
+        stable = 0;
+      }
+      last = count;
+    }
+
+    const ids = await page.$$eval('.catalog-item[data-game-id]', els =>
+      Array.from(new Set(
+        els.map(el => Number((el as HTMLElement).getAttribute("data-game-id")))
+           .filter(n => Number.isFinite(n))
+      ))
+    ).catch(() => []);
+    return ids;
+  } finally {
+    await page.close().catch(() => {});
+  }
+}
+
+async function scrapeActiveModalDetails(
+  context: BrowserContext,
+  onlyIds?: number[]
+): Promise<Map<number, ModalDetail>> {
   const page = await context.newPage();
 
   // Small helper: sleep
@@ -284,12 +352,14 @@ async function closeModal(): Promise<void> {
 
     // 1) Pull *all* game ids present in the grid
     const ids = await ensureGridFullyLoaded();
+    const gate = new Set<number>(onlyIds ?? []);
+    const walkIds = onlyIds && onlyIds.length ? ids.filter(id => gate.has(id)) : ids;
 
     const byNum = new Map<number, ModalDetail>();
 
-    // 2) Walk every id, open modal, expand odds, read, close
-    for (let i = 0; i < ids.length; i++) {
-      const id = ids[i];
+    // 2) Walk ids (scoped to onlyIds if provided): open modal, expand odds, read, close
+    for (let i = 0; i < walkIds.length; i++) {
+      const id = walkIds[i];
       try {
         const opened = await openModalFor(id);
         if (!opened) continue;
@@ -459,73 +529,105 @@ async function main() {
   await maybeStartTracing(context);
 
   try {
-    // 1) Lists
+
+    const prev = await readPrevIndex();
+    const prevMap = new Map<number, ActiveGame>(prev ? prev.games.map(g => [g.gameNumber, g]) : []);
+
+    // 1) Authoritative "active today" set from grid
+    const activeIdsFromGrid = await collectActiveIds(context);
+
+    // 2) Secondary sources
     const { activeNums: activeFromList } = await fetchActiveEndedNumbers(context);
-    const topPrizesMap = await fetchTopPrizes(context); // Map<number, TopPrizeRow>
-
-    // 2) Union to avoid missing titles when the grid doesn't fully load
+    const topPrizesMap = await fetchTopPrizes(context);
     const activeFromTopPrizes = Array.from(topPrizesMap.keys());
-    const activeNums = Array.from(new Set([...activeFromList, ...activeFromTopPrizes])).sort((a, b) => a - b);
 
-    if (!activeNums.length) throw new Error("No active game numbers discovered.");
+    // Union for resilience when a source under-loads
+    const activeNumsUnion = Array.from(new Set([...activeFromList, ...activeFromTopPrizes])).sort((a,b)=>a-b);
 
+    // 3) Delta vs previous file (restricted to grid = truth)
+    const activeNow = new Set<number>(activeIdsFromGrid);
+    const prevSet = new Set<number>(prev ? prev.games.map(g => g.gameNumber) : []);
+    const newNums = activeIdsFromGrid.filter(n => !prevSet.has(n));
+    const continuingNums = activeIdsFromGrid.filter(n => prevSet.has(n));
+    const endedNums = prev ? prev.games.map(g => g.gameNumber).filter(n => !activeNow.has(n)) : [];
+
+    await writeJson("_debug_delta.json", {
+      new: newNums,
+      continuing: continuingNums,
+      ended: endedNums,
+      counts: {
+        grid: activeIdsFromGrid.length,
+        union: activeNumsUnion.length
+      }
+    });
+    console.log(`[delta] new=${newNums.length}, continuing=${continuingNums.length}, ended=${endedNums.length}`);
+
+    // 4) Source coverage snapshot (include grid count)
     await writeJson("_debug_active.sources.json", {
+      fromGrid:       { count: activeIdsFromGrid.length },
       fromActiveList: { count: activeFromList.length },
       fromTopPrizes:  { count: activeFromTopPrizes.length },
-      union:          { count: activeNums.length }
+      union:          { count: activeNumsUnion.length }
     });
 
-    // 3) Modal details
-    const detailsByNum = await withRetry(() => scrapeActiveModalDetails(context), {
-      label: "modal details",
-      attempts: 2,
-    });
-    if (detailsByNum.size / activeNums.length < 0.5) {
-      console.warn(`[guard] modal details sparse: ${detailsByNum.size}/${activeNums.length} games enriched from modals`);
+    // 5) Scrape only NEW games' modals (faster weekly run). Carry-forward will fill the rest.
+    const detailsByNum = await withRetry(
+      () => scrapeActiveModalDetails(context, newNums /* omit to scrape ALL */),
+      { label: "modal details", attempts: 2 }
+    );
+
+    // Sparse-modals guard: for incremental runs compare against newNums; fall back to grid on cold start
+    const denom = Math.max((newNums.length || activeIdsFromGrid.length), 1);
+    if (detailsByNum.size / denom < 0.5) {
+      console.warn(`[guard] modal details sparse: ${detailsByNum.size}/${denom} (modals/target)`);
     }
 
     // 4) Compose
     const updatedAt = pickUpdatedAt(topPrizesMap);
 
-    const games: ActiveGame[] = activeNums.map((num) => {
-      const row = topPrizesMap.get(num);
-      const det = detailsByNum.get(num);
+    const games: ActiveGame[] = activeNumsUnion
+      .filter(n => activeNow.has(n)) // only keep currently active ones
+      .map((num) => {
+        const row = topPrizesMap.get(num);
+        const det = detailsByNum.get(num);
+        const prevG = prevMap.get(num);
 
-      const nameRaw =
-        (det?.name && det.name.trim()) ||
-        (row?.gameName && row.gameName.trim()) ||
-        `Game #${num}`;
-      const name = nameRaw.toUpperCase();
+        const nameRaw =
+          (det?.name && det.name.trim()) ||
+          (row?.gameName && row.gameName.trim()) ||
+          prevG?.name ||
+          `Game #${num}`;
+        const name = nameRaw.toUpperCase();
 
-      const overall = det?.overallOdds;
-      const orig = row?.originalTopPrizes;
-      const rem  = row?.topPrizesRemaining;
+        const overall = det?.overallOdds ?? prevG?.overallOdds;
+        const orig = row?.originalTopPrizes;
+        const rem  = row?.topPrizesRemaining;
 
-      let adjusted: number | undefined = undefined;
-      if (overall && orig && orig > 0 && typeof rem === "number") {
-        const ratio = rem / orig;
-        adjusted = overall / Math.max(ratio, 0.01);
-      } else if (overall) {
-        adjusted = overall;
-      }
+        let adjusted: number | undefined = undefined;
+        if (overall && orig && orig > 0 && typeof rem === "number") {
+          const ratio = rem / orig;
+          adjusted = overall / Math.max(ratio, 0.01);
+        } else if (overall) {
+          adjusted = overall;
+        }
 
-      const topPrizeValue: number | undefined = (row as any)?.topPrizeValue ?? undefined;
+        const topPrizeValue: number | undefined = (row as any)?.topPrizeValue ?? undefined;
 
-      return {
-        gameNumber: num,
-        name,
-        price: row?.price,
-        topPrizeValue,
-        topPrizesOriginal: row?.originalTopPrizes,
-        topPrizesRemaining: row?.topPrizesRemaining,
-        overallOdds: overall,
-        adjustedOdds: adjusted,
-        startDate: det?.startDate,
-        oddsImageUrl: det?.oddsImageUrl,
-        ticketImageUrl: det?.ticketImageUrl,
-        updatedAt,
-      };
-    });
+        return {
+          gameNumber: num,
+          name,
+          price: row?.price ?? prevG?.price,
+          topPrizeValue,
+          topPrizesOriginal: row?.originalTopPrizes ?? prevG?.topPrizesOriginal,
+          topPrizesRemaining: row?.topPrizesRemaining ?? prevG?.topPrizesRemaining,
+          overallOdds: overall,
+          adjustedOdds: adjusted,
+          startDate: det?.startDate ?? prevG?.startDate,
+          oddsImageUrl: det?.oddsImageUrl ?? prevG?.oddsImageUrl,
+          ticketImageUrl: det?.ticketImageUrl ?? prevG?.ticketImageUrl,
+          updatedAt,
+        };
+      });
 
     // --- Fallback image pass: visit full game pages for missing images ---
     const missingForFallback = games

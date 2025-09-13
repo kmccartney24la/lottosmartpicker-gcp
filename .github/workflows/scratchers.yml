@@ -2,8 +2,8 @@ name: Update GA Scratchers
 
 on:
   schedule:
-    # 09:30 America/New_York ~= 13:30 UTC during DST (cron uses UTC)
-    - cron: '30 13 * * *'
+    # 09:30 America/New_York ~= 13:30 UTC (DST). Mondays.
+    - cron: '30 13 * * 1'
   workflow_dispatch:
 
 permissions:
@@ -24,7 +24,7 @@ jobs:
       R2_BUCKET: ${{ secrets.R2_BUCKET }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      TRACE: '1'                     # enable Playwright tracing (we’ll upload on failure)
+      TRACE: '1'
 
     steps:
       - uses: actions/checkout@v4
@@ -35,12 +35,12 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
 
-      # Cache Playwright browsers
+      # Cache Playwright browsers; tie to lockfile to avoid stale versions
       - name: Cache Playwright browsers
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
-          key: ms-playwright-${{ runner.os }}-chromium-v1
+          key: ms-playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
 
       - name: Install deps
         run: npm ci
@@ -48,14 +48,22 @@ jobs:
       - name: Install Playwright (Chromium only)
         run: npx playwright install --with-deps chromium
 
-
       - name: Validate required secrets
         run: |
           [[ -n "${R2_BUCKET}" ]] || { echo "::error title=Missing secret::R2_BUCKET is not set"; exit 1; }
           [[ -n "${CLOUDFLARE_ACCOUNT_ID}" ]] || { echo "::error title=Missing secret::CLOUDFLARE_ACCOUNT_ID is not set"; exit 1; }
           [[ -n "${CLOUDFLARE_API_TOKEN}" ]] || { echo "::error title=Missing secret::CLOUDFLARE_API_TOKEN is not set"; exit 1; }
-          echo "R2 upload path will be: ${R2_BUCKET}/ga/scratchers/index.latest.json"
+          echo "R2 bucket: ${R2_BUCKET}"
 
+      # 🔁 MOVE THIS BEFORE THE SCRAPE so carry-forward works
+      - name: Fetch previous index.latest.json from R2 (best-effort)
+        continue-on-error: true
+        run: |
+          mkdir -p public/data/ga_scratchers
+          npx wrangler r2 object get \
+            --bucket "${R2_BUCKET}" \
+            ga/scratchers/index.latest.json \
+            --file public/data/ga_scratchers/index.latest.json
 
       - name: Scrape GA scratchers
         run: npx --yes tsx scripts/scratchers/fetch_ga_scratchers.ts
@@ -77,24 +85,28 @@ jobs:
           path: |
             public/data/ga_scratchers/index.latest.json
             public/data/ga_scratchers/index.json
+            public/data/ga_scratchers/_debug_*.json
             public/data/ga_scratchers/_debug_*.html
             public/data/ga_scratchers/_debug_*.png
             public/data/ga_scratchers/_debug_trace.zip
           if-no-files-found: warn
           retention-days: 7
 
+      # ✅ Correct Wrangler syntax: use --bucket and a KEY (no --remote)
       - name: Guarded R2 upload (index.latest.json)
         if: success() && hashFiles('public/data/ga_scratchers/index.latest.json') != ''
         run: |
-          npx wrangler r2 object put --remote \
-            "${R2_BUCKET}/ga/scratchers/index.latest.json" \
-            --file=public/data/ga_scratchers/index.latest.json \
+          npx wrangler r2 object put \
+            --bucket "${R2_BUCKET}" \
+            ga/scratchers/index.latest.json \
+            --file public/data/ga_scratchers/index.latest.json \
             --content-type=application/json
 
       - name: Guarded R2 upload (index.json)
         if: success() && hashFiles('public/data/ga_scratchers/index.json') != ''
         run: |
-          npx wrangler r2 object put --remote \
-            "${R2_BUCKET}/ga/scratchers/index.json" \
-            --file=public/data/ga_scratchers/index.json \
+          npx wrangler r2 object put \
+            --bucket "${R2_BUCKET}" \
+            ga/scratchers/index.json \
+            --file public/data/ga_scratchers/index.json \
             --content-type=application/json
