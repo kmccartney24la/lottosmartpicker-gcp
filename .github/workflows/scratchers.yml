@@ -19,7 +19,7 @@ jobs:
 
     env:
       NODE_VERSION: '20'
-      R2_BUCKET: ${{ vars.R2_BUCKET }}
+      R2_BUCKET: ${{ secrets.R2_BUCKET }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
       TRACE: '1'                     # enable Playwright tracing (we’ll upload on failure)
