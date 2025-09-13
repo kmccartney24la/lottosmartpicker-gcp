@@ -1,4 +1,4 @@
-﻿node_modules/
+node_modules/
 .next/
 .out/
 .env*
@@ -9,4 +9,4 @@
 .cache/
 public/data/**/*.latest.csv
 public/data/**/*.partial
-public/data/ga_scratchers
+public/data/ga_scratchers/_debug_trace.zip
