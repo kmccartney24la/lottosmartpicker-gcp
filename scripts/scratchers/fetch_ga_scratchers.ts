@@ -33,6 +33,56 @@ type ModalDetail = {
   oddsImageUrl?: string;
 };
 
+function normalizeUrl(u?: string | null): string | undefined {
+  if (!u) return undefined;
+  try {
+    // Keep querystring/versioning; just absolutize
+    return new URL(u, "https://www.galottery.com").href;
+  } catch {
+    return undefined;
+  }
+}
+
+function parseSrcset(ss?: string | null): Array<{ url: string; w: number }> {
+  if (!ss) return [];
+  return ss
+    .split(",")
+    .map(s => s.trim())
+    .map(part => {
+      const m = part.match(/(\S+)\s+(\d+)w/);
+      return m ? { url: m[1], w: Number(m[2]) } : null;
+    })
+    .filter(Boolean) as Array<{ url: string; w: number }>;
+}
+
+function chooseBestImage(img: HTMLImageElement): string | undefined {
+  // Prefer currentSrc, then src, then largest srcset candidate
+  const cs = (img as any).currentSrc as string | undefined;
+  if (cs) return normalizeUrl(cs);
+  if (img.getAttribute("src")) return normalizeUrl(img.getAttribute("src"));
+  const ss = img.getAttribute("srcset");
+  const cand = parseSrcset(ss).sort((a, b) => b.w - a.w)[0];
+  return cand ? normalizeUrl(cand.url) : undefined;
+}
+
+function isOddsish(urlOrAlt: string, containerId?: string): boolean {
+  const s = urlOrAlt.toLowerCase();
+  if (containerId && /odds/.test(containerId)) return true;
+  return /odds|overall[-_ ]?odds|prize[-_ ]?odds/.test(s) || /\/odds\.(jpg|jpeg|png)(\?|$)/.test(s);
+}
+
+function isTicketish(urlOrAlt: string): boolean {
+  const s = urlOrAlt.toLowerCase();
+  return /ticket|game[-_ ]?art|pack[-_ ]?shot|hero|key[-_ ]?art/.test(s) || /\/ticket\.(png|jpg|jpeg)(\?|$)/.test(s);
+}
+
+function urlWidthHeuristic(url?: string): number {
+  if (!url) return 0;
+  // crude width hint from filename: ...-600x900.jpg → 600
+  const m = url.match(/[-_](\d{3,4})x(\d{3,4})\./);
+  return m ? Number(m[1]) : 0;
+}
+
 async function writeJson(basename: string, data: unknown) {
   await ensureDir(OUT_DIR);
   const fp = path.join(OUT_DIR, basename);
@@ -42,144 +92,350 @@ async function writeJson(basename: string, data: unknown) {
 
 async function scrapeActiveModalDetails(context: BrowserContext): Promise<Map<number, ModalDetail>> {
   const page = await context.newPage();
+
+  // Small helper: sleep
+  const z = (ms: number) => new Promise(r => setTimeout(r, ms));
+
+  // Ensure the grid fully loads (infinite Masonry-ish) — WINDOW scroll, not grid scroll
+  async function ensureGridFullyLoaded(): Promise<number[]> {
+    const MAX_PASSES = 40;           // generous; GA can be slow
+    const SETTLE_DELAY = 900;
+    const NET_IDLE_MS = 2000;
+
+    // Wait for first tiles
+    await page.waitForSelector('#instantsGrid', { timeout: 15000 }).catch(() => {});
+    await page.waitForSelector('.catalog-item[data-game-id]', { timeout: 15000 }).catch(() => {});
+
+    let lastCount = -1;
+    let stable = 0;
+
+    for (let pass = 0; pass < MAX_PASSES; pass++) {
+      // Drive lazy-loaders: scroll near bottom a few times; also fire resize to tick Masonry
+      await page.evaluate(async () => {
+        const el = document.scrollingElement || document.documentElement;
+        el.scrollTop = el.scrollHeight;              // to bottom
+        window.dispatchEvent(new Event('scroll'));
+        window.dispatchEvent(new Event('resize'));
+      }).catch(() => {});
+      await page.waitForLoadState('networkidle', { timeout: NET_IDLE_MS }).catch(() => {});
+      await page.waitForTimeout(SETTLE_DELAY);
+
+      // If grid advertises a "loading" class, give it a beat
+      const loading = await page.$('#instantsGrid.loading').catch(() => null);
+      if (loading) await page.waitForTimeout(600);
+
+      // Recount tiles
+      const countNow = await page.$$eval('.catalog-item[data-game-id]', els => els.length).catch(() => 0);
+
+      if (countNow > 0 && countNow === lastCount) {
+        stable++;
+        if (stable >= 2) break; // two consecutive stable counts = done
+      } else {
+        stable = 0;
+      }
+      lastCount = countNow;
+    }
+
+    // Return unique numeric ids in DOM order
+    const ids = await page.$$eval('.catalog-item[data-game-id]', els =>
+      Array.from(new Set(
+        els.map(el => Number((el as HTMLElement).getAttribute('data-game-id')))
+          .filter(n => Number.isFinite(n))
+      ))
+    ).catch(() => []);
+    return ids;
+  }
+
+  // Open a tile’s modal by game id; be resilient to different clickable elements
+  async function openModalFor(gameId: number): Promise<boolean> {
+  const tileSel = `.catalog-item[data-game-id="${gameId}"]`;
+  const tile = await page.$(tileSel).catch(() => null);
+  if (!tile) return false;
+
+  try { await tile.scrollIntoViewIfNeeded(); } catch {}
+
+  const infoBtn = await tile.$('.sprite-info.more-info, a.more-info').catch(() => null);
+  const mainLink = await tile.$('a[title], a[href="#"]').catch(() => null);
+
+  const tryOpen = async (el: any) => {
+    try { await el.click({ timeout: 1200 }); } catch { try { await el.press?.('Enter'); } catch {} }
+  };
+
+  await (infoBtn ? tryOpen(infoBtn) : mainLink ? tryOpen(mainLink) : tryOpen(tile));
+
+  const modalRootSel = [
+    '#scratchersModalBody .modal-scratchers-content',
+    '#scratchersModal .modal-scratchers-content',
+    '.modal-scratchers-content'
+  ].join(', ');
+
+  try {
+    await page.waitForSelector(modalRootSel, { timeout: 10000 });
+    return true;
+  } catch {
+    // one fallback attempt: click the other candidate
+    if (infoBtn && mainLink) {
+      await tryOpen(mainLink);
+      try { await page.waitForSelector(modalRootSel, { timeout: 5000 }); return true; } catch {}
+    }
+    return false;
+  }
+}
+
+async function closeModal(): Promise<void> {
+  try {
+    const closeBtn = await page.$('#scratchersModal [data-dismiss="modal"]').catch(() => null);
+    if (closeBtn) { try { await closeBtn.click({ timeout: 600 }); } catch {} }
+    await page.keyboard.press('Escape').catch(() => {});
+    // Wait until modal is hidden and the body class is cleared
+    await page.waitForSelector('#scratchersModal', { state: 'hidden', timeout: 3000 }).catch(() => {});
+    await page.waitForFunction(() => !document.body.classList.contains('modal-open'), null, { timeout: 3000 }).catch(() => {});
+    await page.waitForTimeout(80);
+  } catch {}
+}
+
+  // Make sure odds image is rendered (expand the collapse)
+  async function expandOddsPanel(): Promise<void> {
+    // Some themes require an "Odds" tab first
+    for (const s of [
+      'a[href="#oddsPanel"]',
+      '[aria-controls="oddsPanel"]',
+      'button:has-text("Odds")',
+      'a:has-text("Odds")',
+      'button[role="tab"]:has-text("Odds")'
+    ]) {
+      const el = await page.$(s).catch(() => null);
+      if (el) { try { await el.click({ timeout: 800 }); } catch {} }
+    }
+    // Explicitly toggle the Bootstrap collapse
+    const collapseLink = await page.$('a[data-toggle="collapse"][href="#oddsPanel"]').catch(() => null);
+    if (collapseLink) { try { await collapseLink.click({ timeout: 800 }); } catch {} }
+    // Wait for the image inside the panel to appear/resolve
+    await page.waitForSelector('#oddsPanel', { timeout: 3000 }).catch(() => {});
+    await page.waitForSelector('#oddsPanel img', { timeout: 3500 }).catch(() => {});
+    await page.waitForLoadState('networkidle', { timeout: 1500 }).catch(() => {});
+    await z(120);
+  }
+
+  // Harvest modal details
+  async function readModal(): Promise<ModalDetail | null> {
+    const modalRootSel = [
+      '#scratchersModalBody .modal-scratchers-content',
+      '#scratchersModal .modal-scratchers-content',
+      '.modal-scratchers-content'
+    ].join(', ');
+
+     const info = await page.evaluate((rootSel) => {
+      const abs = (u?: string | null) => (u ? new URL(u, location.origin).href : undefined);
+      const root = document.querySelector(rootSel) as HTMLElement | null;
+      const body = document.querySelector('#scratchersModalBody') as HTMLElement | null;
+      if (!root || !body) return null;
+
+      const text = ((body.textContent || "") + " " + (root.textContent || "")).replace(/\s+/g, " ");
+
+      const name =
+        (root.querySelector("h2.game-name")?.textContent ||
+         root.querySelector(".game-name")?.textContent ||
+         root.querySelector(".modal-scratchers-header h2")?.textContent ||
+         root.querySelector("h1, h2, h3")?.textContent ||
+         "").trim();
+
+      // Ticket image is a sibling container under #scratchersModalBody (NOT inside .modal-scratchers-content)
+      let ticketImageUrl: string | undefined;
+      const ticketImg = body.querySelector<HTMLImageElement>(".modal-scratchers-image img");
+      if (ticketImg) ticketImageUrl = abs(((ticketImg as any).currentSrc) || ticketImg.getAttribute("src"));
+
+      // Odds image exists only after collapse is opened
+      let oddsImageUrl: string | undefined;
+      const oddsImg = root.querySelector<HTMLImageElement>("#oddsPanel img");
+      if (oddsImg) oddsImageUrl = abs((oddsImg as any).currentSrc || oddsImg.getAttribute("src"));
+
+      // Game number
+      let gameNumber: number | undefined;
+      {
+        const m = text.match(/Game\s*(?:Number|#)\s*[:#]?\s*(\d{3,5})/i);
+        if (m) gameNumber = Number(m[1]);
+      }
+
+      // Overall odds & start date
+      const overallMatch = text.match(/overall\s*odds\s*(?:of)?\s*1\s*in\s*([\d.]+)/i) || text.match(/1\s*in\s*([\d.]+)/i);
+      const overallOdds = overallMatch ? Number(overallMatch[1]) : undefined;
+
+      const startDateMatch = text.match(/(?:Start|Launch)\s*Date\s*[:\-]?\s*([A-Za-z]{3,9}\s+\d{1,2},\s+\d{4}|\d{1,2}\/\d{1,2}\/\d{2,4}|[A-Za-z]{3,9}\s+\d{4})/i);
+      const startDate = startDateMatch ? startDateMatch[1] : undefined;
+
+      return { gameNumber, name, overallOdds, startDate, ticketImageUrl, oddsImageUrl };
+    }, modalRootSel);
+
+    if (!info || !Number.isFinite(info.gameNumber)) return null;
+
+    return {
+      gameNumber: info.gameNumber!,
+      name: info.name || undefined,
+      overallOdds: info.overallOdds,
+      startDate: info.startDate,
+      ticketImageUrl: normalizeUrl(info.ticketImageUrl),
+      oddsImageUrl: normalizeUrl(info.oddsImageUrl),
+    };
+  }
+
   try {
     await openAndReady(page, ACTIVE_URL, { loadMore: true });
 
-    const tileSelectors = [
-      '[data-target="#scratchersModal"]',
-      'a[href="#scratchersModal"]',
-      '.scratchers-grid [data-game-id]',
-      '.scratchers-grid .thumbnail',
-      '.scratchers-grid [role="button"]',
-      '.scratchers-grid .card, .scratchers-grid .tile, .scratchers-grid .game-tile',
-      '[data-game-id], [data-ga-game], [data-scratchers-tile]',
-    ];
-    const selector = tileSelectors.join(", ");
-
-    await page.waitForSelector(selector, { timeout: 10_000 }).catch(() => {});
-    let tiles = await page.$$(selector);
-    if (!tiles.length) {
-      tiles = await page.$$('.scratchers-grid *:not(script):not(style)');
-    }
-
-    // Grow the tile list (infinite scroll / load-more variants)
-    for (let pass = 0; pass < 8; pass++) {
-      const before = tiles.length;
-
-      for (const text of ["Load more", "Show more", "View more", "Load more games", "More games", "Show all"]) {
-        const btn = await page.$(`button:has-text("${text}")`).catch(() => null);
-        if (btn) {
-          try { await btn.click({ timeout: 2000 }); await page.waitForTimeout(900); } catch {}
-        }
-      }
-
-      await page.evaluate(async () => {
-        const el = document.scrollingElement || document.documentElement;
-        window.scrollTo(0, el.scrollHeight);
-        await new Promise(r => setTimeout(r, 800));
-        window.scrollTo(0, 0);
-        await new Promise(r => setTimeout(r, 300));
-      }).catch(() => {});
-
-      tiles = await page.$$(selector);
-      if (tiles.length <= before) break;
-    }
+    // 1) Pull *all* game ids present in the grid
+    const ids = await ensureGridFullyLoaded();
 
     const byNum = new Map<number, ModalDetail>();
 
-    for (let i = 0; i < tiles.length; i++) {
-      const t = tiles[i];
+    // 2) Walk every id, open modal, expand odds, read, close
+    for (let i = 0; i < ids.length; i++) {
+      const id = ids[i];
       try {
-        await t.scrollIntoViewIfNeeded();
-        await t.click({ timeout: 1500 });
+        const opened = await openModalFor(id);
+        if (!opened) continue;
 
-        const modalSel = [
-          '#scratchersModalBody .modal-scratchers-content',
-          '#scratchersModal .modal-scratchers-content',
-          '.modal-scratchers-content'
-        ].join(', ');
-        await page.waitForSelector(modalSel, { timeout: 6000 });
-
-        const info = await page.evaluate((sel) => {
-          const abs = (u: string) => new URL(u, location.origin).href;
-
-          const ticketImgEl =
-            document.querySelector('.modal-scratchers-image img[src*="/ticket"]') ||
-            Array.from(document.querySelectorAll('.modal-scratchers-image img, .modal-scratchers-content img'))
-              .find(img =>
-                /\/ticket\.png$/i.test((img as HTMLImageElement).src) ||
-                /scratchers game title/i.test(((img as HTMLImageElement).alt || ""))
-              );
-
-          const oddsImgEl =
-            document.querySelector('#oddsPanel img') ||
-            Array.from(document.querySelectorAll('.modal-scratchers-content img'))
-              .find(img =>
-                /\/odds\.jpg$/i.test((img as HTMLImageElement).src) ||
-                /scratchers game odds/i.test(((img as HTMLImageElement).alt || ""))
-              );
-
-          let ticketImageUrl = ticketImgEl
-            ? abs(((ticketImgEl as HTMLImageElement).currentSrc || (ticketImgEl as HTMLImageElement).src))
-            : undefined;
-
-          const oddsImageUrl = oddsImgEl
-            ? abs(((oddsImgEl as HTMLImageElement).currentSrc || (oddsImgEl as HTMLImageElement).src))
-            : undefined;
-
-          const imgsAll = Array.from(document.querySelectorAll('.modal-scratchers-content img')) as HTMLImageElement[];
-          if (!ticketImageUrl && imgsAll.length === 1 && /\/odds\.jpg$/i.test(imgsAll[0].src)) {
-            // leave ticketImageUrl undefined
-          }
-
-          const root = document.querySelector(sel) as HTMLElement | null;
-          if (!root) return null;
-
-          const pickText = (el: Element | null) => (el?.textContent || "").trim();
-          const nameFromSelectors =
-            pickText(root.querySelector("h2.game-name")) ||
-            pickText(root.querySelector(".game-name")) ||
-            pickText(root.querySelector(".modal-scratchers-header h2")) ||
-            "";
-          const name = nameFromSelectors || pickText(root.querySelector("h1, h2, h3")) || "";
-          const text = (root.textContent || "").replace(/\s+/g, " ");
-
-          return { name, text, ticketImageUrl, oddsImageUrl };
-        }, modalSel);
-
-        if (info) {
-          const numMatch = info.text.match(/Game\s*(?:Number|#)\s*[:#]?\s*(\d{3,5})/i);
-          const gameNumber = numMatch ? Number(numMatch[1]) : NaN;
-
-          const overall = oddsFromText(info.text);
-          const startDate = (() => {
-            const m = info.text.match(/(?:Start|Launch)\s*Date\s*[:\-]?\s*([A-Za-z]{3,9}\s+\d{1,2},\s+\d{4}|\d{1,2}\/\d{1,2}\/\d{2,4}|[A-Za-z]{3,9}\s+\d{4})/i);
-            return m ? m[1] : undefined;
-          })();
-
-          if (Number.isFinite(gameNumber)) {
-            byNum.set(gameNumber, {
-              gameNumber,
-              name: info.name || undefined,
-              overallOdds: overall,
-              startDate,
-              ticketImageUrl: info.ticketImageUrl,
-              oddsImageUrl: info.oddsImageUrl,
-            });
-          }
+        await expandOddsPanel();
+        let det = await readModal();
+        // If we failed to see odds img or overall odds on the first try, poke the panel again once
+        if (!det || (!det.oddsImageUrl && !det.overallOdds)) {
+          await expandOddsPanel();
+          det = await readModal();
         }
-
-        await page.keyboard.press("Escape").catch(() => {});
-        await page.click('body', { timeout: 300 }).catch(() => {});
-        await page.waitForTimeout(60);
+        if (det) byNum.set(det.gameNumber, det);
       } catch {
-        await page.keyboard.press("Escape").catch(() => {});
+        // ignore this tile, best-effort
+      } finally {
+        await closeModal();
+      }
+
+      // Gentle pacing to avoid throttling
+      if ((i + 1) % 10 === 0) {
+        await page.waitForLoadState('networkidle', { timeout: 1500 }).catch(() => {});
+        await z(150);
       }
     }
 
+    // Debug preview
     const sample = Array.from(byNum.values()).slice(0, 10);
     await writeJson("_debug_active.details.json", { count: byNum.size, sample });
+
     return byNum;
+  } finally {
+    await page.close().catch(() => {});
+  }
+}
+
+async function scrapeGamePagesForImages(
+  context: BrowserContext,
+  neededNums: number[]
+): Promise<Map<number, Pick<ModalDetail, "ticketImageUrl" | "oddsImageUrl">>> {
+  const map = new Map<number, Pick<ModalDetail, "ticketImageUrl" | "oddsImageUrl">>();
+  if (!neededNums.length) return map;
+
+  // Reuse list page to collect per-game links
+  const page = await context.newPage();
+  try {
+    await openAndReady(page, ACTIVE_URL, { loadMore: true });
+
+    // We already have waitForNumericGameLinks in _util.ts
+    // It should return an array like [{num, url}, ...]
+    const links = await withRetry(() => (global as any).waitForNumericGameLinks?.(page, "active", { minCount: 12 }) ?? [], {
+      label: "links (active)",
+      attempts: 2,
+    }).catch(() => []);
+
+    // Build a lookup
+    const urlByNum = new Map<number, string>();
+    for (const l of links as Array<{ num: number; url: string }>) {
+      urlByNum.set(Number(l.num), l.url);
+    }
+
+    // Visit only those we still need
+    for (const num of neededNums) {
+      const url = urlByNum.get(num);
+      if (!url) continue;
+
+      const gp = await context.newPage();
+      try {
+        await openAndReady(gp, url, { loadMore: false });
+
+        // Click ODDS tab on the full game page as well
+        for (const s of ['a[href="#oddsPanel"]', '[aria-controls="oddsPanel"]', 'button:has-text("Odds")', 'a:has-text("Odds")']) {
+          const el = await gp.$(s).catch(() => null);
+          if (el) { try { await el.click({ timeout: 1000 }); } catch {} }
+        }
+        await gp.waitForTimeout(300);
+        await gp.waitForLoadState('networkidle', { timeout: 1500 }).catch(() => {});
+
+        const res = await gp.evaluate(() => {
+          const root = document.querySelector('.game-detail, .scratchers-content, main, body') as HTMLElement | null;
+          if (!root) return null;
+
+          const cands: Array<{ url?: string; alt: string; oddsish: boolean; ticketish: boolean; wHint: number }> = [];
+
+          const pickUrlFromImg = (img: HTMLImageElement): string | undefined => {
+            const cur = (img as any).currentSrc || img.getAttribute('src') || "";
+            if (cur) return new URL(cur, location.origin).href;
+            const ss = img.getAttribute('srcset');
+            if (ss) {
+              const parts = ss.split(',').map(s => s.trim());
+              const best = parts.map(p => {
+                const m = p.match(/(\S+)\s+(\d+)w/);
+                return m ? { url: m[1], w: Number(m[2]) } : null;
+              }).filter(Boolean).sort((a,b) => (b!.w - a!.w))[0] as any;
+              if (best) return new URL(best.url, location.origin).href;
+            }
+            return undefined;
+          };
+
+          root.querySelectorAll('img, picture img').forEach((img) => {
+            const url = pickUrlFromImg(img as HTMLImageElement);
+            const alt = ((img.getAttribute('alt') || '').trim());
+            const oddsish = !!url && (/\/odds\./i.test(url) || /odds/i.test(alt) || /odds/i.test((img.closest('#oddsPanel, [id*="odds"]') as HTMLElement | null)?.id || ''));
+            const ticketish = !!url && (/\/ticket\./i.test(url) || /ticket|hero|art/i.test(alt));
+            const wHint = (() => {
+              if (!url) return 0;
+              const m = url.match(/[-_](\d{3,4})x(\d{3,4})\./);
+              return m ? Number(m[1]) : 0;
+            })();
+            cands.push({ url, alt, oddsish, ticketish, wHint });
+          });
+
+          root.querySelectorAll<HTMLElement>('[style*="background-image"]').forEach(el => {
+            const s = (el.getAttribute("style") || "");
+            const m = s.match(/background-image:\s*url\(["']?([^"')]+)["']?\)/i);
+            if (m) {
+              const url = new URL(m[1], location.origin).href;
+              const isOdds = /odds/i.test(el.id) || /odds/i.test(url);
+              cands.push({ url, alt: "", oddsish: isOdds, ticketish: !isOdds, wHint: 0 });
+            }
+          });
+
+          const odds = cands.filter(c => c.url && c.oddsish).sort((a,b) => b.wHint - a.wHint)[0];
+          let ticket = cands.filter(c => c.url && !c.oddsish).sort((a,b) => b.wHint - a.wHint)[0];
+          if (ticket && odds && ticket.url === odds.url) {
+            const next = cands.filter(c => c.url && !c.oddsish && c.url !== odds.url).sort((a,b) => b.wHint - a.wHint)[0];
+            if (next) ticket = next;
+          }
+
+          return {
+            ticketImageUrl: ticket?.url,
+            oddsImageUrl: odds?.url
+          };
+        });
+
+        if (res && (res.ticketImageUrl || res.oddsImageUrl)) {
+          map.set(num, {
+            ticketImageUrl: normalizeUrl(res.ticketImageUrl),
+            oddsImageUrl: normalizeUrl(res.oddsImageUrl),
+          });
+        }
+      } finally {
+        await gp.close().catch(() => {});
+      }
+    }
+
+    return map;
   } finally {
     await page.close().catch(() => {});
   }
@@ -253,7 +509,6 @@ async function main() {
         adjusted = overall;
       }
 
-      // @ts-expect-error tolerate undefined (depends on table)
       const topPrizeValue: number | undefined = (row as any)?.topPrizeValue ?? undefined;
 
       return {
@@ -271,6 +526,50 @@ async function main() {
         updatedAt,
       };
     });
+
+    // --- Fallback image pass: visit full game pages for missing images ---
+    const missingForFallback = games
+      .filter(g => !g.ticketImageUrl || !g.oddsImageUrl)
+      .map(g => g.gameNumber);
+
+    if (missingForFallback.length) {
+      const fallbackImgs = await withRetry(
+        () => scrapeGamePagesForImages(context, missingForFallback),
+        { label: "fallback game pages (images)", attempts: 2 }
+      );
+
+      if (fallbackImgs.size) {
+        for (const g of games) {
+          const fb = fallbackImgs.get(g.gameNumber);
+          if (!fb) continue;
+          if (!g.ticketImageUrl && fb.ticketImageUrl) g.ticketImageUrl = fb.ticketImageUrl;
+          if (!g.oddsImageUrl && fb.oddsImageUrl) g.oddsImageUrl = fb.oddsImageUrl;
+        }
+      }
+    }
+
+    // --- Coverage debug ---
+    const withTicket = games.filter(g => !!g.ticketImageUrl).length;
+    const withOdds   = games.filter(g => !!g.oddsImageUrl).length;
+    const needAny    = games.filter(g => !g.ticketImageUrl || !g.oddsImageUrl).slice(0, 20).map(g => g.gameNumber);
+
+    await writeJson("_debug_images.summary.json", {
+      counts: {
+        totalActive: games.length,
+        withTicket,
+        withOdds,
+      },
+      coveragePct: {
+        ticket: Math.round((withTicket / games.length) * 100),
+        odds:   Math.round((withOdds   / games.length) * 100),
+      },
+      previewMissingAny: needAny,
+    });
+
+    console.log(
+      `[images] ticket=${withTicket}/${games.length} (${Math.round((withTicket/games.length)*100)}%), `
+      + `odds=${withOdds}/${games.length} (${Math.round((withOdds/games.length)*100)}%)`
+    );
 
     // 5) Guardrails
     const missingTopPrizeNums = games
