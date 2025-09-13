@@ -1,3 +1,4 @@
+// lib/lotto.ts
 export type GameKey = 'powerball' | 'megamillions' | 'ga_cash4life' | 'ga_fantasy5';
 
 const isMultiGame = (g: GameKey) => g === 'powerball' || g === 'megamillions';

@@ -1,153 +1,285 @@
 // lib/scratchers.ts
-export type PrizeTier = {
-  name: string;               // e.g., "Top Prize", "$1,000", etc.
-  prizeValue: number;         // dollars
-  totalCount: number;         // total printed at launch
-  remainingCount: number;     // remaining now
+// Aligns with scripts/scratchers/fetch_ga_scratchers.ts output
+
+// -----------------------------
+// Types (from scraper)
+// -----------------------------
+export type ActiveGame = {
+  gameNumber: number;                  // primary key
+  name: string;                        // already normalized to UPPERCASE in scraper
+  price: number | undefined;           // from Top Prizes
+  topPrizeValue: number | undefined;   // from Top Prizes
+  topPrizesOriginal: number | undefined;
+  topPrizesRemaining: number | undefined;
+  overallOdds: number | undefined;     // from modal
+  adjustedOdds: number | undefined;    // heuristic
+  startDate?: string;                  // modal (string as scraped)
+  oddsImageUrl?: string;               // modal (optional)
+  ticketImageUrl?: string;             // modal (optional)
+  updatedAt: string;                   // Top Prizes “last updated”
+  lifecycle?: 'new' | 'continuing';    // UI hint (derived in scraper)
 };
 
-export type ScratcherGame = {
-  gameId: string;             // canonical GA id (string to avoid leading zero issues)
-  name: string;
-  price: number;              // 1..50
-  status: 'active' | 'ended' | 'ending';
-  launchDate?: string;        // YYYY-MM-DD
-  endDate?: string;           // YYYY-MM-DD
-  overallOdds?: number;       // e.g., 1 in 3.96 -> 3.96
-  tiers: PrizeTier[];
-  // Derived:
-  jackpotRemainingCount: number;   // from max tier(s)
-  totalPrizesStart: number;
-  totalPrizesRemaining: number;
-  totalValueStart: number;         // sum(prizeValue * totalCount)
-  totalValueRemaining: number;     // sum(prizeValue * remainingCount)
+// For backward compatibility with earlier UI code that referenced ScratcherGame:
+export type ScratcherGame = ActiveGame;
+
+export type DeltaIndex = {
+  new: number[];           // gameNumbers present in index and new this run
+  continuing: number[];    // gameNumbers in index and also in previous run
+  ended: number[];         // (always empty in index payload, ended items are not emitted)
+  counts: { index: number };
 };
 
-export type ScratcherSnapshot = {
-  date: string;               // ISO date of snapshot
-  games: ScratcherGame[];
+export type DeltaGrid = {
+  new: number[];
+  continuing: number[];
+  ended: number[];
+  counts: { grid: number; union: number };
 };
 
+export type ScratchersIndexPayload = {
+  updatedAt: string;       // ISO
+  count: number;           // games.length
+  deltaGrid: DeltaGrid;
+  deltaIndex: DeltaIndex;
+  games: ActiveGame[];     // ONLY currently active games (ended not emitted)
+};
+
+// -----------------------------
+// Scoring Weights (mapped to available fields)
+// -----------------------------
 export type Weights = {
+  /** Weight for absolute top prize dollar value (higher value favored). */
   w_jackpot: number;
-  w_value: number;
+
+  /** Weight for (top prizes remaining / original) — proportion availability (higher favored). */
   w_prizes: number;
+
+  /** Weight for odds — we use 1/(adjustedOdds || overallOdds) so larger is better. */
   w_odds: number;
+
+  /** Penalty for higher ticket price (subtracted). */
   w_price: number;
+
+  /**
+   * Retained for compatibility; not used with current data (no per-tier total value).
+   * Leave at 0 in defaults.
+   */
+  w_value: number;
 };
 
 export const DEFAULT_WEIGHTS: Weights = {
   w_jackpot: 0.35,
-  w_value:   0.25,
-  w_prizes:  0.20,
-  w_odds:    0.15,
-  w_price:   0.05,
+  w_prizes:  0.30,
+  w_odds:    0.25,
+  w_price:   0.10,
+  w_value:   0.00, // unused with current data shape
 };
 
+// -----------------------------
+// Data locations
+// -----------------------------
 const LATEST_URL = '/data/ga_scratchers/index.latest.json';
-const ARCHIVE_URL = '/data/ga_scratchers/index.json'; // merged snapshots (R2-backed mirror)
+const ARCHIVE_URL = '/data/ga_scratchers/index.json'; // same shape as latest; scraper writes both
 
-/** Light, browser-friendly cache similar to your draw cache pattern. */
-export async function fetchScratchersWithCache({ activeOnly = true }: { activeOnly?: boolean } = {}) {
-  // Try latest snapshot first, then fall back to archive.
+// -----------------------------
+// Fetchers
+// -----------------------------
+
+/**
+ * Fetch the current index of active games.
+ * Tries latest first, falls back to archive. Returns the `games` array (active-only).
+ */
+export async function fetchScratchersWithCache(): Promise<ActiveGame[]> {
   const urls = [LATEST_URL, ARCHIVE_URL];
   for (const url of urls) {
     try {
       const res = await fetch(url, { cache: 'no-store' });
       if (!res.ok) continue;
-      const snap: ScratcherSnapshot | ScratcherSnapshot[] = await res.json();
-      const latest = Array.isArray(snap) ? snap[snap.length - 1] : snap;
-      let games = latest.games;
-      if (activeOnly) games = games.filter(g => g.status !== 'ended');
-      return games.map(deriveTotals);
-    } catch { /* keep trying */ }
+      const payload = await res.json() as ScratchersIndexPayload;
+      if (Array.isArray((payload as any).games)) {
+        return (payload as ScratchersIndexPayload).games;
+      }
+    } catch {
+      // continue
+    }
   }
   return [];
 }
 
-function deriveTotals(g: ScratcherGame): ScratcherGame {
-  let totalStart = 0, totalRemain = 0, valStart = 0, valRemain = 0;
-  for (const t of g.tiers) {
-    totalStart  += t.totalCount;
-    totalRemain += t.remainingCount;
-    valStart    += t.prizeValue * t.totalCount;
-    valRemain   += t.prizeValue * t.remainingCount;
+/**
+ * Fetch with delta info. Uses the delta arrays baked into the index payload.
+ * `endedIds` is derived from deltaIndex. (Note: ended games are not emitted in `games`.)
+ */
+export async function fetchScratchersWithDelta(): Promise<{
+  games: ActiveGame[];
+  endedIds: Set<number>;
+  updatedAt?: string;
+}> {
+  for (const url of [LATEST_URL, ARCHIVE_URL]) {
+    try {
+      const res = await fetch(url, { cache: 'no-store' });
+      if (!res.ok) continue;
+      const payload = await res.json() as ScratchersIndexPayload;
+      const games = payload.games ?? [];
+      const endedIds = new Set<number>(payload.deltaIndex?.ended ?? []);
+      return { games, endedIds, updatedAt: payload.updatedAt };
+    } catch {
+      // keep trying
+    }
   }
-  const jackpotValue = Math.max(...g.tiers.map(t => t.prizeValue), 0);
-  const jackpotRemain = g.tiers.filter(t => t.prizeValue === jackpotValue)
-                               .reduce((s,t)=>s+t.remainingCount,0);
-
-  return {
-    ...g,
-    totalPrizesStart: totalStart,
-    totalPrizesRemaining: totalRemain,
-    totalValueStart: valStart,
-    totalValueRemaining: valRemain,
-    jackpotRemainingCount: jackpotRemain,
-  };
+  return { games: [], endedIds: new Set<number>() };
 }
 
-/** Small helper used by scoring */
-function minMaxNorm(values: number[]) {
-  const lo = Math.min(...values), hi = Math.max(...values);
-  return (x: number) => hi === lo ? 0.5 : (x - lo) / (hi - lo);
+// -----------------------------
+// Helpers for scoring/sorting/filtering
+// -----------------------------
+function minMax(values: number[]) {
+  let lo = Infinity, hi = -Infinity;
+  for (const v of values) {
+    if (v < lo) lo = v;
+    if (v > hi) hi = v;
+  }
+  return { lo, hi };
+}
+function normOrMid(x: number, lo: number, hi: number) {
+  if (!isFinite(x)) return 0.5;
+  if (hi === lo) return 0.5;
+  return (x - lo) / (hi - lo);
+}
+function pctTopPrizesRemain(g: ActiveGame): number {
+  const orig = g.topPrizesOriginal ?? 0;
+  const rem  = g.topPrizesRemaining ?? 0;
+  if (orig <= 0) return 0; // unknown → treat as 0% to be conservative in filters/scores
+  return rem / orig;
+}
+function oddsForScoring(g: ActiveGame): number {
+  // prefer adjustedOdds; fall back to overallOdds
+  const adj = g.adjustedOdds ?? g.overallOdds;
+  return adj && adj > 0 ? 1 / adj : 0; // larger is better in scoring
 }
 
-/** Rank + explain scores for tooltips */
-export function rankScratchers(games: ScratcherGame[], w: Weights = DEFAULT_WEIGHTS) {
-  const j = minMaxNorm(games.map(g => g.jackpotRemainingCount));
-  const v = minMaxNorm(games.map(g => g.totalValueRemaining / Math.max(1, g.totalValueStart)));
-  const p = minMaxNorm(games.map(g => g.totalPrizesRemaining / Math.max(1, g.totalPrizesStart)));
-  const o = minMaxNorm(games.map(g => g.overallOdds ? 1 / g.overallOdds : 0));
-  const pr= minMaxNorm(games.map(g => g.price));
+// -----------------------------
+// Ranking
+// -----------------------------
+export function rankScratchers(games: ActiveGame[], w: Weights = DEFAULT_WEIGHTS) {
+  // Build vectors
+  const jackpotVals = games.map(g => g.topPrizeValue ?? 0);
+  const prizePcts   = games.map(pctTopPrizesRemain);
+  const oddsInvs    = games.map(oddsForScoring);
+  const prices      = games.map(g => g.price ?? 0);
+
+  // Norm factors
+  const { lo: jLo, hi: jHi } = minMax(jackpotVals);
+  const { lo: pLo, hi: pHi } = minMax(prizePcts);
+  const { lo: oLo, hi: oHi } = minMax(oddsInvs);
+  const { lo: $Lo, hi: $Hi } = minMax(prices);
 
   const scored = games.map(g => {
-    const parts = {
-      jackpot: j(g.jackpotRemainingCount),
-      value:   v(g.totalValueRemaining / Math.max(1, g.totalValueStart)),
-      prizes:  p(g.totalPrizesRemaining / Math.max(1, g.totalPrizesStart)),
-      odds:    o(g.overallOdds ? 1 / g.overallOdds : 0),
-      price:   pr(g.price),
+    const jackpotN = normOrMid((g.topPrizeValue ?? 0), jLo, jHi);
+    const prizesN  = normOrMid(pctTopPrizesRemain(g), pLo, pHi);
+    const oddsN    = normOrMid(oddsForScoring(g), oLo, oHi);
+    const priceN   = normOrMid((g.price ?? 0), $Lo, $Hi);
+
+    // w_value intentionally ignored (no per-tier total value with current data)
+    const score = (
+      w.w_jackpot * jackpotN +
+      w.w_prizes  * prizesN  +
+      w.w_odds    * oddsN    -
+      w.w_price   * priceN
+    );
+
+    return {
+      game: g,
+      score,
+      parts: {
+        jackpot: jackpotN,
+        prizes: prizesN,
+        odds: oddsN,
+        price: priceN,
+      }
     };
-    const score = w.w_jackpot*parts.jackpot + w.w_value*parts.value + w.w_prizes*parts.prizes + w.w_odds*parts.odds - w.w_price*parts.price;
-    return { game: g, score, parts };
   });
 
-  scored.sort((a,b)=> b.score - a.score);
+  scored.sort((a, b) => b.score - a.score);
   return scored;
 }
 
-/** Filter helpers (compose with Array.prototype.filter). */
+// -----------------------------
+// Filters
+// -----------------------------
 export const filters = {
   byPrice(min?: number, max?: number) {
-    return (g: ScratcherGame) => (min ?? 0) <= g.price && g.price <= (max ?? 1e9);
+    const lo = min ?? 0;
+    const hi = max ?? Number.POSITIVE_INFINITY;
+    return (g: ActiveGame) => {
+      const p = g.price ?? Number.POSITIVE_INFINITY;
+      return lo <= p && p <= hi;
+    };
   },
-  activeOnly(active: boolean) {
-    return (g: ScratcherGame) => active ? g.status !== 'ended' : true;
+
+  /** Min top-prize availability ratio (0..1). */
+  minTopPrizeAvailability(pct: number) {
+    return (g: ActiveGame) => pctTopPrizesRemain(g) >= pct;
   },
-  minJackpotRemaining(n: number) {
-    return (g: ScratcherGame) => g.jackpotRemainingCount >= n;
+
+  /** Minimum count of top prizes remaining. */
+  minTopPrizesRemaining(n: number) {
+    return (g: ActiveGame) => (g.topPrizesRemaining ?? 0) >= n;
   },
-  minPercentRemaining(pct: number) {
-    return (g: ScratcherGame) => (g.totalPrizesRemaining / Math.max(1, g.totalPrizesStart)) >= pct;
-  },
+
+  /** Search by name or game number. */
   search(q: string) {
     const s = q.trim().toLowerCase();
-    return (g: ScratcherGame) => !s || g.name.toLowerCase().includes(s) || g.gameId.toLowerCase().includes(s);
-  }
+    if (!s) return (_: ActiveGame) => true;
+    return (g: ActiveGame) =>
+      g.name.toLowerCase().includes(s) ||
+      String(g.gameNumber).includes(s);
+  },
+
+  /** Show only 'new' or 'continuing'. If value is undefined, show all. */
+  lifecycle(which?: 'new' | 'continuing') {
+    if (!which) return (_: ActiveGame) => true;
+    return (g: ActiveGame) => g.lifecycle === which;
+  },
 };
 
-export type SortKey = 'best' | '%remaining' | 'jackpot' | 'odds' | 'price' | 'launch';
+// -----------------------------
+// Sorters
+// -----------------------------
+export type SortKey =
+  | 'best'
+  | 'adjusted'        // adjusted odds (asc; lower=better)
+  | 'odds'            // printed odds (asc; lower=better)
+  | 'topPrizeValue'   // top prize $ (desc)
+  | 'topPrizesRemain' // remaining count (desc)
+  | 'price'           // ticket price (asc)
+  | 'launch';         // startDate (desc; newest first)
 
 export function sorters(key: SortKey, latestScores?: ReturnType<typeof rankScratchers>) {
   switch (key) {
-    case 'best':       return (a: ScratcherGame, b: ScratcherGame) =>
-      (latestScores?.find(s => s.game.gameId === b.gameId)?.score ?? 0) -
-      (latestScores?.find(s => s.game.gameId === a.gameId)?.score ?? 0);
-    case '%remaining': return (a,b) => (b.totalPrizesRemaining / Math.max(1,b.totalPrizesStart)) - (a.totalPrizesRemaining / Math.max(1,a.totalPrizesStart));
-    case 'jackpot':    return (a,b) => b.jackpotRemainingCount - a.jackpotRemainingCount;
-    case 'odds':       return (a,b) => (a.overallOdds ?? 9e9) - (b.overallOdds ?? 9e9);
-    case 'price':      return (a,b) => a.price - b.price;
-    case 'launch':     return (a,b) => (b.launchDate ?? '').localeCompare(a.launchDate ?? '');
+    case 'best':
+      return (a: ActiveGame, b: ActiveGame) =>
+        (latestScores?.find(s => s.game.gameNumber === b.gameNumber)?.score ?? 0) -
+        (latestScores?.find(s => s.game.gameNumber === a.gameNumber)?.score ?? 0);
+
+    case 'adjusted':
+      return (a, b) => (a.adjustedOdds ?? Number.POSITIVE_INFINITY) - (b.adjustedOdds ?? Number.POSITIVE_INFINITY);
+
+    case 'odds':
+      return (a, b) => (a.overallOdds ?? Number.POSITIVE_INFINITY) - (b.overallOdds ?? Number.POSITIVE_INFINITY);
+
+    case 'topPrizeValue':
+      return (a, b) => (b.topPrizeValue ?? -Infinity) - (a.topPrizeValue ?? -Infinity);
+
+    case 'topPrizesRemain':
+      return (a, b) => (b.topPrizesRemaining ?? -Infinity) - (a.topPrizesRemaining ?? -Infinity);
+
+    case 'price':
+      return (a, b) => (a.price ?? Number.POSITIVE_INFINITY) - (b.price ?? Number.POSITIVE_INFINITY);
+
+    case 'launch':
+      // Keep newest first; fall back to empty string (lowest)
+      return (a, b) => (b.startDate ?? '').localeCompare(a.startDate ?? '');
   }
 }
