@@ -3,6 +3,7 @@
 
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
+import ThemeSwitcher from 'src/components/ThemeSwitcher';
 
 /** --- Types that mirror /data/ga_scratchers/index.latest.json --- */
 type ActiveGame = {
@@ -81,13 +82,20 @@ export default function ScratchersPage() {
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
     return games.filter((g) => {
+      // price range
       if (g.price != null && (g.price < priceMin || g.price > priceMax)) return false;
+
+      // lifecycle (UI control): 'all' | 'new' | 'continuing'
       if (lifecycle !== 'all' && g.lifecycle !== lifecycle) return false;
 
-      const pct = pctTopPrizesRemain(g);
-      if (pct < minTopAvail) return false;
-      if ((g.topPrizesRemaining ?? 0) < minTopRemain) return false;
+      // top-prize availability thresholds
+      const orig = g.topPrizesOriginal ?? 0;
+      const rem  = g.topPrizesRemaining ?? 0;
+      const pct  = orig > 0 ? rem / orig : 0;
+      if (pct < minTopAvail) return false;          // min % top-prizes remaining
+      if (rem < minTopRemain) return false;         // min count top-prizes remaining
 
+      // search
       if (s) {
         const hay = `${g.name} ${g.gameNumber}`.toLowerCase();
         if (!hay.includes(s)) return false;
@@ -115,7 +123,6 @@ export default function ScratchersPage() {
 
       switch (sortKey) {
         case 'best':
-          // Mirrors generator’s “stable sort” idea: price ↓, adjusted ↑, printed ↑, id ↑
           if (pA !== pB) return pB - pA;
           if (adjA !== adjB) return adjA - adjB;
           if (odA !== odB) return odA - odB;
@@ -133,27 +140,76 @@ export default function ScratchersPage() {
     return out;
   }, [filtered, sortKey]);
 
+  /** Small formatters for compact, multi-line cells */
+  const OddsCell = ({ g }: { g: ActiveGame }) => (
+    <div style={{ lineHeight: 1.25 }}>
+      <div className="mono">{g.adjustedOdds != null ? `1 in ${Number(g.adjustedOdds).toFixed(2)}` : '—'}</div>
+      <div className="mono hint">{g.overallOdds != null ? `1 in ${g.overallOdds}` : '—'}</div>
+    </div>
+  );
+  const TopLeftCell = ({ g }: { g: ActiveGame }) => {
+    const pct = Math.round(pctTopPrizesRemain(g) * 100);
+    return (
+      <div style={{ lineHeight: 1.25 }}>
+        <div className="mono">{(g.topPrizesRemaining ?? 0).toLocaleString()} / {(g.topPrizesOriginal ?? 0).toLocaleString()}</div>
+        <div className="mono hint">{isFinite(pct) ? `${pct}% left` : '—'}</div>
+      </div>
+    );
+  };
+
   return (
     <main>
-      {/* Header with tabbar */}
-      <header style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6 }}>
-        <div>
-          <h1 style={{ fontSize: 26, fontWeight: 800, margin: 0 }}>GA Scratchers</h1>
+      <div data-binder-tabs>
+        <header
+          style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}
+        >
+          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+            <h1 style={{ fontSize: 26, fontWeight: 800 }}>LottoSmartPicker 9000</h1>
+            {/* Primary tabs */}
+            <nav className="tabbar" aria-label="Primary" role="tablist">
+              <a
+                className="btn"
+                href="/"
+                role="tab"
+                aria-selected="false"
+                tabIndex={-1}
+              >Draw Games</a>
+              <a
+                className="btn"
+                href="/scratchers"
+                role="tab"
+                aria-selected="true"
+                aria-controls="binder-panel"
+              >GA Scratchers</a>
+            </nav>
+          </div>
+          <div className="controls header-controls" style={{ gap: 8 }}>
+            <ThemeSwitcher />
+          </div>
+        </header>
+      </div>
+
+      {/* First element is a grid; dock it to the tabs */}
+      <section
+        id="binder-panel"
+        role="tabpanel"
+        className="grid"
+        style={{ gridTemplateColumns: '260px 1fr', gap: 'var(--stack-gap)' }}
+      >
+        {/* Left: sticky controls */}
+        <aside className="card" style={{ position:'sticky', top:16, alignSelf:'start' }}>
           {updatedAt && (
-            <div className="hint" aria-live="polite" style={{ marginTop: 2 }}>
+            <div
+              style={{
+                marginBottom: 6,
+                fontSize: '0.6em',
+                color: 'var(--muted)',
+                fontWeight: 400,
+              }}
+            >
               Updated {updatedAt}
             </div>
           )}
-        </div>
-        <nav className="tabbar" aria-label="Primary">
-          <Link className="btn" href="/" aria-selected="false">Draw Games</Link>
-          <Link className="btn" href="/scratchers" aria-selected="true">GA Scratchers</Link>
-        </nav>
-      </header>
-
-      <section className="grid" style={{ gridTemplateColumns: '300px 1fr' }}>
-        {/* Left: sticky controls */}
-        <aside className="card" style={{ position:'sticky', top:16, alignSelf:'start' }}>
           <div style={{ fontWeight:700, marginBottom:8 }}>Filters & Sort</div>
 
           <label className="controls" style={{ display:'grid', gap:8 }}>
@@ -217,77 +273,59 @@ export default function ScratchersPage() {
         </aside>
 
         {/* Right: results table */}
-        <section className="card" aria-busy={loading} style={{ overflowX:'auto' }}>
+        <section className="card" aria-busy={loading}>
           {loading && <div>Loading scratchers…</div>}
           {!loading && sorted.length === 0 && <div>No games match your filters.</div>}
 
           {!loading && sorted.length > 0 && (
-            <table className="compact" role="table" aria-label="GA Scratchers comparison">
+            <table
+              className="compact"
+              role="table"
+              aria-label="GA Scratchers comparison"
+              style={{
+                tableLayout: 'auto',
+                width: '100%',
+              }}
+            >
               <thead>
                 <tr>
-                  <th style={{ minWidth: 220, textAlign:'left' }}>Name</th>
-                  <th className="mono" style={{ textAlign:'right' }}>Game #</th>
-                  <th className="mono" style={{ textAlign:'right' }}>Price</th>
-                  <th className="mono" style={{ textAlign:'right' }}>Adjusted odds</th>
-                  <th className="mono" style={{ textAlign:'right' }}>Printed odds</th>
-                  <th className="mono" style={{ textAlign:'right' }}>Top prize</th>
-                  <th className="mono" style={{ textAlign:'right' }}>Remain / Orig</th>
-                  <th className="mono" style={{ textAlign:'right' }}>% Top-prize left</th>
-                  <th>Lifecycle</th>
+                  <th style={{ width: '38%', textAlign:'left' }}>Name</th>
+                  <th className="mono" style={{ width:'10%', textAlign:'right' }}>Game #</th>
+                  <th className="mono" style={{ width:'10%', textAlign:'right' }}>Price</th>
+                  <th className="mono" style={{ width:'18%', textAlign:'right' }}>Odds (adj / print)</th>
+                  <th className="mono" style={{ width:'12%', textAlign:'right' }}>Top prize</th>
+                  <th className="mono" style={{ width:'12%', textAlign:'right' }}>Top-prizes left</th>
                 </tr>
               </thead>
               <tbody>
-                {sorted.map((g) => {
-                  const pct = pctTopPrizesRemain(g);
-                  return (
-                    <tr key={g.gameNumber}>
-                      <td style={{ whiteSpace:'nowrap' }}>
-                        <div style={{ fontWeight:700, lineHeight:1.2 }}>
-                          {g.name}{' '}
-                          {g.lifecycle === 'new' && (
-                            <span className="pill" title="New game">New</span>
-                          )}
-                        </div>
-                        <div className="hint" style={{ marginTop:2 }}>
-                          {g.startDate ? `Launch: ${g.startDate}` : ''}
-                          {g.ticketImageUrl ? (
-                            <>
-                              {' '}&middot; <a href={g.ticketImageUrl} target="_blank" rel="noreferrer">Ticket</a>
-                            </>
-                          ) : null}
-                          {g.oddsImageUrl ? (
-                            <>
-                              {' '}&middot; <a href={g.oddsImageUrl} target="_blank" rel="noreferrer">Odds img</a>
-                            </>
-                          ) : null}
-                        </div>
-                      </td>
-                      <td className="mono" style={{ textAlign:'right' }}>{g.gameNumber}</td>
-                      <td className="mono" style={{ textAlign:'right' }}>{g.price != null ? `$${g.price}` : '—'}</td>
-                      <td className="mono" style={{ textAlign:'right' }}>
-                        {g.adjustedOdds != null ? `1 in ${Number(g.adjustedOdds).toFixed(2)}` : '—'}
-                      </td>
-                      <td className="mono" style={{ textAlign:'right' }}>
-                        {g.overallOdds != null ? `1 in ${g.overallOdds}` : '—'}
-                      </td>
-                      <td className="mono" style={{ textAlign:'right' }}>
-                        {g.topPrizeValue != null ? `$${g.topPrizeValue.toLocaleString()}` : '—'}
-                      </td>
-                      <td className="mono" style={{ textAlign:'right' }}>
-                        {(g.topPrizesRemaining ?? 0).toLocaleString()} / {(g.topPrizesOriginal ?? 0).toLocaleString()}
-                      </td>
-                      <td className="mono" style={{ textAlign:'right' }}>
-                        {`${Math.round(pct * 100)}%`}
-                      </td>
-                      <td>{g.lifecycle ? (g.lifecycle[0].toUpperCase() + g.lifecycle.slice(1)) : '—'}</td>
-                    </tr>
-                  );
-                })}
+                {sorted.map((g) => (
+                  <tr key={g.gameNumber}>
+                    <td style={{ whiteSpace:'normal', overflow:'visible', textOverflow:'clip' }}>
+                      <div style={{ fontWeight:700, lineHeight:1.25 }}>
+                        {g.name}{' '}
+                        {g.lifecycle === 'new' && <span className="pill" title="New game">New</span>}
+                      </div>
+                      <div className="hint" style={{ marginTop:2 }}>
+                        {g.startDate ? `Launch: ${g.startDate}` : ''}
+                        {g.ticketImageUrl && <> · <a href={g.ticketImageUrl} target="_blank" rel="noreferrer">Ticket</a></>}
+                        {g.oddsImageUrl && <> · <a href={g.oddsImageUrl} target="_blank" rel="noreferrer">Odds img</a></>}
+                      </div>
+                    </td>
+                    <td className="mono" style={{ textAlign:'right', whiteSpace:'nowrap' }}>{g.gameNumber}</td>
+                    <td className="mono" style={{ textAlign:'right', whiteSpace:'nowrap' }}>{g.price != null ? `$${g.price}` : '—'}</td>
+                    <td style={{ textAlign:'right' }}><OddsCell g={g} /></td>
+                    <td className="mono" style={{ textAlign:'right' }}>
+                      {g.topPrizeValue != null ? `$${g.topPrizeValue.toLocaleString()}` : '—'}
+                    </td>
+                    <td style={{ textAlign:'right' }}><TopLeftCell g={g} /></td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           )}
         </section>
       </section>
+      {/* Binder tab styles now live in globals.css */}
     </main>
   );
 }

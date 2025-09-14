@@ -86,24 +86,36 @@ export default function Page() {
 
   return (
     <main>
-      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-        <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-          <h1 style={{ fontSize: 26, fontWeight: 800 }}>LottoSmartPicker 9000</h1>
-          {/* NEW: top-level tabbar */}
-          <nav className="tabbar" aria-label="Primary">
-            <a className="btn" href="/" aria-selected="true">Draw Games</a>
-            <a className="btn" href="/scratchers" aria-selected="false">GA Scratchers</a>
-          </nav>
-        </div>
-        <div className="controls header-controls" style={{ gap: 8 }}>
-          <ThemeSwitcher />
-          <button className="btn btn-ghost" onClick={() => setShowPast(true)} aria-controls="past-draws" aria-expanded={showPast}>
-            Past Draws
-          </button>
-        </div>
-      </header>
+      <div data-binder-tabs>
+        <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+            <h1 style={{ fontSize: 26, fontWeight: 800 }}>LottoSmartPicker 9000</h1>
+            {/* Primary tabs */}
+            <nav className="tabbar" aria-label="Primary" role="tablist">
+              <a className="btn"
+                 href="/"
+                 role="tab"
+                 aria-selected="true"
+                 aria-controls="binder-panel"
+              >Draw Games</a>
+              <a className="btn"
+                 href="/scratchers"
+                 role="tab"
+                 aria-selected="false"
+                 tabIndex={-1}
+              >GA Scratchers</a>
+            </nav>
+          </div>
+          <div className="controls header-controls" style={{ gap: 8 }}>
+            <ThemeSwitcher />
+            <button className="btn btn-ghost" onClick={() => setShowPast(true)} aria-controls="past-draws" aria-expanded={showPast}>
+              Past Draws
+            </button>
+          </div>
+        </header>
+      </div>
 
-      <section className="card">
+      <section id="binder-panel" className="card" role="tabpanel" aria-labelledby="Draw Games">
         <div className="controls" style={{ gap: 12, alignItems:'flex-end' }}>
           {/* Single, tall dropdown panel */}
           <div className="card" style={{ padding: 12, minHeight: 92 }}>
@@ -124,7 +136,7 @@ export default function Page() {
       </section>
 
       {/* Main two-column: left = generator, right = info + analysis */}
-       <div className="grid" style={{ gridTemplateColumns:'2fr 1fr', gap: 12, marginTop: 12 }}>
+       <div className="grid" style={{ gridTemplateColumns:'2fr 1fr', gap: 'var(--stack-gap)', marginTop: 'var(--stack-gap)' }}>
         <section>
           <Generator
             game={game}
@@ -135,11 +147,11 @@ export default function Page() {
           />
         </section>
         <section>
-          <div style={{ display:'grid', gap: 5 }}>
+          <div style={{ display:'grid', gap: 'var(--stack-gap)' }}>
             <GameOverview game={game} />
             <AnalyzeSidebar />
           </div>
-          <div style={{ marginTop: 12 }}>
+          <div style={{ marginTop: 'var(--stack-gap)' }}>
             <HintLegend />
           </div>
         </section>
@@ -160,7 +172,7 @@ export default function Page() {
         sortDir={sortDir}
         onToggleSort={() => setSortDir(d => d === 'desc' ? 'asc' : 'desc')}
       />
-
+      {/* Binder tab styles now live in globals.css */}
     </main>
   );
 }

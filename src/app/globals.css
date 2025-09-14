@@ -1,6 +1,5 @@
 
-:root{--bg:#0a0a0a;--fg:#ffffff;--font-sans: ui-sans-serif;--muted:#cbd5e1;--card:#111318;--card-bd:#243244;--accent:#2563eb;--accent-contrast:#ffffff;--danger:#ef4444;--info-bg:rgba(37,99,235,.08);--control-h:40px}
-html, body {font-family: var(--font-sans), system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";line-height: 1.55;letter-spacing: 0.01em}
+:root{--bg:#0a0a0a;--fg:#ffffff;--font-sans: ui-sans-serif;--muted:#cbd5e1;--card:#111318;--card-bd:#243244;--accent:#2563eb;--accent-contrast:#ffffff;--danger:#ef4444;--info-bg:rgba(37,99,235,.08);--control-h:40px;--binder-overlap:10px;--radius-card:14px;--stack-gap:12px;--tab-extend:calc(var(--stack-gap) + 1px)}
 @media(prefers-color-scheme:light){:root{--bg:#f8fafc;--fg:#0b1220;--muted:#475569;--card:#ffffff;--card-bd:#d0d7e2;--accent:#1e40af;--accent-contrast:#ffffff;--danger:#b91c1c}}
 [data-theme="light"]{--bg:#f8fafc;--fg:#0b1220;--muted:#475569;--card:#ffffff;--card-bd:#d0d7e2;--accent:#1e40af;--accent-contrast:#ffffff;--danger:#b91c1c}
 [data-theme="dark"]{--bg:#0a0a0a;--fg:#ffffff;--muted:#cbd5e1;--card:#111318;--card-bd:#243244;--accent:#2563eb;--accent-contrast:#ffffff;--danger:#ef4444}
@@ -48,9 +47,55 @@ main{max-width:1180px;margin:0 auto;padding:24px}
 /* bottom-sheet variant for mobile */
 .sidebar.bottom{top:auto;right:auto;left:0;bottom:0;width:100%;height:min(70vh, 90vh);border-left:none;border-top:1px solid var(--card-bd);box-shadow:0 -8px 24px rgba(0,0,0,.25);transform:translateY(100%);transition:transform .25s ease}
 .sidebar.bottom.open{transform:translateY(0)}
-/* simple tabbar */
-.tabbar{display:inline-flex;gap:8px;margin-left:8px}
-.tabbar .btn[aria-selected="true"]{border-color:var(--accent); outline: 2px solid rgba(37,99,235,.35)}
+
+/* ===== Binder tabs (shared) ===== */
+[data-binder-tabs] > header{margin-bottom:calc(var(--stack-gap))} /* <- controls header→panel spacing */
+[data-binder-tabs] .tabbar{
+  display:flex;align-items:flex-end;gap:8px;margin:0;margin-bottom:calc(-1*var(--binder-overlap));
+  flex-wrap:wrap
+}
+[data-binder-tabs] .tabbar .btn{
+  border:1px solid var(--card-bd);
+  border-radius:var(--radius-card) var(--radius-card) 0 0;
+  padding:8px 14px;line-height:1.1;
+  background:var(--bg);color:var(--muted);
+  position:relative;z-index:1;
+  transition:transform .12s ease,color .12s ease,background .12s ease,box-shadow .12s ease;
+  max-width:38ch;white-space:nowrap;overflow:hidden;text-overflow:ellipsis
+}
+[data-binder-tabs] .tabbar .btn[aria-selected="true"]{
+  background:var(--card);color:var(--fg);border-color:var(--card-bd);
+  border-bottom-color:var(--card);z-index:3;box-shadow:0 1px 0 var(--card) inset
+}
+/* Extend the active tab down so it meets (and overlaps) the panel */
+[data-binder-tabs] .tabbar .btn[aria-selected="true"]::after{
+  content:"";
+  position:absolute;
+  left:-1px; right:-1px;
+  top:calc(100% - 1px);        /* start just 1px into the panel to cover its top border */
+  height:var(--tab-extend);    /* now grows downward */
+  background:var(--card);
+  border-left:1px solid var(--card-bd);
+  border-right:1px solid var(--card-bd);
+  pointer-events:none;z-index:2;       /* stays above the panel */
+}
+[data-binder-tabs] .tabbar .btn[aria-selected="false"]{transform:translateY(2px);z-index:0}
+[data-binder-tabs] .tabbar .btn[aria-selected="false"]:hover{
+  color:var(--fg);background:color-mix(in oklab, var(--card) 40%, transparent)
+}
+[data-binder-tabs] .tabbar .btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* Panel docks visually under the tab; header owns the spacing, so no negative margin here */
+[data-binder-tabs]+.card,
+[data-binder-tabs]+.grid{position:relative;z-index:2}
+[data-binder-tabs]+.card{border-top-left-radius:14;border-top-right-radius:var(--radius-card)}
+[data-binder-tabs]+.grid>.card:first-child{position:relative;z-index:2;border-top-left-radius:0}
+
+@media (max-width:768px){
+  [data-binder-tabs] .tabbar{gap:6px}
+  [data-binder-tabs] .tabbar .btn{padding:7px 12px}
+}
+
 @media (prefers-reduced-motion: reduce){.sidebar, .sidebar.bottom { transition: none !important; }}
 /* ---- Header alignment fix: bottom-align label+select with button ---- */
 /* Place AFTER .controls so it wins on specificity+order */
