@@ -79,8 +79,52 @@ export const DEFAULT_WEIGHTS: Weights = {
 // -----------------------------
 // Data locations
 // -----------------------------
-const LATEST_URL = '/data/ga_scratchers/index.latest.json';
-const ARCHIVE_URL = '/data/ga_scratchers/index.json'; // same shape as latest; scraper writes both
+/**
+ * Resolve the best URLs to fetch the scratchers index from.
+ * Prefers public R2/CDN via env; falls back to local /public paths for dev.
+ *
+ * Supported envs (server or client):
+ * - GA_SCRATCHERS_INDEX_URL or NEXT_PUBLIC_GA_SCRATCHERS_INDEX_URL  (full URL to a file)
+ * - GA_SCRATCHERS_INDEX_BASE or NEXT_PUBLIC_GA_SCRATCHERS_INDEX_BASE (base path to folder)
+ */
+export function resolveIndexUrls(): string[] {
+  const env = typeof process !== 'undefined' ? (process.env as any) : {};
+  // Try server-first, then client-prefixed fallbacks (if this ever bundles client-side)
+  const URL_ENV =
+    env.GA_SCRATCHERS_INDEX_URL ??
+    env.NEXT_PUBLIC_GA_SCRATCHERS_INDEX_URL ??
+    null;
+  const BASE_ENV =
+    env.GA_SCRATCHERS_INDEX_BASE ??
+    env.NEXT_PUBLIC_GA_SCRATCHERS_INDEX_BASE ??
+    null;
+
+  const localLatest = '/data/ga_scratchers/index.latest.json';
+  const localArchive = '/data/ga_scratchers/index.json';
+
+  // Exact file provided
+  if (URL_ENV && typeof URL_ENV === 'string') {
+    const u = URL_ENV.trim();
+    // If the provided file is index.json, try index.latest.json first, and vice versa
+    if (u.endsWith('/index.json')) {
+      return [u.replace(/\/index\.json$/, '/index.latest.json'), u];
+    }
+    if (u.endsWith('/index.latest.json')) {
+      return [u, u.replace(/\/index\.latest\.json$/, '/index.json')];
+    }
+    // Unknown filename, just try the given URL then local fallbacks
+    return [u, localLatest, localArchive];
+  }
+
+  // Base folder provided
+  if (BASE_ENV && typeof BASE_ENV === 'string') {
+    const base = BASE_ENV.replace(/\/+$/, '');
+    return [`${base}/index.latest.json`, `${base}/index.json`, localLatest, localArchive];
+  }
+
+  // No env → local dev fallbacks
+  return [localLatest, localArchive];
+}
 
 // -----------------------------
 // Fetchers
@@ -91,10 +135,11 @@ const ARCHIVE_URL = '/data/ga_scratchers/index.json'; // same shape as latest; s
  * Tries latest first, falls back to archive. Returns the `games` array (active-only).
  */
 export async function fetchScratchersWithCache(): Promise<ActiveGame[]> {
-  const urls = [LATEST_URL, ARCHIVE_URL];
+  const urls = resolveIndexUrls();
   for (const url of urls) {
     try {
-      const res = await fetch(url, { cache: 'no-store' });
+      // On Next.js server, let ISR revalidate periodically; on client this is ignored.
+      const res = await fetch(url, { next: { revalidate: 3600 } as any, cache: 'no-store' as any });
       if (!res.ok) continue;
       const payload = await res.json() as ScratchersIndexPayload;
       if (Array.isArray((payload as any).games)) {
@@ -116,9 +161,9 @@ export async function fetchScratchersWithDelta(): Promise<{
   endedIds: Set<number>;
   updatedAt?: string;
 }> {
-  for (const url of [LATEST_URL, ARCHIVE_URL]) {
+  for (const url of resolveIndexUrls()) {
     try {
-      const res = await fetch(url, { cache: 'no-store' });
+      const res = await fetch(url, { next: { revalidate: 3600 } as any, cache: 'no-store' as any });
       if (!res.ok) continue;
       const payload = await res.json() as ScratchersIndexPayload;
       const games = payload.games ?? [];
