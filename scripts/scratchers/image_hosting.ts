@@ -81,6 +81,14 @@ function extFromContentType(ct: string): "png" | "jpg" {
   return /png/i.test(ct) ? "png" : "jpg";
 }
 
+const ALLOW_LOCALHOST = process.env.ALLOW_LOCALHOST === "1";
+const REWRITE_LOCALHOST_TO_CDN = process.env.REWRITE_LOCALHOST_TO_CDN === "1";
+const LOCALHOST_SET = new Set(["localhost","127.0.0.1","::1"]);
+
+function isLocalhostUrl(u: string): boolean {
+  try { return LOCALHOST_SET.has(new URL(u).hostname.toLowerCase()); } catch { return false; }
+}
+
 export async function sha256(bytes: Uint8Array): Promise<string> {
   const h = crypto.createHash("sha256");
   h.update(bytes);
@@ -293,6 +301,13 @@ export async function downloadAndHost(params: {
   const { sourceUrl } = params;
   const storage = params.storage || getStorage();
   const dry = params.dryRun ?? gOptions.dryRun;
+
+  // 0) Localhost guard to prevent CI from trying to fetch dev URLs
+  if (isLocalhostUrl(sourceUrl) && !ALLOW_LOCALHOST) {
+    // Optional soft landing: if caller wants, just refuse with clear message.
+    // We do not attempt any network fetch here.
+    throw new Error(`[rehost] refusing localhost/loopback sourceUrl=${sourceUrl} (set ALLOW_LOCALHOST=1 to override)`);
+  }
 
   // 1) Manifest reuse (unless --rehost-all)
   const existing = !gOptions.rehostAll && manifestCache![sourceUrl];

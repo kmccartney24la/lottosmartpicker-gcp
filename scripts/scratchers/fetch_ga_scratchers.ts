@@ -77,6 +77,20 @@ function normalizeUrl(u?: string | null): string | undefined {
   }
 }
 
+function isGAHost(u?: string): boolean {
+  if (!u) return false;
+  try {
+    const h = new URL(u).hostname.toLowerCase();
+    return h === "www.galottery.com" || h.endsWith(".galottery.com");
+  } catch { return false; }
+}
+
+function preferGA(primary?: string, fallback?: string): string | undefined {
+  if (isGAHost(primary)) return primary!;
+  if (isGAHost(fallback)) return fallback!;
+  return undefined; // refuse localhost/CDN sources as upstream
+}
+
 function pickUpdatedAt(map: Map<number, TopPrizeRow>): string {
   for (const row of map.values()) if (row.lastUpdated) return row.lastUpdated;
   return new Date().toISOString();
@@ -536,7 +550,10 @@ async function main() {
 
         const topPrizeValue: number | undefined = (row as any)?.topPrizeValue ?? undefined;
 
-        return {
+         const ticketUpstream = preferGA(det?.ticketImageUrl, prevG?.ticketImageUrl);
+        const oddsUpstream   = preferGA(det?.oddsImageUrl,   prevG?.oddsImageUrl);
+
+        const g: ActiveGame = {
           gameNumber: num,
           name,
           price: row?.price ?? prevG?.price,
@@ -548,11 +565,14 @@ async function main() {
           startDate: det?.startDate ?? prevG?.startDate,
           oddsImageUrl: det?.oddsImageUrl ?? prevG?.oddsImageUrl,
           ticketImageUrl: det?.ticketImageUrl ?? prevG?.ticketImageUrl,
+          oddsImageUrl: oddsUpstream,
+          ticketImageUrl: ticketUpstream,
           updatedAt,
           lifecycle: newOnIndex.includes(num) ? 'new'
                     : continuingOnIndex.includes(num) ? 'continuing'
                     : undefined,
         };
+        return g;
       });
 
     // Fallback pass for missing images (game pages)
@@ -617,6 +637,11 @@ async function main() {
       for (const [field, kind] of pairs) {
         const src = g[field];
         if (!src) continue;
+        // Safety: never try to rehost non-GA sources (e.g., localhost/CDN)
+        if (!isGAHost(src)) {
+          console.warn(`[rehost] skip ${g.gameNumber}/${kind}: non-GA sourceUrl=${src}`);
+          continue;
+        }
 
         // If both fields use the exact same source URL, dedupe upload
         if (originals.ticket && originals.odds && originals.ticket === originals.odds) {
