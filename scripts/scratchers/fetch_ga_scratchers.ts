@@ -579,6 +579,29 @@ async function scrapeGamePagesForImages(
   const page = await context.newPage();
   try {
     await openAndReady(page, ACTIVE_URL, { loadMore: true });
+    // Ensure the infinite grid is actually fully loaded; openAndReady is best-effort,
+    // but the site sometimes needs multiple bottom scrolls before anchors are hydrated.
+    {
+      const z = (ms: number) => new Promise(r => setTimeout(r, ms));
+      const MAX_PASSES = 40;
+      let last = -1, stable = 0;
+      await page.waitForSelector("#instantsGrid", { timeout: 15000 }).catch(() => {});
+      await page.waitForSelector('.catalog-item[data-game-id]', { timeout: 15000 }).catch(() => {});
+      for (let p = 0; p < MAX_PASSES; p++) {
+        await page.evaluate(() => {
+          const el = document.scrollingElement || document.documentElement;
+          el.scrollTop = el.scrollHeight;
+          window.dispatchEvent(new Event("scroll"));
+          window.dispatchEvent(new Event("resize"));
+        }).catch(() => {});
+        await page.waitForLoadState("networkidle", { timeout: 2000 }).catch(() => {});
+        await z(900);
+        const count = await page.$$eval('.catalog-item[data-game-id]', els => els.length).catch(() => 0);
+        if (count > 0 && count === last) { if (++stable >= 2) break; } else { stable = 0; }
+        last = count;
+      }
+    }
+
     // page-level network collector for per-game pages
     const pageNetHits: NetHitMap = {};
     const pushHit = (num: number, url: string, status: number, ct?: string) => {
@@ -593,11 +616,25 @@ async function scrapeGamePagesForImages(
         const numStr = (tile as HTMLElement).getAttribute('data-game-id') || '';
         const num = Number(numStr);
         if (!Number.isFinite(num)) return;
-        // Try to find the primary link within the tile
-        const a = tile.querySelector<HTMLAnchorElement>('a[href*="/games/scratchers/"]') ||
-                  tile.querySelector<HTMLAnchorElement>('a[href]');
-        const href = a?.getAttribute('href');
-        if (!href) return;
+        // Try to find the primary link within the tile. Some variants use data-* attrs.
+        const pickHref = (el: Element | null): string | null => {
+          if (!el) return null;
+          const h = (el as HTMLAnchorElement).getAttribute('href');
+          if (h && h !== '#') return h;
+          const da = (el as HTMLElement).getAttribute('data-analytics-link');
+          if (da) return da;
+          const dh = (el as HTMLElement).getAttribute('data-href');
+          if (dh) return dh;
+          return null;
+        };
+        const a = tile.querySelector<HTMLAnchorElement>('a[href*="/games/scratchers/"]')
+              ||  tile.querySelector<HTMLAnchorElement>('a.more-info, a[title], a[href]')
+              ||  tile.querySelector<HTMLAnchorElement>('[data-analytics-link],[data-href]');
+        const hrefRaw = pickHref(a) || pickHref(tile);
+        if (!hrefRaw || hrefRaw === '#') return;
+        // Sometimes they give only a fragment; make it absolute
+        let href = hrefRaw;
+        if (/^#/.test(href)) return; // fragment-only: skip (modal-only)
         out.push({ num, url: makeAbs(href) });
       });
       return out;
@@ -607,7 +644,7 @@ async function scrapeGamePagesForImages(
     if (urlByNum.size === 0) {
       console.warn(`[fallback] could not derive any game links from grid`);
     } else {
-      console.log(`[fallback] derived ${urlByNum.size} game links from grid`);
+      console.log(`[fallback] derived ${urlByNum.size} game links from grid (of ${await page.$$eval('.catalog-item[data-game-id]', els => els.length).catch(()=>0)})`);
     }
 
     // Helper: attach a temporary response listener that records DAM hits

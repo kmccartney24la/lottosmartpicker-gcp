@@ -76,8 +76,11 @@ jobs:
             --file public/data/ga_scratchers/_image_manifest.json \
             --remote || true
 
-      - name: Scrape GA scratchers
-        run: npx --yes tsx scripts/scratchers/fetch_ga_scratchers.ts
+      # Seed pass: open ALL modals so we reliably capture ticket + odds.
+      # Also parallelize a bit to counter CI slowness.
+      - name: Scrape GA scratchers (seed all)
+        run: |
+          npx --yes tsx scripts/scratchers/fetch_ga_scratchers.ts --seed --concurrency=4
 
       # Assert: no localhost/non-GA sources
       - name: Assert GA-only URLs (post first scrape)
@@ -110,7 +113,8 @@ jobs:
           } else { console.log('Images parsed: ', s.counts); }"
 
       - name: Scrape + rehost (only missing; 4-way)
-        run: npx --yes tsx scripts/scratchers/fetch_ga_scratchers.ts --only-missing --concurrency=4
+        run: |
+          npx --yes tsx scripts/scratchers/fetch_ga_scratchers.ts --only-missing --concurrency=4
 
       - name: Upload image manifest
         if: success() && hashFiles('public/data/ga_scratchers/_image_manifest.json') != ''
