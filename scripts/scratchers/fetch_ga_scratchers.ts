@@ -207,20 +207,30 @@ async function scrapeActiveModalDetails(
     }
     const collapseLink = await page.$('a[data-toggle="collapse"][href="#oddsPanel"]').catch(() => null);
     if (collapseLink) { try { await collapseLink.click({ timeout: 800 }); } catch {} }
+
+    // Scroll inside modal so any lazy images load
+    await page.evaluate(() => {
+      const body = document.querySelector('#scratchersModalBody') as HTMLElement | null;
+      if (body) body.scrollTop = body.scrollHeight;
+      window.dispatchEvent(new Event('scroll'));
+      window.dispatchEvent(new Event('resize'));
+    }).catch(() => {});
     await page.waitForSelector('#oddsPanel', { timeout: 3000 }).catch(() => {});
     await page.waitForSelector('#oddsPanel img', { timeout: 3500 }).catch(() => {});
     await page.waitForLoadState('networkidle', { timeout: 1500 }).catch(() => {});
-    await z(120);
+    await page.waitForTimeout(120);
   }
 
   try {
     await openAndReady(page, ACTIVE_URL, { loadMore: true });
 
-    // Load all ids, then optionally filter
-    const ids = await (async () => {
-      // ensure grid fully loaded (reuse logic from collectActiveIds)
-      return await collectActiveIds({ newPage: () => page } as any as BrowserContext);
-    })();
+    await page.waitForSelector('.catalog-item[data-game-id]', { timeout: 15000 }).catch(() => {});
+    const ids = await page.$$eval('.catalog-item[data-game-id]', els =>
+      Array.from(new Set(
+        els.map(el => Number((el as HTMLElement).getAttribute('data-game-id')))
+          .filter(n => Number.isFinite(n))
+      ))
+    ).catch(() => []);
 
     const gate = new Set<number>(onlyIds ?? []);
     const walkIds = onlyIds && onlyIds.length ? ids.filter(id => gate.has(id)) : ids;
@@ -250,18 +260,57 @@ async function scrapeActiveModalDetails(
 
           const name =
             (root.querySelector("h2.game-name")?.textContent ||
-             root.querySelector(".game-name")?.textContent ||
-             root.querySelector(".modal-scratchers-header h2")?.textContent ||
-             root.querySelector("h1, h2, h3")?.textContent ||
-             "").trim();
+            root.querySelector(".game-name")?.textContent ||
+            root.querySelector(".modal-scratchers-header h2")?.textContent ||
+            root.querySelector("h1, h2, h3")?.textContent ||
+            "").trim();
+
+          const pickUrlFromImg = (img: HTMLImageElement): string | undefined => {
+            const cur = (img as any).currentSrc || img.getAttribute('src') || img.getAttribute('data-src') || "";
+            if (cur) return abs(cur);
+            const ss = img.getAttribute('srcset');
+            if (ss) {
+              const parts = ss.split(',').map(s => s.trim());
+              const best = parts.map(p => {
+                const m = p.match(/(\S+)\s+(\d+)w/);
+                return m ? { url: m[1], w: Number(m[2]) } : null;
+              }).filter(Boolean).sort((a,b) => (b!.w - a!.w))[0] as any;
+              if (best) return abs(best.url);
+            }
+            return undefined;
+          };
+
+          console.log(`[details] modals scraped: ${byNum.size}/${walkIds.length}`);
 
           let ticketImageUrl: string | undefined;
-          const ticketImg = body.querySelector<HTMLImageElement>(".modal-scratchers-image img");
-          if (ticketImg) ticketImageUrl = abs(((ticketImg as any).currentSrc) || ticketImg.getAttribute("src"));
+          let oddsImageUrl:   string | undefined;
 
-          let oddsImageUrl: string | undefined;
-          const oddsImg = root.querySelector<HTMLImageElement>("#oddsPanel img");
-          if (oddsImg) oddsImageUrl = abs((oddsImg as any).currentSrc || oddsImg.getAttribute("src"));
+          // Walk all images inside the modal to be robust against markup shifts
+          const imgs = Array.from((body || root).querySelectorAll('img, picture img')) as HTMLImageElement[];
+          for (const img of imgs) {
+            const url = pickUrlFromImg(img);
+            if (!url) continue;
+            const p = url.toLowerCase();
+
+            const inDam = p.includes('/content/dam/');
+            const isScratchers = /\/scratchers?-games\//.test(p);
+            const looksTicket = /\/ticket\.(png|jpe?g|webp)$/.test(p) || /ticket/i.test(img.alt || "");
+            const looksOdds   = /\/odds\.(png|jpe?g|webp)$/.test(p)   || /odds/i.test(img.alt || "") ||
+                                (img.closest('#oddsPanel') != null);
+
+            if (inDam && isScratchers && looksTicket && !ticketImageUrl) ticketImageUrl = url;
+            if (inDam && isScratchers && looksOdds   && !oddsImageUrl)   oddsImageUrl   = url;
+          }
+
+          // Specific fallbacks inside the modal only
+          if (!ticketImageUrl) {
+            const t = body.querySelector('img[src*="/scratchers-games/"][src*="/ticket."]') as HTMLImageElement | null;
+            if (t) ticketImageUrl = abs((t as any).currentSrc || t.getAttribute('src'));
+          }
+          if (!oddsImageUrl) {
+            const o = root.querySelector('#oddsPanel img[src*="/scratchers-games/"][src*="/odds."]') as HTMLImageElement | null;
+            if (o) oddsImageUrl = abs((o as any).currentSrc || o.getAttribute('src'));
+          }
 
           let gameNumber: number | undefined;
           {
@@ -383,14 +432,22 @@ async function scrapeGamePagesForImages(
           root.querySelectorAll('img, picture img').forEach((img) => {
             const url = pickUrlFromImg(img as HTMLImageElement);
             const alt = ((img.getAttribute('alt') || '').trim());
-            const oddsish = !!url && (/\/odds\./i.test(url) || /odds/i.test(alt) || /odds/i.test((img.closest('#oddsPanel, [id*="odds"]') as HTMLElement | null)?.id || ''));
-            const ticketish = !!url && (/\/ticket\./i.test(url) || /ticket|hero|art/i.test(alt));
+            const p = (url || '').toLowerCase();
+            const inDam = p.includes('/content/dam/');
+            const isScratchers = /\/scratchers?-games\//.test(p);
+
+            // Only consider scratchers assets under /content/dam/
+            const oddsish = inDam && isScratchers && (/\/odds\./i.test(p) || /odds/i.test(alt) ||
+                            /odds/i.test((img.closest('#oddsPanel, [id*="odds"]') as HTMLElement | null)?.id || ''));
+            const ticketish = inDam && isScratchers && (/\/ticket\./i.test(p) || /ticket|hero|art/i.test(alt));
+
             const wHint = (() => {
               if (!url) return 0;
-              const m = url.match(/[-_](\d{3,4})x(\d{3,4})\./);
+              const m = p.match(/[-_](\d{3,4})x(\d{3,4})\./);
               return m ? Number(m[1]) : 0;
             })();
-            cands.push({ url, alt, oddsish, ticketish, wHint });
+
+            if (oddsish || ticketish) cands.push({ url, alt, oddsish, ticketish, wHint });
           });
 
           root.querySelectorAll<HTMLElement>('[style*="background-image"]').forEach(el => {
@@ -398,8 +455,13 @@ async function scrapeGamePagesForImages(
             const m = s.match(/background-image:\s*url\(["']?([^"')]+)["']?\)/i);
             if (m) {
               const url = new URL(m[1], location.origin).href;
-              const isOdds = /odds/i.test(el.id) || /odds/i.test(url);
-              cands.push({ url, alt: "", oddsish: isOdds, ticketish: !isOdds, wHint: 0 });
+              const p = url.toLowerCase();
+              const inDam = p.includes('/content/dam/');
+              const isScratchers = /\/scratchers?-games\//.test(p);
+              if (inDam && isScratchers) {
+                const isOdds = /odds/i.test(el.id) || /odds/i.test(p);
+                cands.push({ url, alt: "", oddsish: isOdds, ticketish: !isOdds, wHint: 0 });
+              }
             }
           });
 

@@ -98,7 +98,7 @@ export async function sha256(bytes: Uint8Array): Promise<string> {
 const DEFAULT_HEADERS: HeadersInit = {
   "User-Agent":
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125 Safari/537.36",
-  "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+  "Accept": "image/png,image/jpeg;q=0.9,*/*;q=0.8",
   "Accept-Language": "en-US,en;q=0.9",
   "Referer": "https://www.galottery.com/",
 };
@@ -153,19 +153,20 @@ async function fetchBinaryWithHeaders(url: string, init?: RequestInit): Promise<
   const BROWSER_TIMEOUT_MS = 30_000;
   const browser = await chromium.launch({ args: ["--no-sandbox", "--disable-dev-shm-usage"] });
   try {
-    const page = await browser.newPage({
-      userAgent: String(DEFAULT_HEADERS["User-Agent"]),
+    const context = await browser.newContext({
+        userAgent: String(DEFAULT_HEADERS["User-Agent"]),
+        extraHTTPHeaders: {
+            "Accept": "image/png,image/jpeg;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Referer": "https://www.galottery.com/",
+        },
     });
-    await page.route("**/*", (route) => route.continue());
+    const page = await context.newPage();
     const resp = await page.goto(url, { timeout: BROWSER_TIMEOUT_MS, waitUntil: "domcontentloaded" });
-    if (!resp) throw new Error("playwright: no response");
-    const ct = (resp.headers()["content-type"] || "").toLowerCase();
-    const body = await resp.body();
-    if (!ct || ct.startsWith("text/html")) throw new Error(`unexpected content-type from playwright: ${ct}`);
-    return { buf: Buffer.from(body), contentType: ct };
-  } finally {
-    await browser.close().catch(() => {});
-  }
+    // ...
+    } finally {
+        await browser.close().catch(() => {});
+    }
 }
 
 // -----------------------------
@@ -293,7 +294,7 @@ export function getStorage(): StorageProvider {
 // -----------------------------
 export async function downloadAndHost(params: {
   sourceUrl: string;
-  keyHint: string; // e.g. "ga/scratchers/images/123/ticket-<sha>.<ext>" without sha/ext yet
+  keyHint: string; // e.g. ga/scratchers/images/<num>/<kind>-<sha>.<ext>
   storage?: StorageProvider;
   dryRun?: boolean;
 }): Promise<Hosted> {
@@ -303,16 +304,15 @@ export async function downloadAndHost(params: {
   const storage = params.storage || getStorage();
   const dry = params.dryRun ?? gOptions.dryRun;
 
-  // 0) Localhost guard to prevent CI from trying to fetch dev URLs
-  if (isLocalhostUrl(sourceUrl) && !ALLOW_LOCALHOST) {
-    // Optional soft landing: if caller wants, just refuse with clear message.
-    // We do not attempt any network fetch here.
-    throw new Error(`[rehost] refusing localhost/loopback sourceUrl=${sourceUrl} (set ALLOW_LOCALHOST=1 to override)`);
-  }
+  // derive desired directory prefix from keyHint
+  const desiredDir = (() => {
+    const m = params.keyHint.match(/^(.+\/)[^/]+(?:-<sha>\.<ext>|)$/);
+    return m ? m[1] : "";
+  })();
 
-  // 1) Manifest reuse (unless --rehost-all)
+  // 1) Manifest reuse (only if same per-game dir and not --rehost-all)
   const existing = !gOptions.rehostAll && manifestCache![sourceUrl];
-  if (existing) {
+  if (existing && (!desiredDir || existing.key.startsWith(desiredDir))) {
     const h = await storage.head?.(existing.key).catch(() => undefined);
     const url = storage.publicUrlFor(existing.key);
     if (h?.exists || dry) {
@@ -334,20 +334,19 @@ export async function downloadAndHost(params: {
     b[4] === 0x0d && b[5] === 0x0a && b[6] === 0x1a && b[7] === 0x0a;
 
   // Coerce content-type if server lied or omitted
+  const isWebp = (b: Uint8Array) =>
+    b.length >= 12 && b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 &&
+    b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50;
+    
   if (!ALLOWED_CT.has(ct)) {
     if (isPng(u8)) ct = "image/png";
     else if (isJpeg(u8)) ct = "image/jpeg";
-    else {
-      // Last resort: infer from original URL's pathname
-      let pathname = "";
-      try { pathname = new URL(sourceUrl).pathname; } catch {}
-      if (/\.(png)(\?|#|$)/i.test(pathname)) ct = "image/png";
-      else if (/\.(jpe?g)(\?|#|$)/i.test(pathname)) ct = "image/jpeg";
+    else if (isWebp(u8)) {
+        throw new Error(`Unsupported content-type "image/webp" for ${sourceUrl} (prevented by Accept header).`);
+    } else {
+        throw new Error(`Unsupported image bytes for ${sourceUrl}`);
     }
-  }
-  if (!ALLOWED_CT.has(ct)) {
-    throw new Error(`Unsupported content-type "${ct}" for ${sourceUrl}`);
-  }
+}
 
   // 3) Hash & form key
   const hash = await sha256(u8);
@@ -396,5 +395,10 @@ export async function ensureHashKey(params: {
   dryRun?: boolean;
 }): Promise<Hosted> {
   const base = `ga/scratchers/images/${params.gameNumber}/${params.kind}-<sha>.<ext>`;
-  return downloadAndHost({ sourceUrl: params.sourceUrl, keyHint: base, storage: params.storage, dryRun: params.dryRun });
+  return downloadAndHost({
+    sourceUrl: params.sourceUrl,
+    keyHint: base,
+    storage: params.storage,
+    dryRun: params.dryRun,
+  });
 }
