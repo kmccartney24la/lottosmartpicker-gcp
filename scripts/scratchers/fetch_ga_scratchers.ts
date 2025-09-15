@@ -319,15 +319,29 @@ async function scrapeGamePagesForImages(
   const page = await context.newPage();
   try {
     await openAndReady(page, ACTIVE_URL, { loadMore: true });
+// Build num -> url map from the catalog grid itself (no globals)
+    const pairs = await page.evaluate(() => {
+      const makeAbs = (href: string) => new URL(href, location.origin).href;
+      const out: Array<{ num: number; url: string }> = [];
+      document.querySelectorAll('.catalog-item[data-game-id]').forEach((tile) => {
+        const numStr = (tile as HTMLElement).getAttribute('data-game-id') || '';
+        const num = Number(numStr);
+        if (!Number.isFinite(num)) return;
+        // Try to find the primary link within the tile
+        const a = tile.querySelector<HTMLAnchorElement>('a[href*="/games/scratchers/"]') ||
+                  tile.querySelector<HTMLAnchorElement>('a[href]');
+        const href = a?.getAttribute('href');
+        if (!href) return;
+        out.push({ num, url: makeAbs(href) });
+      });
+      return out;
+    });
 
-    const links = await withRetry(() => (global as any).waitForNumericGameLinks?.(page, "active", { minCount: 12 }) ?? [], {
-      label: "links (active)",
-      attempts: 2,
-    }).catch(() => []);
-
-    const urlByNum = new Map<number, string>();
-    for (const l of links as Array<{ num: number; url: string }>) {
-      urlByNum.set(Number(l.num), l.url);
+    const urlByNum = new Map<number, string>(pairs.map(p => [p.num, p.url]));
+    if (urlByNum.size === 0) {
+      console.warn(`[fallback] could not derive any game links from grid`);
+    } else {
+      console.log(`[fallback] derived ${urlByNum.size} game links from grid`);
     }
 
     for (const num of neededNums) {
@@ -599,7 +613,7 @@ async function main() {
     // Coverage debug
     const withTicket = games.filter(g => !!g.ticketImageUrl).length;
     const withOdds   = games.filter(g => !!g.oddsImageUrl).length;
-    const needAny    = games.filter(g => !g.ticketImageUrl || !g.oddsImageUrl).slice(0, 20).map(g => g.gameNumber);
+    const withAnyGA  = games.filter(g => g.ticketImageUrl || g.oddsImageUrl).length;
 
     await writeJson("_debug_images.summary.json", {
       counts: {
@@ -653,6 +667,7 @@ async function main() {
 
         limitJobs.push(limit(async () => {
           try {
+            console.log(`[rehost] ${g.gameNumber}/${kind} ← ${src}`);
             const hosted = await ensureHashKey({
               gameNumber: g.gameNumber,
               kind,

@@ -71,18 +71,43 @@ jobs:
             "${R2_BUCKET}/ga/scratchers/index.latest.json" \
             --file public/data/ga_scratchers/index.latest.json \
             --remote
+          npx -y wrangler@4.36.0 r2 object get \
+            "${R2_BUCKET}/ga/scratchers/_image_manifest.json" \
+            --file public/data/ga_scratchers/_image_manifest.json \
+            --remote || true
 
       - name: Scrape GA scratchers
         run: npx --yes tsx scripts/scratchers/fetch_ga_scratchers.ts
 
-      - name: Fetch image manifest (best-effort)
-        continue-on-error: true
+      # Assert: no localhost/non-GA sources
+      - name: Assert GA-only URLs (post first scrape)
         run: |
-          mkdir -p public/data/ga_scratchers
-          npx -y wrangler@4.36.0 r2 object get \
-            "${R2_BUCKET}/ga/scratchers/_image_manifest.json" \
-            --file public/data/ga_scratchers/_image_manifest.json \
-            --remote
+          node -e "const fs=require('fs'); \
+          const p='public/data/ga_scratchers/index.latest.json'; \
+          const j=JSON.parse(fs.readFileSync(p,'utf8')); \
+          const bad=[]; \
+          for (const g of j.games){ \
+            for (const f of ['ticketImageUrl','oddsImageUrl']){ \
+              const u=g[f]; \
+              if(!u) continue; \
+              try{ const h=new URL(u).hostname.toLowerCase(); \
+                if(!(h==='www.galottery.com' || h.endsWith('.galottery.com') || h===new URL(process.env.R2_PUBLIC_BASE_URL).hostname.toLowerCase())) \
+                  bad.push({num:g.gameNumber,f,u}); \
+              } catch(e){ bad.push({num:g.gameNumber,f,u}); } \
+            } \
+          } \
+          if(bad.length){ console.error('Non-GA/non-CDN URLs found:', bad.slice(0,10)); process.exit(1);} \
+          else { console.log('OK: URLs are GA or CDN'); }"
+
+      # Optional: fail fast if scraper yielded zero images (helps catch regressions)
+      - name: Fail if zero images parsed (post first scrape)
+        run: |
+          node -e "const fs=require('fs'); \
+          const s=JSON.parse(fs.readFileSync('public/data/ga_scratchers/_debug_images.summary.json','utf8')); \
+          if((s.counts?.withTicket||0)===0 && (s.counts?.withOdds||0)===0){ \
+            console.error('No images parsed; failing early to surface scrape issues.'); \
+            process.exit(1); \
+          } else { console.log('Images parsed: ', s.counts); }"
 
       - name: Scrape + rehost (only missing; 4-way)
         run: npx --yes tsx scripts/scratchers/fetch_ga_scratchers.ts --only-missing --concurrency=4
