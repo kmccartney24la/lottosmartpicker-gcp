@@ -224,7 +224,28 @@ async function scrapeActiveModalDetails(
   try {
     await openAndReady(page, ACTIVE_URL, { loadMore: true });
 
+    // Ensure the infinite grid is fully loaded (avoid under-counting)
+    await page.waitForSelector("#instantsGrid", { timeout: 15000 }).catch(() => {});
     await page.waitForSelector('.catalog-item[data-game-id]', { timeout: 15000 }).catch(() => {});
+    {
+      const MAX_PASSES = 40;
+      let last = -1, stable = 0;
+      for (let p = 0; p < MAX_PASSES; p++) {
+        await page.evaluate(() => {
+          const el = document.scrollingElement || document.documentElement;
+          el.scrollTop = el.scrollHeight;
+          window.dispatchEvent(new Event("scroll"));
+          window.dispatchEvent(new Event("resize"));
+        }).catch(() => {});
+        await page.waitForLoadState("networkidle", { timeout: 2000 }).catch(() => {});
+        await z(900);
+        const loading = await page.$("#instantsGrid.loading").catch(() => null);
+        if (loading) await z(600);
+        const count = await page.$$eval('.catalog-item[data-game-id]', els => els.length).catch(() => 0);
+        if (count > 0 && count === last) { if (++stable >= 2) break; } else { stable = 0; }
+        last = count;
+      }
+    }
     const ids = await page.$$eval('.catalog-item[data-game-id]', els =>
       Array.from(new Set(
         els.map(el => Number((el as HTMLElement).getAttribute('data-game-id')))
@@ -244,6 +265,15 @@ async function scrapeActiveModalDetails(
         if (!opened) continue;
 
         await expandOddsPanel();
+        // Ensure images are actually loaded (not placeholders)
+        await page.waitForFunction(() => {
+          const img = document.querySelector('#scratchersModalBody .modal-scratchers-image img') as HTMLImageElement | null;
+          return !!img && img.complete && img.naturalWidth > 20;
+        }, null, { timeout: 3000 }).catch(() => {});
+        await page.waitForFunction(() => {
+          const img = document.querySelector('#oddsPanel img') as HTMLImageElement | null;
+          return !!img && img.complete && img.naturalWidth > 20;
+        }, null, { timeout: 3000 }).catch(() => {});
         const modalRootSel = [
           '#scratchersModalBody .modal-scratchers-content',
           '#scratchersModal .modal-scratchers-content',
@@ -266,9 +296,13 @@ async function scrapeActiveModalDetails(
             "").trim();
 
           const pickUrlFromImg = (img: HTMLImageElement): string | undefined => {
-            const cur = (img as any).currentSrc || img.getAttribute('src') || img.getAttribute('data-src') || "";
+            if (!img) return undefined;
+            const cur = (img as any).currentSrc
+              || img.getAttribute('src')
+              || img.getAttribute('data-src')
+              || "";
             if (cur) return abs(cur);
-            const ss = img.getAttribute('srcset');
+            const ss = img.getAttribute('srcset') || img.getAttribute('data-srcset') || "";
             if (ss) {
               const parts = ss.split(',').map(s => s.trim());
               const best = parts.map(p => {
@@ -279,8 +313,6 @@ async function scrapeActiveModalDetails(
             }
             return undefined;
           };
-
-          console.log(`[details] modals scraped: ${byNum.size}/${walkIds.length}`);
 
           let ticketImageUrl: string | undefined;
           let oddsImageUrl:   string | undefined;
@@ -415,9 +447,12 @@ async function scrapeGamePagesForImages(
           const cands: Array<{ url?: string; alt: string; oddsish: boolean; ticketish: boolean; wHint: number }> = [];
 
           const pickUrlFromImg = (img: HTMLImageElement): string | undefined => {
-            const cur = (img as any).currentSrc || img.getAttribute('src') || "";
+            const cur = (img as any).currentSrc
+              || img.getAttribute('src')
+              || img.getAttribute('data-src')
+              || "";
             if (cur) return new URL(cur, location.origin).href;
-            const ss = img.getAttribute('srcset');
+            const ss = img.getAttribute('srcset') || img.getAttribute('data-srcset') || "";
             if (ss) {
               const parts = ss.split(',').map(s => s.trim());
               const best = parts.map(p => {
@@ -536,7 +571,16 @@ async function main() {
     headless: true,
     args: ["--no-sandbox", "--disable-dev-shm-usage"],
   });
-  const context = await browser.newContext();
+  const context = await browser.newContext({
+    userAgent:
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125 Safari/537.36",
+    extraHTTPHeaders: {
+      "Accept":
+        "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      "Accept-Language": "en-US,en;q=0.9",
+      "Referer": "https://www.galottery.com/",
+    },
+  });
   await maybeStartTracing(context);
 
   try {
