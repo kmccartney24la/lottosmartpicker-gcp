@@ -5,6 +5,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { fetch as undiciFetch, RequestInit, HeadersInit } from "undici";
 import { S3Client, PutObjectCommand, HeadObjectCommand } from "@aws-sdk/client-s3";
+import { chromium, Browser } from 'playwright';
 
 // -----------------------------
 // Types
@@ -279,11 +280,12 @@ export async function downloadAndHost(params: {
     // no-op — (explicitly allow re-upload of everything via flags)
   }
 
-  // 2) Download
-  const resp = await fetchWithRetry(sourceUrl);
-  let ct = (resp.headers.get("content-type") || "").toLowerCase().split(";")[0].trim();
-  const arrBuf = await resp.arrayBuffer();
-  const u8 = new Uint8Array(arrBuf);
+  
+
+  // 2) Download (with undici → Playwright fallback)
+  const { buf, contentType } = await fetchBinaryWithHeaders(sourceUrl);
+  let ct = (contentType || "").toLowerCase().split(";")[0].trim();
+  const u8 = new Uint8Array(buf);
 
   // --- Magic-byte sniffers ---
   const isJpeg = (b: Uint8Array) => b.length >= 3 && b[0] === 0xFF && b[1] === 0xD8 && b[2] === 0xFF;
