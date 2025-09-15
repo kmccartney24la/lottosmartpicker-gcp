@@ -24,6 +24,9 @@ jobs:
       R2_BUCKET: ${{ secrets.R2_BUCKET }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      R2_PUBLIC_BASE_URL: ${{ secrets.R2_PUBLIC_BASE_URL }}
       TRACE: '1'
 
     steps:
@@ -53,6 +56,9 @@ jobs:
           [[ -n "${R2_BUCKET}" ]] || { echo "::error title=Missing secret::R2_BUCKET is not set"; exit 1; }
           [[ -n "${CLOUDFLARE_ACCOUNT_ID}" ]] || { echo "::error title=Missing secret::CLOUDFLARE_ACCOUNT_ID is not set"; exit 1; }
           [[ -n "${CLOUDFLARE_API_TOKEN}" ]] || { echo "::error title=Missing secret::CLOUDFLARE_API_TOKEN is not set"; exit 1; }
+          [[ -n "${R2_ACCESS_KEY_ID}" ]] || { echo "::error title=Missing secret::R2_ACCESS_KEY_ID is not set"; exit 1; }
+          [[ -n "${R2_SECRET_ACCESS_KEY}" ]] || { echo "::error title=Missing secret::R2_SECRET_ACCESS_KEY is not set"; exit 1; }
+          [[ -n "${R2_PUBLIC_BASE_URL}" ]] || { echo "::error title=Missing secret::R2_PUBLIC_BASE_URL is not set"; exit 1; }
           echo "R2 bucket: ${R2_BUCKET}"
           npx -y wrangler@4.36.0 --version
 
