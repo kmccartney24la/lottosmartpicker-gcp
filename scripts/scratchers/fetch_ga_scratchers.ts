@@ -577,10 +577,8 @@ async function main() {
           overallOdds: overall,
           adjustedOdds: adjusted,
           startDate: det?.startDate ?? prevG?.startDate,
-          oddsImageUrl: det?.oddsImageUrl ?? prevG?.oddsImageUrl,
-          ticketImageUrl: det?.ticketImageUrl ?? prevG?.ticketImageUrl,
-          oddsImageUrl: oddsUpstream,
-          ticketImageUrl: ticketUpstream,
+          ticketImageUrl: ticketUpstream ?? det?.ticketImageUrl ?? prevG?.ticketImageUrl,
+          oddsImageUrl:   oddsUpstream   ?? det?.oddsImageUrl   ?? prevG?.oddsImageUrl,
           updatedAt,
           lifecycle: newOnIndex.includes(num) ? 'new'
                     : continuingOnIndex.includes(num) ? 'continuing'
@@ -611,10 +609,14 @@ async function main() {
     }
 
     // Coverage debug (make this block non-fatal)
+    let withTicket = 0;
+    let withOdds = 0;
+    let needAny: number[] = [];
+
     try {
-      const withTicket = games.filter(g => !!g.ticketImageUrl).length;
-      const withOdds   = games.filter(g => !!g.oddsImageUrl).length;
-      const needAny    = games
+      withTicket = games.filter(g => !!g.ticketImageUrl).length;
+      withOdds   = games.filter(g => !!g.oddsImageUrl).length;
+      needAny    = games
         .filter(g => !g.ticketImageUrl || !g.oddsImageUrl)
         .slice(0, 20)
         .map(g => g.gameNumber);
@@ -626,8 +628,8 @@ async function main() {
           withOdds,
         },
         coveragePct: {
-          ticket: Math.round((withTicket / Math.max(games.length,1)) * 100),
-          odds:   Math.round((withOdds   / Math.max(games.length,1)) * 100),
+          ticket: Math.round((withTicket / Math.max(games.length, 1)) * 100),
+          odds:   Math.round((withOdds   / Math.max(games.length, 1)) * 100),
         },
         previewMissingAny: needAny,
       });
@@ -635,10 +637,11 @@ async function main() {
       console.warn(`[debug] failed to write _debug_images.summary.json: ${(e as Error).message}`);
     }
 
-    console.log(
-      `[images] ticket=${withTicket}/${games.length} (${Math.round((withTicket/games.length)*100)}%), ` +
-      `odds=${withOdds}/${games.length} (${Math.round((withOdds/games.length)*100)}%)`
-    );
+const pct = (a: number, b: number) => (b ? Math.round((a / b) * 100) : 0);
+console.log(
+  `[images] ticket=${withTicket}/${games.length} (${pct(withTicket, games.length)}%), ` +
+  `odds=${withOdds}/${games.length} (${pct(withOdds, games.length)}%)`
+);
 
     // Rehost (R2 or local FS) — uses manifest + flags
     const limitJobs: Array<Promise<void>> = [];
