@@ -2,6 +2,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
+import { Buffer } from "node:buffer";
 import { fetch as undiciFetch, RequestInit, HeadersInit } from "undici";
 import { S3Client, PutObjectCommand, HeadObjectCommand } from "@aws-sdk/client-s3";
 import { chromium } from "playwright";
@@ -151,22 +152,58 @@ async function fetchBinaryWithHeaders(url: string, init?: RequestInit): Promise<
 
   // 2) Playwright fallback
   const BROWSER_TIMEOUT_MS = 30_000;
-  const browser = await chromium.launch({ args: ["--no-sandbox", "--disable-dev-shm-usage"] });
+  const browser = await chromium.launch({ headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage"] });
   try {
     const context = await browser.newContext({
         userAgent: String(DEFAULT_HEADERS["User-Agent"]),
-        extraHTTPHeaders: {
-            "Accept": "image/png,image/jpeg;q=0.9,*/*;q=0.8",
-            "Accept-Language": "en-US,en;q=0.9",
-            "Referer": "https://www.galottery.com/",
-        },
+      extraHTTPHeaders: {
+        "Accept": "image/png,image/jpeg;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Referer": "https://www.galottery.com/",
+      },
     });
     const page = await context.newPage();
     const resp = await page.goto(url, { timeout: BROWSER_TIMEOUT_MS, waitUntil: "domcontentloaded" });
-    // ...
-    } finally {
-        await browser.close().catch(() => {});
+    if (!resp) throw new Error("playwright: no response");
+
+    // If image navigations are blocked, fetch via page.evaluate to get ArrayBuffer
+    let contentType = (resp.headers()["content-type"] || "").toLowerCase();
+    let buf: Buffer | null = null;
+
+    try {
+      // For direct image responses, we can get body as buffer
+      const ab = await resp.body();
+      buf = Buffer.from(ab);
+    } catch {
+      // Fallback: fetch via in-page fetch to honor UA/Referer
+      const { b64, ct } = await page.evaluate(async (u) => {
+        const r = await fetch(u, { credentials: "omit", cache: "no-cache" as any });
+        const ct = r.headers.get("content-type") || "";
+        const ab = await r.arrayBuffer();
+        const b64 = btoa(String.fromCharCode(...new Uint8Array(ab)));
+        return { b64, ct };
+      }, url);
+      contentType = (ct || contentType || "").toLowerCase();
+      buf = Buffer.from(b64, "base64");
     }
+
+    if (!buf) throw new Error("playwright: empty body");
+    if (!contentType || contentType.startsWith("text/html")) {
+      // sniff
+      const u8 = new Uint8Array(buf);
+      const isPng = u8.length>=8 && u8[0]===0x89 && u8[1]===0x50 && u8[2]===0x4e && u8[3]===0x47 && u8[4]===0x0d && u8[5]===0x0a && u8[6]===0x1a && u8[7]===0x0a;
+      const isJpg = u8.length>=3 && u8[0]===0xff && u8[1]===0xd8 && u8[2]===0xff;
+      if (isPng) contentType = "image/png";
+      else if (isJpg) contentType = "image/jpeg";
+      else throw new Error(`playwright: unexpected content-type ${contentType || "(empty)"} and bytes not PNG/JPEG`);
+    }
+    if (/image\/webp/i.test(contentType)) {
+      throw new Error(`Unsupported content-type "image/webp" for ${url} (prevented by Accept header).`);
+    }
+    return { buf, contentType };
+  } finally {
+    await browser.close().catch(() => {});
+  }
 }
 
 // -----------------------------

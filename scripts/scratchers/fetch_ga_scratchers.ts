@@ -2,6 +2,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import mri from "mri";
+import os from "node:os";
 import pLimit from "p-limit";
 import { chromium, BrowserContext } from "playwright";
 
@@ -19,6 +20,9 @@ import {
 
 const OUT_DIR = "public/data/ga_scratchers";
 const ACTIVE_URL = "https://www.galottery.com/en-us/games/scratchers/active-games.html";
+// Capture only GA-hosted DAM assets for scratchers ticket/odds.
+const DAM_CAPTURE_RE = /\/content\/dam\/.*scratchers?-games\/.*(?:ticket|odds)\.(?:png|jpe?g)(?:\?.*)?$/i;
+const GAMEPAGE_NET_DUMP = "_debug_network_images_gamepages.json";
 
 // -----------------------------
 // Types
@@ -47,6 +51,16 @@ type ModalDetail = {
   ticketImageUrl?: string;
   oddsImageUrl?: string;
 };
+
+type NetHit = { url: string; status: number; ct?: string };
+type NetHitMap = Record<number, {
+  ticketCandidates: NetHit[];
+  oddsCandidates: NetHit[];
+}>;
+
+// keep last modal network counts so we can fold into summary
+let __lastModalNetHits: NetHitMap | null = null;
+const DEBUG_MODAL_LIMIT = 10; // dump HTML/screens for first N modals
 
 // -----------------------------
 // Small helpers
@@ -89,6 +103,17 @@ function preferGA(primary?: string, fallback?: string): string | undefined {
   if (isGAHost(primary)) return primary!;
   if (isGAHost(fallback)) return fallback!;
   return undefined; // refuse localhost/CDN sources as upstream
+}
+
+function filenameWeight(u: string, kind: "ticket"|"odds", num?: number): number {
+  let w = 0;
+  const p = u.toLowerCase();
+  if (/\/scratchers?-games\//.test(p)) w += 10;
+  if (typeof num === "number" && new RegExp(`/scratchers?-games/[^/]*${num}`).test(p)) w += 6;
+  if (new RegExp(`/${kind}\\.(?:png|jpe?g)$`).test(p)) w += 8;
+  if (/-\d{3,4}x\d{3,4}\./.test(p)) w += 2; // width hint
+  if (/\/content\/dam\//.test(p)) w += 4;
+  return w;
 }
 
 function pickUpdatedAt(map: Map<number, TopPrizeRow>): string {
@@ -145,12 +170,47 @@ async function collectActiveIds(context: BrowserContext): Promise<number[]> {
   }
 }
 
+async function waitForBootstrapShown(page, modalSel: string) {
+  // Bridge a "shown.bs.modal" to a Promise (if Bootstrap present)
+  await page.evaluate((sel) => {
+    const root = document.querySelector(sel);
+    if (!root) return;
+    (window as any).__lot_bs_modal_shown__ = false;
+    try {
+      // @ts-ignore
+      root.addEventListener('shown.bs.modal', () => { (window as any).__lot_bs_modal_shown__ = true; }, { once: true });
+    } catch {}
+  }, modalSel).catch(() => {});
+  await page.waitForFunction(() => (window as any).__lot_bs_modal_shown__ === true, null, { timeout: 2000 }).catch(() => {});
+}
+
+async function waitForCollapseShown(page, collapseSel: string) {
+  await page.evaluate((sel) => {
+    const root = document.querySelector(sel);
+    if (!root) return;
+    (window as any).__lot_bs_collapse_shown__ = false;
+    try {
+      // @ts-ignore
+      root.addEventListener('shown.bs.collapse', () => { (window as any).__lot_bs_collapse_shown__ = true; }, { once: true });
+    } catch {}
+  }, collapseSel).catch(() => {});
+  await page.waitForFunction(() => (window as any).__lot_bs_collapse_shown__ === true, null, { timeout: 1200 }).catch(() => {});
+}
+
+function absUrl(u?: string | null): string | undefined {
+  if (!u) return undefined;
+  try { return new URL(u, "https://www.galottery.com").href; } catch { return undefined; }
+}
+
 async function scrapeActiveModalDetails(
   context: BrowserContext,
   onlyIds?: number[]
 ): Promise<Map<number, ModalDetail>> {
   const page = await context.newPage();
   const z = (ms: number) => new Promise(r => setTimeout(r, ms));
+
+  // per-run network capture (modal scope)
+  const netHits: NetHitMap = {};
 
   async function openModalFor(gameId: number): Promise<boolean> {
     const tileSel = `.catalog-item[data-game-id="${gameId}"]`;
@@ -176,11 +236,17 @@ async function scrapeActiveModalDetails(
 
     try {
       await page.waitForSelector(modalRootSel, { timeout: 10000 });
+      // Wait for Bootstrap "shown" if available
+      await waitForBootstrapShown(page, '#scratchersModal');
       return true;
     } catch {
       if (infoBtn && mainLink) {
         await tryOpen(mainLink);
-        try { await page.waitForSelector(modalRootSel, { timeout: 5000 }); return true; } catch {}
+        try {
+          await page.waitForSelector(modalRootSel, { timeout: 5000 });
+          await waitForBootstrapShown(page, '#scratchersModal');
+          return true;
+        } catch {}
       }
       return false;
     }
@@ -198,6 +264,7 @@ async function scrapeActiveModalDetails(
   }
 
   async function expandOddsPanel(): Promise<void> {
+    // click odds toggles
     for (const s of [
       'a[href="#oddsPanel"]','[aria-controls="oddsPanel"]',
       'button:has-text("Odds")','a:has-text("Odds")','button[role="tab"]:has-text("Odds")'
@@ -208,6 +275,8 @@ async function scrapeActiveModalDetails(
     const collapseLink = await page.$('a[data-toggle="collapse"][href="#oddsPanel"]').catch(() => null);
     if (collapseLink) { try { await collapseLink.click({ timeout: 800 }); } catch {} }
 
+    await waitForCollapseShown(page, '#oddsPanel').catch(() => {});
+
     // Scroll inside modal so any lazy images load
     await page.evaluate(() => {
       const body = document.querySelector('#scratchersModalBody') as HTMLElement | null;
@@ -216,7 +285,11 @@ async function scrapeActiveModalDetails(
       window.dispatchEvent(new Event('resize'));
     }).catch(() => {});
     await page.waitForSelector('#oddsPanel', { timeout: 3000 }).catch(() => {});
-    await page.waitForSelector('#oddsPanel img', { timeout: 3500 }).catch(() => {});
+    // poll for odds image pixels to be present (handles data-src/srcset)
+    await page.waitForFunction(() => {
+      const imgs = Array.from(document.querySelectorAll('#oddsPanel img')) as HTMLImageElement[];
+      return imgs.some(img => img.complete && img.naturalWidth > 20);
+    }, null, { timeout: 5000 }).catch(() => {});
     await page.waitForLoadState('networkidle', { timeout: 1500 }).catch(() => {});
     await page.waitForTimeout(120);
   }
@@ -258,6 +331,27 @@ async function scrapeActiveModalDetails(
 
     const byNum = new Map<number, ModalDetail>();
 
+    // one listener for modal response capture (authoritative if DOM misses)
+    page.on('response', async (resp) => {
+      try {
+        const url = resp.url();
+        if (!DAM_CAPTURE_RE.test(url)) return;
+        const status = resp.status();
+        const ct = resp.headers()['content-type'];
+        // infer current game number from heading or aria
+        const num = await page.evaluate(() => {
+          const tryText = (sel: string) => document.querySelector(sel)?.textContent || "";
+          const t = (tryText('#scratchersModal .game-number') || tryText('.modal-scratchers-header') || "").replace(/\s+/g,' ');
+          const m = t.match(/(\d{3,5})/);
+          return m ? Number(m[1]) : undefined;
+        }).catch(() => undefined);
+        if (!num) return;
+        if (!netHits[num]) netHits[num] = { ticketCandidates: [], oddsCandidates: [] };
+        const bucket = /\/odds\.(?:png|jpe?g)/i.test(url) ? 'oddsCandidates' : 'ticketCandidates';
+        netHits[num][bucket].push({ url, status, ct });
+      } catch {}
+    });
+
     for (let i = 0; i < walkIds.length; i++) {
       const id = walkIds[i];
       try {
@@ -266,10 +360,19 @@ async function scrapeActiveModalDetails(
 
         await expandOddsPanel();
         // Ensure images are actually loaded (not placeholders)
+        await page.evaluate(() => {
+          // try to trigger lazy loaders in-view
+          const body = document.querySelector('#scratchersModalBody') as HTMLElement | null;
+          if (body) {
+            body.scrollTop = 0;
+            body.scrollTop = body.scrollHeight;
+          }
+          window.dispatchEvent(new Event('scroll'));
+        }).catch(() => {});
         await page.waitForFunction(() => {
           const img = document.querySelector('#scratchersModalBody .modal-scratchers-image img') as HTMLImageElement | null;
           return !!img && img.complete && img.naturalWidth > 20;
-        }, null, { timeout: 3000 }).catch(() => {});
+        }, null, { timeout: 5000 }).catch(() => {});
         await page.waitForFunction(() => {
           const img = document.querySelector('#oddsPanel img') as HTMLImageElement | null;
           return !!img && img.complete && img.naturalWidth > 20;
@@ -287,6 +390,23 @@ async function scrapeActiveModalDetails(
           if (!root || !body) return null;
 
           const text = ((body.textContent || "") + " " + (root.textContent || "")).replace(/\s+/g, " ");
+
+          // resolve <picture><source type=…> with srcset variants (largest)
+          const pickFromPicture = (pic: HTMLPictureElement): string | undefined => {
+            const sources = Array.from(pic.querySelectorAll('source'));
+            const candidates: Array<{u:string; w:number}> = [];
+            for (const s of sources) {
+              const typeOk = !s.type || /(png|jpeg)/i.test(s.type);
+              if (!typeOk) continue;
+              const ss = s.srcset || s.getAttribute('data-srcset') || "";
+              for (const part of ss.split(',').map(s => s.trim()).filter(Boolean)) {
+                const m = part.match(/(\S+)\s+(\d+)w/);
+                if (m) candidates.push({ u: m[1], w: Number(m[2]) });
+              }
+            }
+            candidates.sort((a,b)=>b.w-a.w);
+            return candidates[0]?.u ? abs(candidates[0].u) : undefined;
+          };
 
           const name =
             (root.querySelector("h2.game-name")?.textContent ||
@@ -319,6 +439,19 @@ async function scrapeActiveModalDetails(
 
           // Walk all images inside the modal to be robust against markup shifts
           const imgs = Array.from((body || root).querySelectorAll('img, picture img')) as HTMLImageElement[];
+          // also check <picture> directly
+          body.querySelectorAll('picture').forEach(pic=>{
+            const u = pickFromPicture(pic as HTMLPictureElement);
+            if (u) {
+              const p = u.toLowerCase();
+              const inDam = p.includes('/content/dam/');
+              const isScratchers = /\/scratchers?-games\//.test(p);
+              if (inDam && isScratchers) {
+                if (/\/ticket\.(png|jpe?g|webp)$/.test(p) && !ticketImageUrl) ticketImageUrl = u;
+                if (/\/odds\.(png|jpe?g|webp)$/.test(p)   && !oddsImageUrl)   oddsImageUrl   = u;
+              }
+            }
+          });
           for (const img of imgs) {
             const url = pickUrlFromImg(img);
             if (!url) continue;
@@ -344,6 +477,24 @@ async function scrapeActiveModalDetails(
             if (o) oddsImageUrl = abs((o as any).currentSrc || o.getAttribute('src'));
           }
 
+          // CSS background-image inside modal (rare fallback)
+          if (!ticketImageUrl || !oddsImageUrl) {
+            (body || root).querySelectorAll<HTMLElement>('[style*="background-image"]').forEach(el => {
+              const s = (el.getAttribute("style") || "");
+              const m = s.match(/background-image:\s*url\(["']?([^"')]+)["']?\)/i);
+              if (m) {
+                const u = abs(m[1])!;
+                const p = u.toLowerCase();
+                const inDam = p.includes('/content/dam/');
+                const isScratchers = /\/scratchers?-games\//.test(p);
+                if (inDam && isScratchers) {
+                  if (/\/ticket\./.test(p) && !ticketImageUrl) ticketImageUrl = u;
+                  if (/\/odds\./.test(p)   && !oddsImageUrl)   oddsImageUrl   = u;
+                }
+              }
+            });
+          }
+
           let gameNumber: number | undefined;
           {
             const m = text.match(/Game\s*(?:Number|#)\s*[:#]?\s*(\d{3,5})/i);
@@ -359,7 +510,22 @@ async function scrapeActiveModalDetails(
           return { gameNumber, name, overallOdds, startDate, ticketImageUrl, oddsImageUrl };
         }, modalRootSel);
 
+        // If DOM missed, consult network hits for this game
         if (info && Number.isFinite(info.gameNumber)) {
+          const gnum = info.gameNumber!;
+          const hits = netHits[gnum];
+          if (hits) {
+            if (!info.ticketImageUrl && hits.ticketCandidates.length) {
+              const pick = hits.ticketCandidates
+                .sort((a,b)=> filenameWeight(b.url,'ticket', gnum) - filenameWeight(a.url,'ticket', gnum))[0];
+              info.ticketImageUrl = pick?.url || info.ticketImageUrl;
+            }
+            if (!info.oddsImageUrl && hits.oddsCandidates.length) {
+              const pick = hits.oddsCandidates
+                .sort((a,b)=> filenameWeight(b.url,'odds', gnum) - filenameWeight(a.url,'odds', gnum))[0];
+              info.oddsImageUrl = pick?.url || info.oddsImageUrl;
+            }
+          }
           byNum.set(info.gameNumber!, {
             gameNumber: info.gameNumber!,
             name: info.name || undefined,
@@ -368,6 +534,17 @@ async function scrapeActiveModalDetails(
             ticketImageUrl: normalizeUrl(info.ticketImageUrl),
             oddsImageUrl: normalizeUrl(info.oddsImageUrl),
           });
+          // Instrumentation for the first few
+          if (byNum.size <= DEBUG_MODAL_LIMIT) {
+            try {
+              const body = await page.$('#scratchersModalBody');
+              const html = await body?.evaluate(el => (el as HTMLElement).outerHTML);
+              await ensureDir(OUT_DIR);
+              await fs.writeFile(path.join(OUT_DIR, `_debug_modal_${gnum}.html`), html || "", "utf8");
+              await page.screenshot({ path: path.join(OUT_DIR, `_debug_modal_${gnum}.png`) });
+              await page.locator('#oddsPanel').screenshot({ path: path.join(OUT_DIR, `_debug_odds_${gnum}.png`) }).catch(()=>{});
+            } catch {}
+          }
         }
       } catch {
         // ignore one tile
@@ -383,6 +560,8 @@ async function scrapeActiveModalDetails(
 
     const sample = Array.from(byNum.values()).slice(0, 10);
     await writeJson("_debug_active.details.json", { count: byNum.size, sample });
+    // dump network capture
+    try { await writeJson("_debug_network_images.json", netHits); __lastModalNetHits = netHits; } catch { __lastModalNetHits = netHits; }
 
     return byNum;
   } finally {
@@ -400,6 +579,12 @@ async function scrapeGamePagesForImages(
   const page = await context.newPage();
   try {
     await openAndReady(page, ACTIVE_URL, { loadMore: true });
+    // page-level network collector for per-game pages
+    const pageNetHits: NetHitMap = {};
+    const pushHit = (num: number, url: string, status: number, ct?: string) => {
+      if (!pageNetHits[num]) pageNetHits[num] = { ticketCandidates: [], oddsCandidates: [] };
+      (/\/odds\.(?:png|jpe?g)/i.test(url) ? pageNetHits[num].oddsCandidates : pageNetHits[num].ticketCandidates).push({ url, status, ct });
+    };
 // Build num -> url map from the catalog grid itself (no globals)
     const pairs = await page.evaluate(() => {
       const makeAbs = (href: string) => new URL(href, location.origin).href;
@@ -425,12 +610,26 @@ async function scrapeGamePagesForImages(
       console.log(`[fallback] derived ${urlByNum.size} game links from grid`);
     }
 
+    // Helper: attach a temporary response listener that records DAM hits
+    const attachSniffer = (pg, num: number) => {
+      const onResp = async (resp) => {
+        try {
+          const u = resp.url();
+          if (!DAM_CAPTURE_RE.test(u)) return;
+          pushHit(num, u, resp.status(), resp.headers()["content-type"]);
+        } catch {}
+      };
+      pg.on("response", onResp);
+      return () => { try { pg.off("response", onResp); } catch {} };
+    };
+
     for (const num of neededNums) {
       const url = urlByNum.get(num);
       if (!url) continue;
 
       const gp = await context.newPage();
       try {
+        const detach = attachSniffer(gp, num);
         await openAndReady(gp, url, { loadMore: false });
 
         for (const s of ['a[href="#oddsPanel"]', '[aria-controls="oddsPanel"]', 'button:has-text("Odds")', 'a:has-text("Odds")']) {
@@ -513,6 +712,25 @@ async function scrapeGamePagesForImages(
           };
         });
 
+        // If DOM missed anything, use network hits (authoritative)
+        if (res && (!res.ticketImageUrl || !res.oddsImageUrl)) {
+          const hits = pageNetHits[num];
+          if (hits) {
+            if (!res.ticketImageUrl && hits.ticketCandidates.length) {
+              const pick = hits.ticketCandidates.sort(
+                (a,b)=> filenameWeight(b.url,'ticket', num) - filenameWeight(a.url,'ticket', num)
+              )[0];
+              if (pick) res.ticketImageUrl = pick.url;
+            }
+            if (!res.oddsImageUrl && hits.oddsCandidates.length) {
+              const pick = hits.oddsCandidates.sort(
+                (a,b)=> filenameWeight(b.url,'odds', num) - filenameWeight(a.url,'odds', num)
+              )[0];
+              if (pick) res.oddsImageUrl = pick.url;
+            }
+          }
+        }
+
         if (res && (res.ticketImageUrl || res.oddsImageUrl)) {
           map.set(num, {
             ticketImageUrl: normalizeUrl(res.ticketImageUrl),
@@ -520,9 +738,12 @@ async function scrapeGamePagesForImages(
           });
         }
       } finally {
-        await gp.close().catch(() => {});
+        try { await gp.close(); } catch {}
       }
     }
+
+    // Persist per-game sniffed hits for debugging
+    try { await writeJson(GAMEPAGE_NET_DUMP, pageNetHits); } catch {}
 
     return map;
   } finally {
@@ -847,6 +1068,47 @@ console.log(
       .map(g => g.gameNumber);
     if (identicalImgNums.length) {
       console.warn(`[guard] ${identicalImgNums.length} games have identical ticket/odds images: ${identicalImgNums.join(", ")}`);
+    }
+
+    // --- Acceptance / CI guards for image coverage ---
+    // Build first-5 missing lists per kind
+    const missingTicket = games.filter(g => !g.ticketImageUrl).slice(0, 5).map(g => g.gameNumber);
+    const missingOdds   = games.filter(g => !g.oddsImageUrl).slice(0, 5).map(g => g.gameNumber);
+    if (missingTicket.length) console.warn(`[images] first missing tickets: ${missingTicket.join(", ")}${games.length>5?" …":""}`);
+    if (missingOdds.length)   console.warn(`[images] first missing odds: ${missingOdds.join(", ")}${games.length>5?" …":""}`);
+
+    // Merge network-sniffer counts into the summary (best-effort)
+    let netCounts = { modal: { games: 0, tickets: 0, odds: 0 }, gamepages: { games: 0, tickets: 0, odds: 0 } };
+    try {
+      const modalMap = __lastModalNetHits || JSON.parse(await fs.readFile(path.join(OUT_DIR, "_debug_network_images.json"), "utf8"));
+      const gpMap    = JSON.parse(await fs.readFile(path.join(OUT_DIR, GAMEPAGE_NET_DUMP), "utf8"));
+      const sum = (m: NetHitMap) => ({
+        games: Object.keys(m).length,
+        tickets: Object.values(m).reduce((s,v)=>s+(v.ticketCandidates?.length||0),0),
+        odds:    Object.values(m).reduce((s,v)=>s+(v.oddsCandidates?.length||0),0),
+      });
+      if (modalMap) netCounts.modal = sum(modalMap);
+      if (gpMap)    netCounts.gamepages = sum(gpMap);
+    } catch {}
+
+    // Re-write summary with network counts included
+    try {
+      const p = path.join(OUT_DIR, "_debug_images.summary.json");
+      const prev = JSON.parse(await fs.readFile(p, "utf8"));
+      prev.network = netCounts;
+      await fs.writeFile(p, JSON.stringify(prev, null, 2), "utf8");
+    } catch {}
+
+    // Fail CI if coverage too low (tunable)
+    const TICKET_MIN = Number(process.env.MIN_TICKET_COVERAGE || 50);
+    const ODDS_MIN   = Number(process.env.MIN_ODDS_COVERAGE   || 50);
+    const ticketPct  = Math.round((withTicket / Math.max(games.length, 1)) * 100);
+    const oddsPct    = Math.round((withOdds   / Math.max(games.length, 1)) * 100);
+    if (ticketPct < TICKET_MIN || oddsPct < ODDS_MIN) {
+      throw new Error(
+        `CI assertion: Image coverage below threshold ` +
+        `(tickets ${ticketPct}% < ${TICKET_MIN}% or odds ${oddsPct}% < ${ODDS_MIN}%).`
+      );
     }
 
     // Sort (stable)
