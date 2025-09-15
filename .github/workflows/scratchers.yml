@@ -66,6 +66,9 @@ jobs:
             --file public/data/ga_scratchers/index.latest.json \
             --remote
 
+      - name: Scrape GA scratchers
+        run: npx --yes tsx scripts/scratchers/fetch_ga_scratchers.ts
+
       - name: Fetch image manifest (best-effort)
         continue-on-error: true
         run: |
