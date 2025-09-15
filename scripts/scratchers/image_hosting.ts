@@ -1,11 +1,10 @@
 // scripts/scratchers/image_hosting.ts
 import fs from "node:fs/promises";
-import fssync from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import { fetch as undiciFetch, RequestInit, HeadersInit } from "undici";
 import { S3Client, PutObjectCommand, HeadObjectCommand } from "@aws-sdk/client-s3";
-import { chromium, Browser } from 'playwright';
+import { chromium } from "playwright";
 
 // -----------------------------
 // Types
@@ -89,18 +88,16 @@ export async function sha256(bytes: Uint8Array): Promise<string> {
 }
 
 const DEFAULT_HEADERS: HeadersInit = {
-  // Pretend to be a normal Chromium; GA site sometimes blocks generic clients.
   "User-Agent":
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125 Safari/537.36",
   "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
   "Accept-Language": "en-US,en;q=0.9",
-  // GA DAM often expects a same-site referer
   "Referer": "https://www.galottery.com/",
 };
 
 async function fetchWithRetry(url: string, init?: RequestInit): Promise<Response> {
   const attempts = 3;
-  const base = 250; // ms for backoff
+  const base = 250; // ms
   let lastErr: any;
 
   for (let i = 0; i < attempts; i++) {
@@ -109,7 +106,6 @@ async function fetchWithRetry(url: string, init?: RequestInit): Promise<Response
     try {
       const res = await undiciFetch(url, {
         ...init,
-        // Merge headers but let caller override if supplied
         headers: { ...DEFAULT_HEADERS, ...(init?.headers as any) },
         signal: ac.signal,
         redirect: "follow",
@@ -127,6 +123,41 @@ async function fetchWithRetry(url: string, init?: RequestInit): Promise<Response
     }
   }
   throw lastErr;
+}
+
+/**
+ * Try to fetch the image with Undici; if we get HTML or bad content, fall back to Playwright.
+ * Returns a Node Buffer + contentType string.
+ */
+async function fetchBinaryWithHeaders(url: string, init?: RequestInit): Promise<{ buf: Buffer; contentType: string }> {
+  // 1) Undici fast path
+  try {
+    const res = await fetchWithRetry(url, init);
+    const ct = (res.headers.get("content-type") || "").toLowerCase();
+    if (!ct || ct.startsWith("text/html")) throw new Error(`unexpected content-type from undici: ${ct}`);
+    const buf = Buffer.from(await res.arrayBuffer());
+    return { buf, contentType: ct };
+  } catch (err) {
+    // fall through to Playwright
+  }
+
+  // 2) Playwright fallback
+  const BROWSER_TIMEOUT_MS = 30_000;
+  const browser = await chromium.launch({ args: ["--no-sandbox", "--disable-dev-shm-usage"] });
+  try {
+    const page = await browser.newPage({
+      userAgent: String(DEFAULT_HEADERS["User-Agent"]),
+    });
+    await page.route("**/*", (route) => route.continue());
+    const resp = await page.goto(url, { timeout: BROWSER_TIMEOUT_MS, waitUntil: "domcontentloaded" });
+    if (!resp) throw new Error("playwright: no response");
+    const ct = (resp.headers()["content-type"] || "").toLowerCase();
+    const body = await resp.body();
+    if (!ct || ct.startsWith("text/html")) throw new Error(`unexpected content-type from playwright: ${ct}`);
+    return { buf: Buffer.from(body), contentType: ct };
+  } finally {
+    await browser.close().catch(() => {});
+  }
 }
 
 // -----------------------------
@@ -194,8 +225,6 @@ class FSProvider implements StorageProvider {
 
   constructor() {
     this.baseDir = path.join("public", "cdn", "ga_scratchers");
-    // For Next.js dev: files under /public are served from /
-    // If you host locally via a reverse proxy, override with LOCAL_PUBLIC_BASE_URL
     const localBase = process.env.LOCAL_PUBLIC_BASE_URL || "http://localhost:3000";
     this.publicBase = `${localBase.replace(/\/+$/, "")}/cdn/ga_scratchers`;
   }
@@ -219,7 +248,6 @@ class FSProvider implements StorageProvider {
     if (!gOptions.dryRun) {
       await fs.mkdir(path.dirname(full), { recursive: true });
       await fs.writeFile(full, bytes);
-      // Best-effort: write a sidecar headers hint for static servers (optional)
       try {
         const headersPath = `${full}.headers.json`;
         const hdr = { "Content-Type": contentType, "Cache-Control": cacheControl || "public, max-age=31536000, immutable" };
@@ -269,64 +297,62 @@ export async function downloadAndHost(params: {
   // 1) Manifest reuse (unless --rehost-all)
   const existing = !gOptions.rehostAll && manifestCache![sourceUrl];
   if (existing) {
-    // HEAD check to be safe (best-effort)
     const h = await storage.head?.(existing.key).catch(() => undefined);
     const url = storage.publicUrlFor(existing.key);
     if (h?.exists || dry) {
       return { key: existing.key, url, etag: existing.etag, bytes: existing.bytes, contentType: existing.contentType };
     }
-    // if missing remotely, we’ll re-upload below
-  } else if (gOptions.onlyMissing === false && !gOptions.rehostAll) {
-    // no-op — (explicitly allow re-upload of everything via flags)
+    // else: will re-upload below
   }
 
-  
-
-  // 2) Download (with undici → Playwright fallback)
+  // 2) Download (undici → Playwright fallback)
   const { buf, contentType } = await fetchBinaryWithHeaders(sourceUrl);
   let ct = (contentType || "").toLowerCase().split(";")[0].trim();
   const u8 = new Uint8Array(buf);
 
-  // --- Magic-byte sniffers ---
-  const isJpeg = (b: Uint8Array) => b.length >= 3 && b[0] === 0xFF && b[1] === 0xD8 && b[2] === 0xFF;
+  // Magic-byte sniffers
+  const isJpeg = (b: Uint8Array) => b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff;
   const isPng  = (b: Uint8Array) =>
     b.length >= 8 &&
-    b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4E && b[3] === 0x47 &&
-    b[4] === 0x0D && b[5] === 0x0A && b[6] === 0x1A && b[7] === 0x0A;
+    b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47 &&
+    b[4] === 0x0d && b[5] === 0x0a && b[6] === 0x1a && b[7] === 0x0a;
 
   // Coerce content-type if server lied or omitted
   if (!ALLOWED_CT.has(ct)) {
     if (isPng(u8)) ct = "image/png";
     else if (isJpeg(u8)) ct = "image/jpeg";
     else {
-      // As last resort, allow extension-based coercion only if magic is unknown but path suggests image
-      const extPath = new URL(resp.url).pathname;
-      if (/\.(png)(\?|#|$)/i.test(extPath)) ct = "image/png";
-      else if (/\.(jpe?g)(\?|#|$)/i.test(extPath)) ct = "image/jpeg";
+      // Last resort: infer from original URL's pathname
+      let pathname = "";
+      try { pathname = new URL(sourceUrl).pathname; } catch {}
+      if (/\.(png)(\?|#|$)/i.test(pathname)) ct = "image/png";
+      else if (/\.(jpe?g)(\?|#|$)/i.test(pathname)) ct = "image/jpeg";
     }
   }
   if (!ALLOWED_CT.has(ct)) {
     throw new Error(`Unsupported content-type "${ct}" for ${sourceUrl}`);
   }
 
-
   // 3) Hash & form key
   const hash = await sha256(u8);
-  // Replace "<sha>" and "<ext>" in keyHint if user provided a template; else append
   const ext = extFromContentType(ct);
   let key = params.keyHint;
   if (key.includes("<sha>")) key = key.replace("<sha>", hash);
   if (key.includes("<ext>")) key = key.replace("<ext>", ext);
   if (!key.includes(hash)) {
-    // keyHint might be like: ga/scratchers/images/123/ticket
-    key = `${key}-${hash}.${ext}`;
+    key = `${key}-${hash}.${ext}`; // if keyHint was bare like ".../ticket"
   }
 
-  // 4) Possibly skip if already exists remotely (idempotent)
+  // 4) Idempotency: skip upload if it already exists
   const head = await storage.head?.(key).catch(() => undefined);
   if (head?.exists) {
-    const hosted: Hosted = { key, url: storage.publicUrlFor(key), etag: head.etag, bytes: head.bytes || u8.byteLength, contentType: ct };
-    // Update manifest to point this source to the settled key
+    const hosted: Hosted = {
+      key,
+      url: storage.publicUrlFor(key),
+      etag: head.etag,
+      bytes: head.bytes ?? u8.byteLength,
+      contentType: ct
+    };
     manifestCache![sourceUrl] = { key, url: hosted.url, etag: hosted.etag, bytes: hosted.bytes, contentType: ct, sha256: hash };
     return hosted;
   }
