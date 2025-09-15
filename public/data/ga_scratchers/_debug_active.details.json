@@ -1,0 +1,85 @@
+{
+  "count": 16,
+  "sample": [
+    {
+      "gameNumber": 1804,
+      "name": "ICY 5s",
+      "overallOdds": 3.24,
+      "startDate": "09/17/2024",
+      "ticketImageUrl": "https://www.galottery.com/content/dam/portal/images/scratchers-games/1804/ticket.png",
+      "oddsImageUrl": "https://www.galottery.com/content/dam/portal/images/scratchers-games/1804/odds.jpg"
+    },
+    {
+      "gameNumber": 1781,
+      "name": "WIN IT ALL BONUS",
+      "overallOdds": 4.04,
+      "startDate": "05/21/2024",
+      "ticketImageUrl": "https://www.galottery.com/content/dam/portal/images/scratchers-games/1781/ticket.png",
+      "oddsImageUrl": "https://www.galottery.com/content/dam/portal/images/scratchers-games/1781/odds.jpg"
+    },
+    {
+      "gameNumber": 1625,
+      "name": "$100 MILLION CASH BURST",
+      "overallOdds": 3.44,
+      "startDate": "10/03/2023",
+      "ticketImageUrl": "https://www.galottery.com/content/dam/portal/images/scratchers-games/1625/ticket.png",
+      "oddsImageUrl": "https://www.galottery.com/content/dam/portal/images/scratchers-games/1625/odds.jpg"
+    },
+    {
+      "gameNumber": 1594,
+      "name": "TRIPLE CASH PAYOUT",
+      "overallOdds": 3.45,
+      "startDate": "10/03/2023",
+      "ticketImageUrl": "https://www.galottery.com/content/dam/portal/images/scratchers-games/1594/ticket.png",
+      "oddsImageUrl": "https://www.galottery.com/content/dam/portal/images/scratchers-games/1594/odds.jpg"
+    },
+    {
+      "gameNumber": 1716,
+      "name": "WASHINGTON",
+      "overallOdds": 4.44,
+      "startDate": "04/18/2023",
+      "ticketImageUrl": "https://www.galottery.com/content/dam/portal/images/scratchers-games/1716/ticket.png",
+      "oddsImageUrl": "https://www.galottery.com/content/dam/portal/images/scratchers-games/1716/odds.jpg"
+    },
+    {
+      "gameNumber": 1710,
+      "name": "333",
+      "overallOdds": 4.53,
+      "startDate": "03/21/2023",
+      "ticketImageUrl": "https://www.galottery.com/content/dam/portal/images/scratchers-games/1710/ticket.png",
+      "oddsImageUrl": "https://www.galottery.com/content/dam/portal/images/scratchers-games/1710/odds.jpg"
+    },
+    {
+      "gameNumber": 1561,
+      "name": "SHOW ME $10,000",
+      "overallOdds": 4.7,
+      "startDate": "01/24/2023",
+      "ticketImageUrl": "https://www.galottery.com/content/dam/portal/images/scratchers-games/1561/ticket.png",
+      "oddsImageUrl": "https://www.galottery.com/content/dam/portal/images/scratchers-games/1561/odds.jpg"
+    },
+    {
+      "gameNumber": 1688,
+      "name": "HIT $50",
+      "overallOdds": 4.66,
+      "startDate": "12/20/2022",
+      "ticketImageUrl": "https://www.galottery.com/content/dam/portal/images/scratchers-games/1688/ticket.png",
+      "oddsImageUrl": "https://www.galottery.com/content/dam/portal/images/scratchers-games/1688/odds.jpg"
+    },
+    {
+      "gameNumber": 1672,
+      "name": "SPOOKY LOOT",
+      "overallOdds": 4.68,
+      "startDate": "09/20/2022",
+      "ticketImageUrl": "https://www.galottery.com/content/dam/portal/images/scratchers-games/1672/ticket.png",
+      "oddsImageUrl": "https://www.galottery.com/content/dam/portal/images/scratchers-games/1672/odds.jpg"
+    },
+    {
+      "gameNumber": 1631,
+      "name": "Tic Tac Bonus",
+      "overallOdds": 4.34,
+      "startDate": "01/25/2022",
+      "ticketImageUrl": "https://www.galottery.com/content/dam/portal/images/scratchers-games/1631/ticket.png",
+      "oddsImageUrl": "https://www.galottery.com/content/dam/portal/images/scratchers-games/1631/odds.jpg"
+    }
+  ]
+}
