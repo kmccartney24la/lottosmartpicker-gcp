@@ -63,7 +63,7 @@ jobs:
           npx -y wrangler@4.36.0 --version
 
       # Fetch previous index for carry-forward (best effort)
-      - name: Fetch previous index.latest.json from R2 (best-effort)
+      - name: Fetch previous index/manifest from R2 (best-effort)
         continue-on-error: true
         run: |
           mkdir -p public/data/ga_scratchers
