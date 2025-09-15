@@ -610,23 +610,30 @@ async function main() {
       }
     }
 
-    // Coverage debug
-    const withTicket = games.filter(g => !!g.ticketImageUrl).length;
-    const withOdds   = games.filter(g => !!g.oddsImageUrl).length;
-    const withAnyGA  = games.filter(g => g.ticketImageUrl || g.oddsImageUrl).length;
+    // Coverage debug (make this block non-fatal)
+    try {
+      const withTicket = games.filter(g => !!g.ticketImageUrl).length;
+      const withOdds   = games.filter(g => !!g.oddsImageUrl).length;
+      const needAny    = games
+        .filter(g => !g.ticketImageUrl || !g.oddsImageUrl)
+        .slice(0, 20)
+        .map(g => g.gameNumber);
 
-    await writeJson("_debug_images.summary.json", {
-      counts: {
-        totalActive: games.length,
-        withTicket,
-        withOdds,
-      },
-      coveragePct: {
-        ticket: Math.round((withTicket / Math.max(games.length,1)) * 100),
-        odds:   Math.round((withOdds   / Math.max(games.length,1)) * 100),
-      },
-      previewMissingAny: needAny,
-    });
+      await writeJson("_debug_images.summary.json", {
+        counts: {
+          totalActive: games.length,
+          withTicket,
+          withOdds,
+        },
+        coveragePct: {
+          ticket: Math.round((withTicket / Math.max(games.length,1)) * 100),
+          odds:   Math.round((withOdds   / Math.max(games.length,1)) * 100),
+        },
+        previewMissingAny: needAny,
+      });
+    } catch (e) {
+      console.warn(`[debug] failed to write _debug_images.summary.json: ${(e as Error).message}`);
+    }
 
     console.log(
       `[images] ticket=${withTicket}/${games.length} (${Math.round((withTicket/games.length)*100)}%), ` +

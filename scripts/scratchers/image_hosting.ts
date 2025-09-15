@@ -222,6 +222,7 @@ class R2Provider implements StorageProvider {
       ContentType: contentType,
       CacheControl: cacheControl || "public, max-age=31536000, immutable",
     }));
+    console.log(`[r2] put ${key} (${bytes.byteLength} bytes, ${contentType}) → ${this.publicUrlFor(key)}`);
     const head = await this.head?.(key);
     return { key, url: this.publicUrlFor(key), bytes: bytes.byteLength, contentType, etag: head?.etag };
   }
