@@ -8,11 +8,15 @@
     "start": "next start"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.888.0",
     "clsx": "^2.1.1",
+    "mri": "^1.2.0",
     "next": "^14.2.32",
+    "p-limit": "^7.1.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "tough-cookie": "6.0.0"
+    "tough-cookie": "6.0.0",
+    "undici": "^7.16.0"
   },
   "devDependencies": {
     "@types/node": "^24.3.1",

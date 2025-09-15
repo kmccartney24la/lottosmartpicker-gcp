@@ -52,7 +52,7 @@ export default function AnalyzeSidebar() {
   }, []);
 
   return (
-    <aside aria-label="Analysis" className="card" style={{ position:'sticky', top: 8 }}>
+    <section className="card" role ="note" aria-label="Analysis"  style={{ marginBottom: 8 }}>
       <div style={{ fontWeight:700, marginBottom: 8 }}>Analysis (All Games)</div>
       {err && <div className="hint" style={{ color:'var(--danger)' }}>{err}</div>}
       {!err && <div className="hint" aria-live="polite">Loaded {okCount}/4 games.</div>}
@@ -77,6 +77,6 @@ export default function AnalyzeSidebar() {
           </div>
         );
       })}
-    </aside>
+    </section>
   );
 }

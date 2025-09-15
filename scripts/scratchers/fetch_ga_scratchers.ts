@@ -5,6 +5,16 @@ import { chromium, BrowserContext } from "playwright";
 import { ensureDir, maybeStartTracing, maybeStopTracing, openAndReady, withRetry } from "./_util";
 import { fetchActiveEndedNumbers } from "./parse_lists";
 import { fetchTopPrizes, type TopPrizeRow } from "./parse_top_prizes";
+import mri from "mri";
+import pLimit from "p-limit";
+import {
+  getStorage,
+  ensureHashKey,
+  loadManifest,
+  saveManifest,
+  setHostingOptions,
+} from "./image_hosting";
+ 
 
 const OUT_DIR = "public/data/ga_scratchers";
 const ACTIVE_URL = "https://www.galottery.com/en-us/games/scratchers/active-games.html";
@@ -521,6 +531,22 @@ function pickUpdatedAt(map: Map<number, TopPrizeRow>): string {
 }
 
 async function main() {
+  // ---------------- CLI flags ----------------
+  const argv = mri(process.argv.slice(2), {
+    boolean: ["rehost-all", "only-missing", "dry-run"],
+    default: { "only-missing": true, "dry-run": false },
+    alias: { c: "concurrency" },
+  });
+  const concurrency = Math.max(1, Number(argv.concurrency ?? 4));
+  setHostingOptions({
+    rehostAll: !!argv["rehost-all"],
+    onlyMissing: !!argv["only-missing"],
+    dryRun: !!argv["dry-run"],
+  });
+  const storage = getStorage();
+  const limit = pLimit(concurrency);
+  await loadManifest().then(m => console.log(`[manifest] loaded ${Object.keys(m).length} entries`));
+
   const browser = await chromium.launch({
     headless: true,
     args: ["--no-sandbox", "--disable-dev-shm-usage"],
@@ -684,6 +710,60 @@ async function main() {
       + `odds=${withOdds}/${games.length} (${Math.round((withOdds/games.length)*100)}%)`
     );
 
+    // --- Rehost images to R2 / FS dev ---
+    const hostJobs: Array<Promise<void>> = [];
+    for (const g of games) {
+      // dedupe: if both URLs are identical, run once and reuse
+      const pairs: Array<["ticketImageUrl"|"oddsImageUrl", "ticket"|"odds"]> = [
+        ["ticketImageUrl", "ticket"],
+        ["oddsImageUrl", "odds"],
+      ];
+
+      // capture original values
+      const originals: Record<string, string | undefined> = {
+        ticket: g.ticketImageUrl,
+        odds: g.oddsImageUrl,
+      };
+
+      const already: Record<string, { key: string; url: string } | undefined> = {};
+
+      for (const [field, kind] of pairs) {
+        const src = g[field];
+        if (!src) continue;
+        if (originals.ticket && originals.odds && originals.ticket === originals.odds) {
+          // same source URL: ensure we submit only one hosting job and reuse
+          if (already["ticket"]) {
+            g[field] = already["ticket"]!.url;
+            continue;
+          }
+        }
+        hostJobs.push(limit(async () => {
+          try {
+            const hosted = await ensureHashKey({
+              gameNumber: g.gameNumber,
+              kind,
+              sourceUrl: src!,
+              storage,
+              dryRun: !!argv["dry-run"],
+            });
+            // Replace on object
+            g[field] = hosted.url; // NOTE: final URL is storage.publicUrlFor(key)
+            already[kind] = { key: hosted.key, url: hosted.url };
+            // If same source url, mirror to the other field
+            if (originals.ticket && originals.odds && originals.ticket === originals.odds) {
+              g["ticketImageUrl"] = hosted.url;
+              g["oddsImageUrl"] = hosted.url;
+            }
+          } catch (err) {
+            console.warn(`[rehost] game ${g.gameNumber} (${kind}) failed: ${(err as Error).message}`);
+            // leave original URL in place
+          }
+        }));
+      }
+    }
+    await Promise.all(hostJobs);
+    await saveManifest();
+
     // 5) Guardrails
     const missingTopPrizeNums = games
       .filter(g => g.price == null || g.topPrizesOriginal == null || g.topPrizesRemaining == null)
@@ -757,6 +837,8 @@ async function main() {
     await maybeStopTracing(context, "_debug_trace.zip");
     await context.close().catch(() => {});
     await browser.close().catch(() => {});
+    // Persist manifest even on failures already handled above
+    try { await saveManifest(); } catch {}
   }
 }
 

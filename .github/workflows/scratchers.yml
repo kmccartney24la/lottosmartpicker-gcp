@@ -66,8 +66,26 @@ jobs:
             --file public/data/ga_scratchers/index.latest.json \
             --remote
 
-      - name: Scrape GA scratchers
-        run: npx --yes tsx scripts/scratchers/fetch_ga_scratchers.ts
+      - name: Fetch image manifest (best-effort)
+        continue-on-error: true
+        run: |
+          mkdir -p public/data/ga_scratchers
+          npx -y wrangler@4.36.0 r2 object get \
+            "${R2_BUCKET}/ga/scratchers/_image_manifest.json" \
+            --file public/data/ga_scratchers/_image_manifest.json \
+            --remote
+
+      - name: Scrape + rehost (only missing; 4-way)
+        run: npx --yes tsx scripts/scratchers/fetch_ga_scratchers.ts --only-missing --concurrency=4
+
+      - name: Upload image manifest
+        if: success() && hashFiles('public/data/ga_scratchers/_image_manifest.json') != ''
+        run: |
+          npx -y wrangler@4.36.0 r2 object put \
+            "${R2_BUCKET}/ga/scratchers/_image_manifest.json" \
+            --file public/data/ga_scratchers/_image_manifest.json \
+            --content-type application/json \
+            --remote
 
       - name: Upload Playwright trace on failure
         if: failure()

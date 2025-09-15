@@ -43,6 +43,7 @@ export default function Page() {
   const [page, setPage] = useState(1);
   const pageSize = 25;
   const [analysisByGame, setAnalysisByGame] = useState<Partial<Record<GameKey, any>>>({});
+  
 
   const sortedRows = useMemo(() => {
     const arr = [...rows];
@@ -87,35 +88,49 @@ export default function Page() {
   return (
     <main>
       <div data-binder-tabs>
-        <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <header style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
           <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-            <h1 style={{ fontSize: 26, fontWeight: 800 }}>LottoSmartPicker 9000</h1>
-            {/* Primary tabs */}
-            <nav className="tabbar" aria-label="Primary" role="tablist">
-              <a className="btn"
-                 href="/"
-                 role="tab"
-                 aria-selected="true"
-                 aria-controls="binder-panel"
-              >Draw Games</a>
-              <a className="btn"
-                 href="/scratchers"
-                 role="tab"
-                 aria-selected="false"
-                 tabIndex={-1}
-              >GA Scratchers</a>
+            <h1 style={{ fontSize: 26, fontWeight: 800, margin: 0 }}>LottoSmartPicker 9000</h1>
+            {/* Binder-style primary tabs (match scratchers page) */}
+            <nav
+              className="tabbar"
+              aria-label="Primary"
+              role="tablist"
+            >
+              <a
+                className="btn"
+                href="/"
+                role="tab"
+                aria-selected="true"
+                aria-controls="binder-panel"
+              >
+                Draw Games
+              </a>
+              <a
+                className="btn"
+                href="/scratchers"
+                role="tab"
+                aria-selected="false"
+                tabIndex={-1}
+              >
+                GA Scratchers
+              </a>
             </nav>
           </div>
           <div className="controls header-controls" style={{ gap: 8 }}>
             <ThemeSwitcher />
-            <button className="btn btn-ghost" onClick={() => setShowPast(true)} aria-controls="past-draws" aria-expanded={showPast}>
+            <button
+              className="btn btn-ghost"
+              onClick={() => setShowPast(true)}
+              aria-controls="past-draws"
+              aria-expanded={showPast}
+            >
               Past Draws
             </button>
           </div>
         </header>
       </div>
-
-      <section id="binder-panel" className="card" role="tabpanel" aria-labelledby="Draw Games">
+      <section id="binder-panel" role="tabpanel" className="card">
         <div className="controls" style={{ gap: 12, alignItems:'flex-end' }}>
           {/* Single, tall dropdown panel */}
           <div className="card" style={{ padding: 12, minHeight: 92 }}>
@@ -136,7 +151,7 @@ export default function Page() {
       </section>
 
       {/* Main two-column: left = generator, right = info + analysis */}
-       <div className="grid" style={{ gridTemplateColumns:'2fr 1fr', gap: 'var(--stack-gap)', marginTop: 'var(--stack-gap)' }}>
+       <div className="grid" style={{ gridTemplateColumns:'2fr 1fr', gap: 12, marginTop: 12 }}>
         <section>
           <Generator
             game={game}
@@ -147,11 +162,11 @@ export default function Page() {
           />
         </section>
         <section>
-          <div style={{ display:'grid', gap: 'var(--stack-gap)' }}>
+          <div style={{ display:'grid', gap: 5 }}>
             <GameOverview game={game} />
             <AnalyzeSidebar />
           </div>
-          <div style={{ marginTop: 'var(--stack-gap)' }}>
+          <div style={{ marginTop: 5 }}>
             <HintLegend />
           </div>
         </section>
@@ -172,7 +187,7 @@ export default function Page() {
         sortDir={sortDir}
         onToggleSort={() => setSortDir(d => d === 'desc' ? 'asc' : 'desc')}
       />
-      {/* Binder tab styles now live in globals.css */}
+
     </main>
   );
 }

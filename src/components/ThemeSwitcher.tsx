@@ -34,7 +34,12 @@ export default function ThemeSwitcher() {
   return (
     <label>
       <span>Theme</span><br/>
-      <select aria-label="Theme" value={theme} onChange={(e)=>setTheme(e.target.value as ThemeKey)}>
+      <select
+        aria-label="Theme"
+        value={theme}
+        onChange={(e)=>setTheme(e.target.value as ThemeKey)}
+        className="compact-control"
+      >
         <option value="system">System</option>
         <option value="light">Light</option>
         <option value="dark">Dark</option>
