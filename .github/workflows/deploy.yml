@@ -13,7 +13,7 @@ jobs:
     env:
       REGION: us-central1
       # Set to "true" to use Cloud Build's default bucket (avoids custom GCS perms while debugging)
-      USE_DEFAULT_CB_BUCKET: "false"
+      USE_DEFAULT_CB_BUCKET: "true"
     steps:
       - uses: actions/checkout@v4
 
