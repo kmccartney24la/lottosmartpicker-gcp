@@ -1,7 +1,8 @@
 name: Build & Deploy
 on:
   push:
-    branches: [ "main", "staging" ]
+    branches: ["main", "staging"]
+
 permissions:
   contents: read
   id-token: write
@@ -11,6 +12,8 @@ jobs:
     runs-on: ubuntu-latest
     env:
       REGION: us-central1
+      # Set to "true" to use Cloud Build's default bucket (avoids custom GCS perms while debugging)
+      USE_DEFAULT_CB_BUCKET: "false"
     steps:
       - uses: actions/checkout@v4
 
@@ -18,21 +21,27 @@ jobs:
         id: envsel
         run: |
           if [[ "${GITHUB_REF_NAME}" == "main" ]]; then
-            echo "PROJECT_ID=lottosmartpicker-prod" >> "$GITHUB_OUTPUT"
-            echo "AR_REPO=app" >> "$GITHUB_OUTPUT"
-            echo "CI_SA=${{ secrets.GCP_CI_SERVICE_ACCOUNT }}" >> "$GITHUB_OUTPUT"
-            echo "WIF=${{ secrets.GCP_WORKLOAD_IDP }}" >> "$GITHUB_OUTPUT"
-            echo "SERVICE=lottosmartpicker-app" >> "$GITHUB_OUTPUT"
-            echo "SUF=" >> "$GITHUB_OUTPUT"
-            echo "DATA_BASE=https://storage.googleapis.com/lottosmartpicker-data" >> "$GITHUB_OUTPUT"
+            {
+              echo "PROJECT_ID=lottosmartpicker-prod"
+              echo "AR_REPO=app"
+              echo "CI_SA=${{ secrets.GCP_CI_SERVICE_ACCOUNT }}"
+              echo "WIF=${{ secrets.GCP_WORKLOAD_IDP }}"
+              echo "SERVICE=lottosmartpicker-app"
+              echo "SUF="
+              echo "DATA_BASE=https://storage.googleapis.com/lottosmartpicker-data"
+              echo "SRC_BKT=lsp-source-staging-prod"
+            } >> "$GITHUB_OUTPUT"
           else
-            echo "PROJECT_ID=lottosmartpicker-staging" >> "$GITHUB_OUTPUT"
-            echo "AR_REPO=app" >> "$GITHUB_OUTPUT"
-            echo "CI_SA=${{ secrets.GCP_CI_SERVICE_ACCOUNT_STG }}" >> "$GITHUB_OUTPUT"
-            echo "WIF=${{ secrets.GCP_WORKLOAD_IDP_STG }}" >> "$GITHUB_OUTPUT"
-            echo "SERVICE=lottosmartpicker-app-stg" >> "$GITHUB_OUTPUT"
-            echo "SUF=-stg" >> "$GITHUB_OUTPUT"
-            echo "DATA_BASE=https://storage.googleapis.com/lottosmartpicker-data-stg" >> "$GITHUB_OUTPUT"
+            {
+              echo "PROJECT_ID=lottosmartpicker-staging"
+              echo "AR_REPO=app"
+              echo "CI_SA=${{ secrets.GCP_CI_SERVICE_ACCOUNT_STG }}"
+              echo "WIF=${{ secrets.GCP_WORKLOAD_IDP_STG }}"
+              echo "SERVICE=lottosmartpicker-app-stg"
+              echo "SUF=-stg"
+              echo "DATA_BASE=https://storage.googleapis.com/lottosmartpicker-data-stg"
+              echo "SRC_BKT=lsp-source-staging-stg"
+            } >> "$GITHUB_OUTPUT"
           fi
 
       - id: auth
@@ -43,23 +52,35 @@ jobs:
 
       - uses: google-github-actions/setup-gcloud@v2
 
+      - name: Debug identity
+        run: |
+          set -x
+          gcloud config set project "${{ steps.envsel.outputs.PROJECT_ID }}"
+          gcloud auth list
+          gcloud config list
+          # Print short tokens to confirm an identity exists (avoid leaking full tokens)
+          gcloud auth print-identity-token --audiences="https://cloudbuild.googleapis.com/" | cut -c -10; echo "…"
+          gcloud auth print-access-token | cut -c -10; echo "…"
+
       - name: Build & push
         run: |
-            gcloud config set project "${{ steps.envsel.outputs.PROJECT_ID }}"
-            # Choose the right bucket per env:
-            if [[ "${{ steps.envsel.outputs.PROJECT_ID }}" == "lottosmartpicker-staging" ]]; then
-            SRC_BKT="lsp-source-staging-stg"
-            else
-            SRC_BKT="lsp-source-staging-prod"
-            fi
-
+          set -euxo pipefail
+          gcloud config set project "${{ steps.envsel.outputs.PROJECT_ID }}"
+          if [[ "${USE_DEFAULT_CB_BUCKET}" == "true" ]]; then
+            # Use default Cloud Build bucket (no custom GCS permissions required)
             gcloud builds submit \
-            --gcs-source-staging-dir="gs://$SRC_BKT/source" \
-            --gcs-log-dir="gs://$SRC_BKT/logs" \
-            --tag "$REGION-docker.pkg.dev/${{ steps.envsel.outputs.PROJECT_ID }}/${{ steps.envsel.outputs.AR_REPO }}/lottosmartpicker"
+              --tag "$REGION-docker.pkg.dev/${{ steps.envsel.outputs.PROJECT_ID }}/${{ steps.envsel.outputs.AR_REPO }}/lottosmartpicker"
+          else
+            # Use custom source/log buckets
+            gcloud builds submit \
+              --gcs-source-staging-dir="gs://${{ steps.envsel.outputs.SRC_BKT }}/source" \
+              --gcs-log-dir="gs://${{ steps.envsel.outputs.SRC_BKT }}/logs" \
+              --tag "$REGION-docker.pkg.dev/${{ steps.envsel.outputs.PROJECT_ID }}/${{ steps.envsel.outputs.AR_REPO }}/lottosmartpicker"
+          fi
 
       - name: Deploy Cloud Run
         run: |
+          set -euxo pipefail
           gcloud run deploy "${{ steps.envsel.outputs.SERVICE }}" \
             --image "$REGION-docker.pkg.dev/${{ steps.envsel.outputs.PROJECT_ID }}/${{ steps.envsel.outputs.AR_REPO }}/lottosmartpicker" \
             --region "$REGION" --platform managed --allow-unauthenticated \
