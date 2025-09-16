@@ -1,0 +1,7 @@
+node_modules
+.git
+.next/cache
+.cache
+Dockerfile*
+*.Dockerfile
+README*
