@@ -45,8 +45,18 @@ jobs:
 
       - name: Build & push
         run: |
-          gcloud config set project "${{ steps.envsel.outputs.PROJECT_ID }}"
-          gcloud builds submit --tag "$REGION-docker.pkg.dev/${{ steps.envsel.outputs.PROJECT_ID }}/${{ steps.envsel.outputs.AR_REPO }}/lottosmartpicker"
+            gcloud config set project "${{ steps.envsel.outputs.PROJECT_ID }}"
+            # Choose the right bucket per env:
+            if [[ "${{ steps.envsel.outputs.PROJECT_ID }}" == "lottosmartpicker-staging" ]]; then
+            SRC_BKT="lsp-source-staging-stg"
+            else
+            SRC_BKT="lsp-source-staging-prod"
+            fi
+
+            gcloud builds submit \
+            --gcs-source-staging-dir="gs://$SRC_BKT/source" \
+            --gcs-log-dir="gs://$SRC_BKT/logs" \
+            --tag "$REGION-docker.pkg.dev/${{ steps.envsel.outputs.PROJECT_ID }}/${{ steps.envsel.outputs.AR_REPO }}/lottosmartpicker"
 
       - name: Deploy Cloud Run
         run: |
