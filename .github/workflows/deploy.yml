@@ -18,19 +18,21 @@ jobs:
         id: envsel
         run: |
           if [[ "${GITHUB_REF_NAME}" == "main" ]]; then
-            echo "PROJECT_ID=lottosmartpicker-prod" >> $GITHUB_OUTPUT
-            echo "AR_REPO=app" >> $GITHUB_OUTPUT
-            echo "CI_SA=${{ secrets.GCP_CI_SERVICE_ACCOUNT }}" >> $GITHUB_OUTPUT
-            echo "WIF=${{ secrets.GCP_WORKLOAD_IDP }}" >> $GITHUB_OUTPUT
-            echo "SERVICE=lottosmartpicker-app" >> $GITHUB_OUTPUT
-            echo "DATA_HOST=data.lottosmartpicker9000.com" >> $GITHUB_OUTPUT
+            echo "PROJECT_ID=lottosmartpicker-prod" >> "$GITHUB_OUTPUT"
+            echo "AR_REPO=app" >> "$GITHUB_OUTPUT"
+            echo "CI_SA=${{ secrets.GCP_CI_SERVICE_ACCOUNT }}" >> "$GITHUB_OUTPUT"
+            echo "WIF=${{ secrets.GCP_WORKLOAD_IDP }}" >> "$GITHUB_OUTPUT"
+            echo "SERVICE=lottosmartpicker-app" >> "$GITHUB_OUTPUT"
+            echo "SUF=" >> "$GITHUB_OUTPUT"
+            echo "DATA_BASE=https://storage.googleapis.com/lottosmartpicker-data" >> "$GITHUB_OUTPUT"
           else
-            echo "PROJECT_ID=lottosmartpicker-staging" >> $GITHUB_OUTPUT
-            echo "AR_REPO=app" >> $GITHUB_OUTPUT
-            echo "CI_SA=${{ secrets.GCP_CI_SERVICE_ACCOUNT_STG }}" >> $GITHUB_OUTPUT
-            echo "WIF=${{ secrets.GCP_WORKLOAD_IDP_STG }}" >> $GITHUB_OUTPUT
-            echo "SERVICE=lottosmartpicker-app-stg" >> $GITHUB_OUTPUT
-            echo "DATA_HOST=data-staging.lottosmartpicker9000.com" >> $GITHUB_OUTPUT
+            echo "PROJECT_ID=lottosmartpicker-staging" >> "$GITHUB_OUTPUT"
+            echo "AR_REPO=app" >> "$GITHUB_OUTPUT"
+            echo "CI_SA=${{ secrets.GCP_CI_SERVICE_ACCOUNT_STG }}" >> "$GITHUB_OUTPUT"
+            echo "WIF=${{ secrets.GCP_WORKLOAD_IDP_STG }}" >> "$GITHUB_OUTPUT"
+            echo "SERVICE=lottosmartpicker-app-stg" >> "$GITHUB_OUTPUT"
+            echo "SUF=-stg" >> "$GITHUB_OUTPUT"
+            echo "DATA_BASE=https://storage.googleapis.com/lottosmartpicker-data-stg" >> "$GITHUB_OUTPUT"
           fi
 
       - id: auth
@@ -44,18 +46,18 @@ jobs:
       - name: Build & push
         run: |
           gcloud config set project "${{ steps.envsel.outputs.PROJECT_ID }}"
-          gcloud builds submit --tag $REGION-docker.pkg.dev/${{ steps.envsel.outputs.PROJECT_ID }}/${{ steps.envsel.outputs.AR_REPO }}/lottosmartpicker
+          gcloud builds submit --tag "$REGION-docker.pkg.dev/${{ steps.envsel.outputs.PROJECT_ID }}/${{ steps.envsel.outputs.AR_REPO }}/lottosmartpicker"
 
       - name: Deploy Cloud Run
         run: |
           gcloud run deploy "${{ steps.envsel.outputs.SERVICE }}" \
-            --image $REGION-docker.pkg.dev/${{ steps.envsel.outputs.PROJECT_ID }}/${{ steps.envsel.outputs.AR_REPO }}/lottosmartpicker \
-            --region $REGION --platform managed --allow-unauthenticated \
+            --image "$REGION-docker.pkg.dev/${{ steps.envsel.outputs.PROJECT_ID }}/${{ steps.envsel.outputs.AR_REPO }}/lottosmartpicker" \
+            --region "$REGION" --platform managed --allow-unauthenticated \
             --min-instances 0 --max-instances 50 --concurrency 80 \
             --cpu 1 --memory 512Mi \
-            --service-account lsp-run${{ github.ref_name == 'staging' && '-stg' || '' }}@${{ steps.envsel.outputs.PROJECT_ID }}.iam.gserviceaccount.com \
-            --set-env-vars GA_SCRATCHERS_INDEX_URL=https://${{ steps.envsel.outputs.DATA_HOST }}/ga/scratchers/index.json \
-            --set-env-vars LOTTO_REMOTE_CSV_URL_POWERBALL=https://${{ steps.envsel.outputs.DATA_HOST }}/multi/powerball.csv \
-            --set-env-vars LOTTO_REMOTE_CSV_URL_MEGAMILLIONS=https://${{ steps.envsel.outputs.DATA_HOST }}/multi/megamillions.csv \
-            --set-env-vars LOTTO_REMOTE_CSV_URL_GA_CASH4LIFE=https://${{ steps.envsel.outputs.DATA_HOST }}/ga/cash4life.csv \
-            --set-env-vars LOTTO_REMOTE_CSV_URL_GA_FANTASY5=https://${{ steps.envsel.outputs.DATA_HOST }}/ga/fantasy5.csv
+            --service-account "lsp-run${{ steps.envsel.outputs.SUF }}@${{ steps.envsel.outputs.PROJECT_ID }}.iam.gserviceaccount.com" \
+            --set-env-vars "GA_SCRATCHERS_INDEX_URL=${{ steps.envsel.outputs.DATA_BASE }}/ga/scratchers/index.json" \
+            --set-env-vars "LOTTO_REMOTE_CSV_URL_POWERBALL=${{ steps.envsel.outputs.DATA_BASE }}/multi/powerball.csv" \
+            --set-env-vars "LOTTO_REMOTE_CSV_URL_MEGAMILLIONS=${{ steps.envsel.outputs.DATA_BASE }}/multi/megamillions.csv" \
+            --set-env-vars "LOTTO_REMOTE_CSV_URL_GA_CASH4LIFE=${{ steps.envsel.outputs.DATA_BASE }}/ga/cash4life.csv" \
+            --set-env-vars "LOTTO_REMOTE_CSV_URL_GA_FANTASY5=${{ steps.envsel.outputs.DATA_BASE }}/ga/fantasy5.csv"
