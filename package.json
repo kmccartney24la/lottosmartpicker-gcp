@@ -13,6 +13,7 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.888.0",
     "@google-cloud/storage": "^7.17.1",
+    "playwright": "^1.55.0",
     "clsx": "^2.1.1",
     "mri": "^1.2.0",
     "next": "^14.2.32",
@@ -28,7 +29,6 @@
     "@types/react": "^19.1.12",
     "cheerio": "1.1.2",
     "got": "14.4.8",
-    "playwright": "^1.45.3",
     "tsx": "^4.20.5",
     "typescript": "^5.9.2"
   }
