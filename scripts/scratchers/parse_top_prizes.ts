@@ -38,22 +38,22 @@ export async function fetchTopPrizes(
 
     const { rows, lastUpdated } = await page.evaluate(() => {
       const norm = (s: string) => (s || "").replace(/\s+/g, " ").trim();
-      const host = (document.querySelector("#snapContent") || document.body) as HTMLElement;
+      const host = (document.querySelector("#snapContent") || document.body) as any;
 
       // 1) Try reading the structured table first (#tabledata lives under the table we want)
       const readFromTable = () => {
-        const tbody = host.querySelector("#tabledata") as HTMLElement | null;
-        const table = tbody ? (tbody.closest("table") as HTMLTableElement | null) : null;
+        const tbody = host.querySelector("#tabledata") as any;
+        const table = tbody ? (tbody.closest?.("table") as any) : null;
         if (!tbody || !table) return { rows: [] as any[], lastUpdated: undefined as string | undefined };
 
-        const cap = table.querySelector("caption")?.textContent || "";
+        const cap = (table.querySelector?.("caption") as any)?.textContent || "";
         const mCap = cap.match(/data\s+as\s+of\s+(.+)/i);
         const lastUpdated = mCap ? norm(mCap[1]) : undefined;
 
-        const trs = Array.from(tbody.querySelectorAll("tr")).filter(tr => !tr.classList.contains("thead"));
-        const rows = trs.map(tr => {
-          const tds = Array.from(tr.querySelectorAll("td"));
-          const val = (i: number) => norm(tds[i]?.textContent || "");
+        const trs = Array.from(tbody.querySelectorAll?.("tr") || []).filter((tr: any) => !tr.classList?.contains("thead"));
+        const rows = trs.map((tr: any) => {
+          const tds = Array.from(tr.querySelectorAll?.("td") || []) as any[];
+          const val = (i: number) => norm((tds[i] as any)?.textContent || "");
           const gn = (val(0).match(/\d{3,5}/) || [])[0];
           if (!gn) return null;
           return {
@@ -71,7 +71,7 @@ export async function fetchTopPrizes(
 
       // 2) Fallback: parse innerText if table parsing yields nothing (tabs between cells)
       const readFromText = () => {
-        const raw = (host as HTMLElement).innerText || host.textContent || "";
+        const raw = (host as any).innerText || host.textContent || "";
         const lines = raw.split(/\n+/).map((s) => s.replace(/\s+$/g, ""));
         let start = -1;
         for (let i = 0; i < lines.length; i++) {
@@ -99,9 +99,9 @@ export async function fetchTopPrizes(
 
         // lastUpdated fallback: scan any “Data as of …” text under host
         let lastUpdated: string | undefined;
-        const nodes = Array.from(host.querySelectorAll("*:not(script):not(style)"));
-        for (const el of nodes) {
-          const t = norm(el.textContent || "");
+        const nodes = Array.from(host.querySelectorAll?.("*:not(script):not(style)") || []) as any[];
+        for (const el of nodes as any[]) {
+          const t = norm((el as any).textContent || "");
           const m = t.match(/data\s+as\s+of\s+(.+?)$/i);
           if (m) { lastUpdated = norm(m[1]); break; }
         }

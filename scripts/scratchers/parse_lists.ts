@@ -1,6 +1,6 @@
 //scripts/scratchers/parse_lists.ts
-import fs from "node:fs/promises";
-import path from "node:path";
+import * as fs from "node:fs/promises";
+import * as path from "node:path";
 import { BrowserContext, Page } from "playwright";
 import { openAndReady, withRetry } from "./_util";
 
@@ -75,7 +75,8 @@ async function numbersFromAemModel(page: Page, label: string): Promise<{numbers:
     const w = window as any;
     if (w.CQURLInfo?.requestPath) return w.CQURLInfo.requestPath as string;
     // fallback: scan inline scripts
-    const scripts = Array.from(document.querySelectorAll("script:not([src])")).map(s => s.textContent || "");
+    const scripts = Array.from(document.querySelectorAll("script:not([src])") as any)
+      .map((s: any) => s.textContent || "");
     for (const txt of scripts) {
       const m = txt.match(/CQURLInfo\s*=\s*{[^}]*"requestPath"\s*:\s*"([^"]+)"/);
       if (m) return m[1];
@@ -149,9 +150,9 @@ async function numbersFromModals(page: Page, label: string): Promise<number[]> {
       await page.waitForSelector(modalSel, { timeout: 6000 });
 
       const text = await page.evaluate((sel) => {
-        const root = document.querySelector(sel) as HTMLElement | null;
-        return root ? (root.textContent || "").replace(/\s+/g, " ") : "";
-      }, modalSel);
+    const root = document.querySelector(sel) as any;
+    return root ? ((root.textContent as string) || "").replace(/\s+/g, " ") : "";
+  }, modalSel);
 
       const m = text.match(/Game\s*(?:Number|#)\s*[:#]?\s*(\d{3,5})/i);
       if (m) seen.add(Number(m[1]));

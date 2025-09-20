@@ -1,12 +1,24 @@
 //scripts/scratchers/_utils.ts
-import fs from "node:fs/promises";
-import path from "node:path";
+import * as fs from "node:fs/promises";
+import * as path from "node:path";
 import { Page, BrowserContext } from "playwright";
 
 const DATA_DIR = "public/data/ga_scratchers";
 
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+// --- tiny typed helpers for DOM-y code in Node builds ---
+export function qs<T = any>(root: any, sel: string): T | null {
+  return root?.querySelector?.(sel) ?? null;
+}
+export function qsa<T = any>(root: any, sel: string): T[] {
+  return Array.from(root?.querySelectorAll?.(sel) ?? []);
+}
+/** Cast unknown → T at use-sites where TS complains about 'unknown' */
+export function asAny<T = any>(x: unknown): T {
+  return x as T;
 }
 
 export async function ensureDir(p: string) {

@@ -1,7 +1,7 @@
 // scripts/repair-lotto-csv.ts
 /* eslint-disable no-console */
-import fs from "node:fs";
-import path from "node:path";
+import * as fs from "node:fs";
+import * as path from "node:path";
 
 const CANON = "draw_date,num1,num2,num3,num4,num5,special";
 

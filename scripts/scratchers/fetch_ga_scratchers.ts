@@ -1,10 +1,14 @@
 // scripts/scratchers/fetch_ga_scratchers.ts
-import fs from "node:fs/promises";
-import path from "node:path";
-import mri from "mri";
-import os from "node:os";
+console.log(`[boot] scratchers starting pid=${process.pid} at ${new Date().toISOString()}`);
+import * as fs from "node:fs/promises";
+import * as path from "node:path";
+import * as os from "node:os";
+import * as fssync from "node:fs";
+import mri from "mri"; // 3rd-party: keep default import (works with esModuleInterop)
 import pLimit from "p-limit";
 import { chromium, BrowserContext } from "playwright";
+// Alias to avoid any collision with DOM's global `Storage` type or duplicates
+import { Storage as GCSStorage } from "@google-cloud/storage";
 
 import { ensureDir, maybeStartTracing, maybeStopTracing, openAndReady, withRetry } from "./_util";
 import { fetchActiveEndedNumbers } from "./parse_lists";
@@ -119,6 +123,58 @@ function filenameWeight(u: string, kind: "ticket"|"odds", num?: number): number 
 function pickUpdatedAt(map: Map<number, TopPrizeRow>): string {
   for (const row of map.values()) if (row.lastUpdated) return row.lastUpdated;
   return new Date().toISOString();
+}
+
+// -----------------------------
+// GCS sync (optional)
+// -----------------------------
+async function syncDirToGCS(localDir: string, bucketName: string, prefix = "ga_scratchers"): Promise<number> {
+  // Use one Storage import everywhere
+  const storage = new GCSStorage();
+  const bucket = storage.bucket(bucketName);
+
+  const listFiles = async (dir: string): Promise<string[]> => {
+    const entries = await fs.readdir(dir, { withFileTypes: true });
+    const files: string[] = [];
+    for (const e of entries) {
+      const full = path.join(dir, e.name);
+      if (e.isDirectory()) files.push(...(await listFiles(full)));
+      else if (e.isFile()) files.push(full);
+    }
+    return files;
+  };
+
+  const toContentType = (p: string): string | undefined => {
+    const ext = path.extname(p).toLowerCase();
+    if (ext === ".json") return "application/json";
+    if (ext === ".png")  return "image/png";
+    if (ext === ".jpg" || ext === ".jpeg") return "image/jpeg";
+    if (ext === ".html") return "text/html; charset=utf-8";
+    return undefined;
+  };
+
+  if (!fssync.existsSync(localDir)) return 0;
+  const files = await listFiles(localDir);
+  let uploaded = 0;
+  for (const file of files) {
+    const rel = path.relative(localDir, file).replace(/\\/g, "/");
+    const dest = `${prefix}/${rel}`;
+    const contentType = toContentType(file);
+    // ⛔ No object ACLs on UBLA buckets; rely on bucket-level IAM.
+    await bucket.upload(file, {
+      destination: dest,
+      resumable: false,
+      metadata: {
+        ...(contentType ? { contentType } : {}),
+        // reasonable caching for static assets; indexes will be handled below
+        cacheControl: contentType === "application/json"
+          ? "public, max-age=300, must-revalidate"
+          : "public, max-age=86400"
+      },
+    });
+    uploaded++;
+  }
+  return uploaded;
 }
 
 // -----------------------------
@@ -392,19 +448,20 @@ async function scrapeActiveModalDetails(
           const text = ((body.textContent || "") + " " + (root.textContent || "")).replace(/\s+/g, " ");
 
           // resolve <picture><source type=…> with srcset variants (largest)
-          const pickFromPicture = (pic: HTMLPictureElement): string | undefined => {
-            const sources = Array.from(pic.querySelectorAll('source'));
-            const candidates: Array<{u:string; w:number}> = [];
+          const pickFromPicture = (pic: any): string | undefined => {
+            const sources = Array.from((pic as any).querySelectorAll?.('source') || []);
+            const candidates: Array<{ u: string; w: number }> = [];
             for (const s of sources) {
-              const typeOk = !s.type || /(png|jpeg)/i.test(s.type);
+              const sAny: any = s;
+              const typeOk = !sAny.type || /(png|jpeg)/i.test(sAny.type);
               if (!typeOk) continue;
-              const ss = s.srcset || s.getAttribute('data-srcset') || "";
-              for (const part of ss.split(',').map(s => s.trim()).filter(Boolean)) {
+              const ss = sAny.srcset || sAny.getAttribute?.('data-srcset') || "";
+              for (const part of ss.split(',').map((x: string) => x.trim()).filter(Boolean)) {
                 const m = part.match(/(\S+)\s+(\d+)w/);
                 if (m) candidates.push({ u: m[1], w: Number(m[2]) });
               }
             }
-            candidates.sort((a,b)=>b.w-a.w);
+            candidates.sort((a, b) => b.w - a.w);
             return candidates[0]?.u ? abs(candidates[0].u) : undefined;
           };
 
@@ -415,7 +472,7 @@ async function scrapeActiveModalDetails(
             root.querySelector("h1, h2, h3")?.textContent ||
             "").trim();
 
-          const pickUrlFromImg = (img: HTMLImageElement): string | undefined => {
+          const pickUrlFromImg = (img: any): string | undefined => {
             if (!img) return undefined;
             const cur = (img as any).currentSrc
               || img.getAttribute('src')
@@ -438,14 +495,27 @@ async function scrapeActiveModalDetails(
           let oddsImageUrl:   string | undefined;
 
           // Walk all images inside the modal to be robust against markup shifts
-          const imgs = Array.from((body || root).querySelectorAll('img, picture img')) as HTMLImageElement[];
+          const imgs = Array.from((body || root).querySelectorAll('img, picture img')) as any[];
           // also check <picture> directly
-          body.querySelectorAll('picture').forEach(pic=>{
-            const u = pickFromPicture(pic as HTMLPictureElement);
-            if (u) {
-              const p = u.toLowerCase();
+          (body || root).querySelectorAll('picture').forEach((picEl) => {
+            const u = pickFromPicture(picEl as any);
+            if (!u) return;
+
+            for (const img of imgs) {
+              const url = pickUrlFromImg(img);
+              if (!url) continue;
+
+              const p = url.toLowerCase();
+              const imgAny = img as any;
               const inDam = p.includes('/content/dam/');
               const isScratchers = /\/scratchers?-games\//.test(p);
+              const looksTicket =
+                /\/ticket\.(png|jpe?g|webp)$/.test(p) || /ticket/i.test(imgAny.alt || '');
+              const looksOdds =
+                /\/odds\.(png|jpe?g|webp)$/.test(p) ||
+                /odds/i.test(imgAny.alt || '') ||
+                !!imgAny.closest?.('#oddsPanel');
+
               if (inDam && isScratchers) {
                 if (/\/ticket\.(png|jpe?g|webp)$/.test(p) && !ticketImageUrl) ticketImageUrl = u;
                 if (/\/odds\.(png|jpe?g|webp)$/.test(p)   && !oddsImageUrl)   oddsImageUrl   = u;
@@ -469,17 +539,17 @@ async function scrapeActiveModalDetails(
 
           // Specific fallbacks inside the modal only
           if (!ticketImageUrl) {
-            const t = body.querySelector('img[src*="/scratchers-games/"][src*="/ticket."]') as HTMLImageElement | null;
-            if (t) ticketImageUrl = abs((t as any).currentSrc || t.getAttribute('src'));
+            const t = body.querySelector('img[src*="/scratchers-games/"][src*="/ticket."]') as any;
+            if (t) ticketImageUrl = abs(t.currentSrc || t.getAttribute?.('src'));
           }
           if (!oddsImageUrl) {
-            const o = root.querySelector('#oddsPanel img[src*="/scratchers-games/"][src*="/odds."]') as HTMLImageElement | null;
-            if (o) oddsImageUrl = abs((o as any).currentSrc || o.getAttribute('src'));
+            const o = root.querySelector('#oddsPanel img[src*="/scratchers-games/"][src*="/odds."]') as any;
+            if (o) oddsImageUrl = abs(o.currentSrc || o.getAttribute?.('src'));
           }
 
           // CSS background-image inside modal (rare fallback)
           if (!ticketImageUrl || !oddsImageUrl) {
-            (body || root).querySelectorAll<HTMLElement>('[style*="background-image"]').forEach(el => {
+            (body || root).querySelectorAll('[style*="background-image"]').forEach((el: any) => {
               const s = (el.getAttribute("style") || "");
               const m = s.match(/background-image:\s*url\(["']?([^"')]+)["']?\)/i);
               if (m) {
@@ -627,9 +697,10 @@ async function scrapeGamePagesForImages(
           if (dh) return dh;
           return null;
         };
-        const a = tile.querySelector<HTMLAnchorElement>('a[href*="/games/scratchers/"]')
-              ||  tile.querySelector<HTMLAnchorElement>('a.more-info, a[title], a[href]')
-              ||  tile.querySelector<HTMLAnchorElement>('[data-analytics-link],[data-href]');
+        const a =
+          (tile.querySelector('a[href*="/games/scratchers/"]') as any) ||
+          (tile.querySelector('a.more-info, a[title], a[href]') as any) ||
+          (tile.querySelector('[data-analytics-link],[data-href]') as any);
         const hrefRaw = pickHref(a) || pickHref(tile);
         if (!hrefRaw || hrefRaw === '#') return;
         // Sometimes they give only a fragment; make it absolute
@@ -682,7 +753,7 @@ async function scrapeGamePagesForImages(
 
           const cands: Array<{ url?: string; alt: string; oddsish: boolean; ticketish: boolean; wHint: number }> = [];
 
-          const pickUrlFromImg = (img: HTMLImageElement): string | undefined => {
+          const pickUrlFromImg = (img: any): string | undefined => {
             const cur = (img as any).currentSrc
               || img.getAttribute('src')
               || img.getAttribute('data-src')
@@ -721,7 +792,7 @@ async function scrapeGamePagesForImages(
             if (oddsish || ticketish) cands.push({ url, alt, oddsish, ticketish, wHint });
           });
 
-          root.querySelectorAll<HTMLElement>('[style*="background-image"]').forEach(el => {
+          root.querySelectorAll('[style*="background-image"]').forEach((el: any) => {
             const s = (el.getAttribute("style") || "");
             const m = s.match(/background-image:\s*url\(["']?([^"')]+)["']?\)/i);
             if (m) {
@@ -1181,6 +1252,56 @@ console.log(
     const latest = await writeJson("index.latest.json", payload);
     await writeJson("index.json", payload);
     console.log(`Wrote ${gamesSorted.length} active games → ${latest}`);
+
+    // --- Publish index to GCS (optional but recommended) ---
+    try {
+      const bucketName = process.env.GCS_BUCKET;
+      if (bucketName) {
+        // Use the real GCS client for publishing the JSON index.
+        // (The `storage` from image_hosting is a custom provider, not a GCS client.)
+        const gcs = new GCSStorage();
+        const b = gcs.bucket(bucketName);
+        const body = JSON.stringify(payload);
+        await b.file("ga_scratchers/index.latest.json").save(body, {
+          resumable: false,
+          metadata: {
+            contentType: "application/json",
+            cacheControl: "no-cache",
+          },
+        });
+        await b.file("ga_scratchers/index.json").save(body, {
+          resumable: false,
+          metadata: {
+            contentType: "application/json",
+            cacheControl: "public, max-age=300",
+          },
+        });
+        console.log(`[publish] index → gs://${bucketName}/ga_scratchers/`);
+      } else {
+        console.warn("[publish] GCS_BUCKET not set; skipping index upload");
+      }
+    } catch (e) {
+      console.warn(`[publish] failed to upload index: ${(e as Error).message}`);
+    }
+
+    // Optional publish to GCS if configured
+    const bucket = process.env.GCS_BUCKET;
+    const prefix = process.env.GCS_PREFIX || "ga_scratchers";
+    if (bucket) {
+      try {
+        const n = await syncDirToGCS(OUT_DIR, bucket, prefix);
+        console.log(`[publish] uploaded ${n} objects to gs://${bucket}/${prefix}/`);
+        const pub = process.env.PUBLIC_BASE_URL;
+        if (pub) {
+          console.log(`[publish] latest index: ${pub.replace(/\/+$/,'')}/${prefix}/index.latest.json`);
+        }
+      } catch (e) {
+        console.warn(`[publish] GCS sync failed: ${(e as Error).message}`);
+      }
+    } else {
+      console.log(`[publish] GCS_BUCKET not set; skipping upload.`);
+    }
+
   } finally {
     await maybeStopTracing(context, "_debug_trace.zip");
     await context.close().catch(() => {});

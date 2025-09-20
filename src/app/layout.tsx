@@ -4,6 +4,10 @@ import type { Metadata } from 'next';
 
 const rubik = Rubik({ subsets: ['latin'], display: 'swap', variable: '--font-sans' });
 
+export const revalidate = 300; // 5 minutes for all routes under this layout
+
+export const dynamic = 'force-static'; // default for SSG; safe to include
+
 export const metadata: Metadata = {
   title: 'LottoSmartPicker',
   description: 'Powerball / Mega Millions analysis & generator',

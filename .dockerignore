@@ -1,7 +1,19 @@
+# keep what the build needs
 node_modules
-.git
-.next/cache
+.next
 .cache
+.git
+.gitignore
 Dockerfile*
-*.Dockerfile
-README*
+cloudbuild*.yaml
+public/data
+**/*.log
+**/*.tmp
+
+# allow these (do NOT ignore them)
+!package.json
+!package-lock.json
+!tsconfig.json
+!tsconfig.scripts.json
+!scripts/**
+!public/**

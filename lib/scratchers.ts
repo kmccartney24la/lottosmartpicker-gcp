@@ -80,50 +80,109 @@ export const DEFAULT_WEIGHTS: Weights = {
 // Data locations
 // -----------------------------
 /**
- * Resolve the best URLs to fetch the scratchers index from.
- * Prefers public R2/CDN via env; falls back to local /public paths for dev.
+ * Resolve the best URLs to fetch the scratchers index from, with **runtime** priority.
  *
- * Supported envs (server or client):
- * - GA_SCRATCHERS_INDEX_URL or NEXT_PUBLIC_GA_SCRATCHERS_INDEX_URL  (full URL to a file)
- * - GA_SCRATCHERS_INDEX_BASE or NEXT_PUBLIC_GA_SCRATCHERS_INDEX_BASE (base path to folder)
+ * Priority order of bases:
+ *  1) PUBLIC_BASE_URL (runtime, preferred)
+ *  2) NEXT_PUBLIC_DATA_BASE (fallback if present)
+ *  3) Legacy envs: GA_SCRATCHERS_INDEX_URL (exact file), GA_SCRATCHERS_INDEX_BASE (folder),
+ *     and their NEXT_PUBLIC_* variants
+ *  4) Local dev fallbacks under /public
+ *
+ * For each "base", we try BOTH folder layouts and BOTH filenames:
+ *   /ga_scratchers/{index.latest.json,index.json}
+ *   /ga/scratchers/{index.latest.json,index.json}
+ *
+ * If an env already points to a **file** (ends with .json), we keep it as-is and
+ * (if it’s index.json) we also try the "latest" sibling first.
  */
 export function resolveIndexUrls(): string[] {
-  const env = typeof process !== 'undefined' ? (process.env as any) : {};
-  // Try server-first, then client-prefixed fallbacks (if this ever bundles client-side)
-  const URL_ENV =
-    env.GA_SCRATCHERS_INDEX_URL ??
-    env.NEXT_PUBLIC_GA_SCRATCHERS_INDEX_URL ??
-    null;
-  const BASE_ENV =
-    env.GA_SCRATCHERS_INDEX_BASE ??
-    env.NEXT_PUBLIC_GA_SCRATCHERS_INDEX_BASE ??
-    null;
+  const env = typeof process !== "undefined" ? (process.env as Record<string, string | undefined>) : {};
 
-  const localLatest = '/data/ga_scratchers/index.latest.json';
-  const localArchive = '/data/ga_scratchers/index.json';
+  // Highest-priority runtime base(s)
+  const bases: string[] = [];
+  const publicBase = (env.PUBLIC_BASE_URL ?? "").trim();
+  const nextPublicBase = (env.NEXT_PUBLIC_DATA_BASE ?? "").trim();
 
-  // Exact file provided
-  if (URL_ENV && typeof URL_ENV === 'string') {
-    const u = URL_ENV.trim();
-    // If the provided file is index.json, try index.latest.json first, and vice versa
-    if (u.endsWith('/index.json')) {
-      return [u.replace(/\/index\.json$/, '/index.latest.json'), u];
+  if (publicBase) bases.push(publicBase);
+  if (nextPublicBase && nextPublicBase !== publicBase) bases.push(nextPublicBase);
+
+  // Legacy exact-file envs (if provided, we treat them as fully-qualified .json URLs)
+  const legacyFileEnv =
+    (env.GA_SCRATCHERS_INDEX_URL ?? env.NEXT_PUBLIC_GA_SCRATCHERS_INDEX_URL ?? "").trim();
+  const legacyBaseEnv =
+    (env.GA_SCRATCHERS_INDEX_BASE ?? env.NEXT_PUBLIC_GA_SCRATCHERS_INDEX_BASE ?? "").trim();
+
+  const out: string[] = [];
+
+  // If an exact file URL is provided, prefer its "latest" sibling first when applicable
+  if (legacyFileEnv && /\.json(\?.*)?$/i.test(legacyFileEnv)) {
+    const u = legacyFileEnv.replace(/\/+$/, "");
+    if (u.endsWith("/index.json")) {
+      out.push(u.replace(/\/index\.json$/, "/index.latest.json"), u);
+    } else if (u.endsWith("/index.latest.json")) {
+      out.push(u, u.replace(/\/index\.latest\.json$/, "/index.json"));
+    } else {
+      out.push(u);
     }
-    if (u.endsWith('/index.latest.json')) {
-      return [u, u.replace(/\/index\.latest\.json$/, '/index.json')];
-    }
-    // Unknown filename, just try the given URL then local fallbacks
-    return [u, localLatest, localArchive];
   }
 
-  // Base folder provided
-  if (BASE_ENV && typeof BASE_ENV === 'string') {
-    const base = BASE_ENV.replace(/\/+$/, '');
-    return [`${base}/index.latest.json`, `${base}/index.json`, localLatest, localArchive];
+  // Consider bases in the computed priority order
+  const allBases: string[] = [
+    ...bases,
+    // If legacyBaseEnv appears to be a **folder**, include it as a base
+    ...(legacyBaseEnv ? [legacyBaseEnv] : []),
+  ]
+    .map((b) => b.trim())
+    .filter(Boolean);
+
+  // Helper: expand a "base" (which might be a root, a folder, or an already-pointing-to /ga_scratchers)
+  function expandBase(baseRaw: string): string[] {
+    const base = baseRaw.replace(/\/+$/, ""); // strip trailing slash
+    const isFile = /\.json(\?.*)?$/i.test(base);
+    if (isFile) {
+      // A second exact file was supplied as a "base" (rare but safe). Mirror the sibling logic.
+      if (base.endsWith("/index.json")) {
+        return [base.replace(/\/index\.json$/, "/index.latest.json"), base];
+      }
+      if (base.endsWith("/index.latest.json")) {
+        return [base, base.replace(/\/index\.latest\.json$/, "/index.json")];
+      }
+      return [base];
+    }
+
+    // If base already includes a scratchers folder, only add file variants under that folder.
+    const looksLikeScratchersFolder = /(\/ga_scratchers|\/ga\/scratchers)(\/|$)/.test(base);
+    if (looksLikeScratchersFolder) {
+      return [
+        `${base}/index.latest.json`,
+        `${base}/index.json`,
+      ];
+    }
+
+    // Otherwise, treat base as the CDN/data root and try both folder layouts.
+    return [
+      `${base}/ga_scratchers/index.latest.json`,
+      `${base}/ga_scratchers/index.json`,
+      `${base}/ga/scratchers/index.latest.json`,
+      `${base}/ga/scratchers/index.json`,
+    ];
+    }
+
+  for (const b of allBases) {
+    for (const u of expandBase(b)) {
+      if (!out.includes(u)) out.push(u);
+    }
   }
 
-  // No env → local dev fallbacks
-  return [localLatest, localArchive];
+  // Local dev fallbacks (served from /public)
+  const localLatest = "/data/ga_scratchers/index.latest.json";
+  const localArchive = "/data/ga_scratchers/index.json";
+  for (const u of [localLatest, localArchive]) {
+    if (!out.includes(u)) out.push(u);
+  }
+
+  return out;
 }
 
 // -----------------------------
@@ -150,6 +209,34 @@ export async function fetchScratchersWithCache(): Promise<ActiveGame[]> {
     }
   }
   return [];
+}
+
+/**
+ * Try each URL until one returns 200 with valid JSON.
+ * Returns both the parsed `data` and the winning `url`.
+ * Intended for **server-side** usage (API route).
+ */
+export async function fetchFirstAvailableJson<T = unknown>(
+  urls: string[],
+): Promise<{ data: T; url: string }> {
+  let lastErr: unknown;
+  for (const url of urls) {
+    try {
+      const res = await fetch(url, { cache: "no-store" });
+      if (!res.ok) {
+        lastErr = new Error(`Fetch failed ${res.status} for ${url}`);
+        continue;
+      }
+      const data = (await res.json()) as T;
+      return { data, url };
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  const err = new Error("No upstream responded with OK.");
+  (err as any).cause = lastErr;
+  (err as any).tried = urls;
+  throw err;
 }
 
 /**

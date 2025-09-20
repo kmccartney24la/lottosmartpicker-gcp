@@ -5,12 +5,47 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildFantasy5Csv } from "./sources/fantasy5.mjs";
+import { performance } from "node:perf_hooks";
+import { Storage } from "@google-cloud/storage";
 
 /* ---------------- Socrata helpers (Powerball / Mega / Cash4Life) ---------------- */
 
 const BASE = "https://data.ny.gov/resource";
 const APP_TOKEN = process.env.SOCRATA_APP_TOKEN ?? ""; // optional but recommended
 const SOC_USER_AGENT = "Lottery-Analysis-Updater/1.0 (+github.com/kmccartney24la)";
+const HTTP_TIMEOUT_MS = Number(process.env.HTTP_TIMEOUT_MS ?? 30000); // 30s default
+const SOC_MAX_ATTEMPTS = Number(process.env.SOC_MAX_ATTEMPTS ?? 5);  // tunable retries
+const SKIP_FANTASY5 = String(process.env.SKIP_FANTASY5 ?? "0") === "1"; // parity with SKIP_SOCRATA
+
+/* ---------------- GCS helpers (upload/merge) ---------------- */
+const GCS_BUCKET = process.env.GCS_BUCKET;
+const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || (GCS_BUCKET ? `https://storage.googleapis.com/${GCS_BUCKET}` : "");
+const storage = new Storage();
+
+async function downloadIfExists(key) {
+  if (!GCS_BUCKET) return "";
+  const file = storage.bucket(GCS_BUCKET).file(key);
+  try {
+    const [exists] = await file.exists();
+    if (!exists) return "";
+    const [buf] = await file.download();
+    return buf.toString("utf8");
+  } catch {
+    return "";
+  }
+}
+
+async function uploadCsv(localPath, key, { cacheControl = "public, max-age=3600, must-revalidate" } = {}) {
+  if (!GCS_BUCKET) return;
+  const file = storage.bucket(GCS_BUCKET).file(key);
+  const data = await fs.readFile(localPath);
+  await file.save(data, {
+    contentType: "text/csv",
+    resumable: false,
+    metadata: { cacheControl },
+  });
+  console.log(`GCS upload → gs://${GCS_BUCKET}/${key}${PUBLIC_BASE_URL ? ` (${PUBLIC_BASE_URL}/${key})` : ""}`);
+}
 
 const HEADERS = {
   ...(APP_TOKEN ? { "X-App-Token": APP_TOKEN } : {}),
@@ -18,24 +53,36 @@ const HEADERS = {
   "user-agent": SOC_USER_AGENT,
 };
 
-async function socrataFetch(url, { maxAttempts = 5 } = {}) {
+async function socrataFetch(url, { maxAttempts = SOC_MAX_ATTEMPTS } = {}) {
   let attempt = 0;
   let lastErr;
   while (attempt < maxAttempts) {
     attempt++;
-    const res = await fetch(url, { headers: HEADERS });
-    if (res.ok) return res.json();
+    try {
+      const res = await fetch(url, {
+        headers: HEADERS,
+        signal: AbortSignal.timeout(HTTP_TIMEOUT_MS),  // <- key line
+      });
+      if (res.ok) return res.json();
 
-    const status = res.status;
-    // 429/403: backoff and retry
-    if (status === 429 || status === 403 || status >= 500) {
-      const delay = Math.min(15000, 500 * 2 ** (attempt - 1)); // 0.5s,1s,2s,4s,8s,15s
-      await new Promise(r => setTimeout(r, delay));
-      lastErr = new Error(`Socrata HTTP ${status}`);
-      continue;
+      const status = res.status;
+      if (status === 429 || status === 403 || status >= 500) {
+        const delay = Math.min(15000, 500 * 2 ** (attempt - 1));
+        await new Promise(r => setTimeout(r, delay));
+        lastErr = new Error(`Socrata HTTP ${status}`);
+        continue;
+      }
+      throw new Error(`Socrata HTTP ${status}`);
+    } catch (err) {
+      // Handle fetch AbortError (timeout) like a retryable condition
+      if (err?.name === 'TimeoutError' || /AbortError/i.test(String(err?.name))) {
+        const delay = Math.min(15000, 500 * 2 ** (attempt - 1));
+        await new Promise(r => setTimeout(r, delay));
+        lastErr = err;
+        continue;
+      }
+      throw err;
     }
-    // Other errors: fail fast
-    throw new Error(`Socrata HTTP ${status}`);
   }
   throw lastErr ?? new Error("Socrata fetch failed");
 }
@@ -256,16 +303,19 @@ function validateAndDedupeFantasy5Csv(csvText, { minDate = "2015-10-04" } = {}) 
 
 async function updateFantasy5Incremental(outPath = "public/data/ga/fantasy5.csv") {
   const today = new Date();
-  const since = isoDaysAgo(14); // tune: 7–14; 14 is safest for nightly
+  const sinceDays = Number(process.env.F5_SINCE_DAYS ?? 14);
+  const since = isoDaysAgo(Math.max(1, sinceDays)); // tune: 7–14; 14 is safest for nightly
   const startYear = Number(since.slice(0, 4));
   const endYear = today.getUTCFullYear();
 
   // Build only the years touched by the window, filtered by --since, into a TEMP file.
+  const ttlEnv = process.env.F5_TTL_HOURS;
+  const ttlHours = Number.isFinite(Number(ttlEnv)) ? Number(ttlEnv) : 6;
   const flags = [
     `--start-year=${startYear}`,
     `--end-year=${endYear}`,
     `--since=${since}`,
-    `--ttl-hours=6`,
+    `--ttl-hours=${ttlHours}`,
   ];
   const tmpOut = outPath + ".partial";
   process.argv.push(...flags);
@@ -295,17 +345,42 @@ async function updateFantasy5Incremental(outPath = "public/data/ga/fantasy5.csv"
   const merged = [header, ...bodies].join("\n") + (bodies.length ? "\n" : "");
   const cleaned = validateAndDedupeFantasy5Csv(merged, { minDate: "2015-10-04" });
 
+  // Also merge with remote object in GCS to prevent truncation across runs/containers.
+  const remote = await downloadIfExists("ga/fantasy5.csv");
+  let finalCsv = cleaned;
+  if (remote) {
+    const bodies2 = [];
+    for (const text of [remote, cleaned]) {
+      if (!text) continue;
+      const lines = text.trim().split(/\r?\n/);
+      if (!lines[0].startsWith(header)) {
+        throw new Error("Fantasy 5 CSV header mismatch during remote merge.");
+      }
+      bodies2.push(...lines.slice(1).filter(Boolean));
+    }
+    const mergedRemote = [header, ...bodies2].join("\n") + (bodies2.length ? "\n" : "");
+    finalCsv = validateAndDedupeFantasy5Csv(mergedRemote, { minDate: "2015-10-04" });
+  }
+
   await fs.mkdir(path.dirname(outPath), { recursive: true });
-  await fs.writeFile(outPath, cleaned, "utf8");
+  await fs.writeFile(outPath, finalCsv, "utf8");
   await fs.rm(tmpOut, { force: true });
 
-  const lineCount = cleaned.split(/\r?\n/).filter(Boolean).length - 1;
+  const lineCount = finalCsv.split(/\r?\n/).filter(Boolean).length - 1;
   console.log(`Updater: Fantasy 5 merged & validated. Rows=${lineCount} → ${outPath}`);
+
+  // Push to GCS key used by the app.
+  await uploadCsv(outPath, "ga/fantasy5.csv");
 }
 
 /* ---------------- Main orchestrator ---------------- */
 
 async function main() {
+  const t0 = performance.now();
+  const logPhase = (label, start) => {
+    const ms = Math.round(performance.now() - start);
+    console.log(`${label} completed in ${ms} ms`);
+  };
   // One-time SEED mode (manual run or dedicated workflow)
   const SEED_GAME = process.env.LSP_SEED_GAME;       // 'powerball' | 'megamillions' | 'cash4life'
   const SEED_SINCE = process.env.LSP_SEED_SINCE;     // 'YYYY-MM-DD'
@@ -330,6 +405,7 @@ async function main() {
 
   // Nightly append-only mode (latest-only Socrata)
   if (process.env.SKIP_SOCRATA !== '1') {
+    const tSoc = performance.now();
     await buildPowerballLatest();
     await buildMegaMillionsLatest();
     try {
@@ -337,17 +413,25 @@ async function main() {
     } catch (err) {
       console.error("Cash4Life update failed:", err?.message ?? err);
     }
+    logPhase("Socrata latest-only (PB/MM/C4L)", tSoc);
   } else {
     console.log("SKIP_SOCRATA=1 → skipping PB/MM/C4L");
   }
 
   // Fantasy 5 incremental always runs (independent of Socrata)
-  try {
-    await updateFantasy5Incremental("public/data/ga/fantasy5.csv");
-  } catch (err) {
-    // Don’t fail the whole job if Fantasy5 source hiccups.
-    console.error("Fantasy 5 update failed:", err?.message ?? err);
+  if (!SKIP_FANTASY5) {
+    const tF5 = performance.now();
+    try {
+      await updateFantasy5Incremental("public/data/ga/fantasy5.csv");
+    } catch (err) {
+      // Don’t fail the whole job if Fantasy5 source hiccups.
+      console.error("Fantasy 5 update failed:", err?.message ?? err);
+    }
+    logPhase("Fantasy 5 incremental", tF5);
+  } else {
+    console.log("SKIP_FANTASY5=1 → skipping Fantasy 5 incremental");
   }
+  logPhase("TOTAL job runtime", t0);
 }
 
 /* ---------------- Windows-safe CLI entry ---------------- */

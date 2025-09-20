@@ -1,11 +1,22 @@
 // scripts/scratchers/image_hosting.ts
-import fs from "node:fs/promises";
-import path from "node:path";
-import crypto from "node:crypto";
+import * as fs from "node:fs/promises";
+import * as path from "node:path";
+import * as crypto from "node:crypto";
 import { Buffer } from "node:buffer";
 import { fetch as undiciFetch, RequestInit, HeadersInit } from "undici";
 import { S3Client, PutObjectCommand, HeadObjectCommand } from "@aws-sdk/client-s3";
+import { Storage } from "@google-cloud/storage";
 import { chromium } from "playwright";
+
+// ---- one-time capability probes (top-level; used for logging & defaults)
+const HAVE_GCS: boolean =
+  !!process.env.GCS_BUCKET && !!process.env.PUBLIC_BASE_URL;
+const HAVE_R2: boolean =
+  !!process.env.CLOUDFLARE_ACCOUNT_ID &&
+  !!process.env.R2_ACCESS_KEY_ID &&
+  !!process.env.R2_SECRET_ACCESS_KEY &&
+  !!process.env.R2_BUCKET &&
+  !!process.env.R2_PUBLIC_BASE_URL;
 
 // -----------------------------
 // Types
@@ -41,6 +52,7 @@ export function setHostingOptions(opts: Partial<HostingOptions>) {
 const OUT_DIR = "public/data/ga_scratchers";
 const MANIFEST_BASENAME = "_image_manifest.json";
 const MANIFEST_PATH = path.join(OUT_DIR, MANIFEST_BASENAME);
+const MANIFEST_GCS_OBJECT = "ga_scratchers/_image_manifest.json"; // optional remote mirror
 
 // sourceUrl → manifest entry
 type ManifestEntry = {
@@ -72,6 +84,37 @@ export async function saveManifest(): Promise<void> {
   if (!manifestCache) return;
   await fs.mkdir(OUT_DIR, { recursive: true });
   await fs.writeFile(MANIFEST_PATH, JSON.stringify(manifestCache, null, 2), "utf8");
+}
+
+export async function loadManifestFromGCSIfAvailable() {
+  if (!process.env.GCS_BUCKET) return;
+  try {
+    const storage = new Storage();
+    const f = storage.bucket(process.env.GCS_BUCKET!).file(MANIFEST_GCS_OBJECT);
+    const [exists] = await f.exists();
+    if (!exists) return;
+    const [buf] = await f.download();
+    manifestCache = JSON.parse(buf.toString("utf8"));
+    console.log(`[manifest] loaded ${Object.keys(manifestCache).length} entries from GCS`);
+  } catch (e) {
+    console.warn(`[manifest] GCS load skipped: ${String(e)}`);
+  }
+}
+
+export async function saveManifestToGCSIfAvailable() {
+  if (!manifestCache || !process.env.GCS_BUCKET) return;
+  try {
+    const storage = new Storage();
+    const f = storage.bucket(process.env.GCS_BUCKET!).file(MANIFEST_GCS_OBJECT);
+    await f.save(Buffer.from(JSON.stringify(manifestCache, null, 2)), {
+      resumable: false,
+      contentType: "application/json",
+      metadata: { cacheControl: "no-store" },
+    });
+    console.log(`[manifest] saved ${Object.keys(manifestCache).length} entries to GCS`);
+  } catch (e) {
+    console.warn(`[manifest] GCS save skipped: ${String(e)}`);
+  }
 }
 
 // -----------------------------
@@ -266,6 +309,68 @@ class R2Provider implements StorageProvider {
   }
 }
 
+// -----------------------------
+// Google Cloud Storage Provider
+// -----------------------------
+class GCSProvider implements StorageProvider {
+  private storage: Storage;
+  private bucketName: string;
+  private publicBase: string;
+
+  constructor() {
+    const bucket = process.env.GCS_BUCKET!;
+    const publicBase = (process.env.PUBLIC_BASE_URL || "").replace(/\/+$/, "");
+    if (!bucket || !publicBase) {
+      throw new Error("GCSProvider missing env: GCS_BUCKET, PUBLIC_BASE_URL");
+    }
+    this.bucketName = bucket;
+    this.publicBase = publicBase;
+    this.storage = new Storage(); // uses Cloud Run default creds
+  }
+
+  publicUrlFor(key: string): string {
+    return `${this.publicBase}/${key}`;
+  }
+
+  async head(key: string) {
+    try {
+      const f = this.storage.bucket(this.bucketName).file(key);
+      const [exists] = await f.exists();
+      if (!exists) return { exists: false };
+      const [md] = await f.getMetadata();
+      const etag = (md.etag || "").replace(/^"|"$/g, "");
+      const bytes = Number(md.size || 0);
+      return { exists: true, etag, bytes };
+    } catch {
+      return { exists: false };
+    }
+  }
+
+  async put(key: string, bytes: Uint8Array, contentType: string, cacheControl?: string): Promise<Hosted> {
+    if (gOptions.dryRun) {
+      return { key, url: this.publicUrlFor(key), bytes: bytes.byteLength, contentType };
+    }
+    const f = this.storage.bucket(this.bucketName).file(key);
+    await f.save(Buffer.from(bytes), {
+      contentType,
+      resumable: false,
+      public: false, // object is publicly readable via PUBLIC_BASE_URL if that’s a GCS domain
+      metadata: { cacheControl: cacheControl || "public, max-age=31536000, immutable" },
+    });
+    const [md] = await f.getMetadata();
+    const etag = (md.etag || "").replace(/^"|"$/g, "");
+    const hosted: Hosted = {
+      key,
+      url: this.publicUrlFor(key),
+      etag,
+      bytes: Number(md.size || bytes.byteLength),
+      contentType,
+    };
+    console.log(`[gcs] put ${key} (${hosted.bytes} bytes, ${contentType}) → ${hosted.url}`);
+    return hosted;
+  }
+}
+
 class FSProvider implements StorageProvider {
   private baseDir: string;
   private publicBase: string;
@@ -309,13 +414,14 @@ class FSProvider implements StorageProvider {
 // Storage selection
 // -----------------------------
 export function getStorage(): StorageProvider {
-  const haveR2 =
-    !!process.env.CLOUDFLARE_ACCOUNT_ID &&
-    !!process.env.R2_ACCESS_KEY_ID &&
-    !!process.env.R2_SECRET_ACCESS_KEY &&
-    !!process.env.R2_BUCKET &&
-    !!process.env.R2_PUBLIC_BASE_URL;
+  // recompute (cheap) or reuse HAVE_*; either is fine. We'll reuse:
+  const haveGCS = HAVE_GCS;
+  const haveR2  = HAVE_R2;
 
+  // Prefer GCS when running in Cloud Run with GCS_* envs
+  if (haveGCS) {
+    try { return new GCSProvider(); } catch { /* fall through */ }
+  }
   if (haveR2) {
     try {
       return new R2Provider();
@@ -325,6 +431,9 @@ export function getStorage(): StorageProvider {
   }
   return new FSProvider();
 }
+
+// one-time informative log without instantiating providers
+console.log(`[storage] using ${HAVE_GCS ? 'GCS' : HAVE_R2 ? 'R2' : 'FS'} provider`);
 
 // -----------------------------
 // Core API

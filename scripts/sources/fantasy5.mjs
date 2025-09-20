@@ -1,12 +1,20 @@
-// Node 18+ ESM. Deps: got, cheerio, tough-cookie, playwright (fallback-only)
+// Node 18+ ESM. Deps: cheerio, playwright (fallback-only)
 import fs from "node:fs/promises";
 import path from "node:path";
-import got from "got";
 import * as cheerio from "cheerio";
-import { CookieJar } from "tough-cookie";
 import { fileURLToPath } from "node:url";
 
 // -------------------- Config --------------------
+// Tunable via env; sensible defaults baked in.
+const F5_HTTP_TIMEOUT_MS = Number(process.env.F5_HTTP_TIMEOUT_MS ?? 15000);       // native fetch timeout
+const F5_FETCH_RETRIES   = Number(process.env.F5_FETCH_RETRIES   ?? 4);           // retries for network/5xx/timeout
+const F5_RETRY_BASE_MS   = Number(process.env.F5_RETRY_BASE_MS   ?? 500);         // initial backoff
+const F5_RETRY_MAX_MS    = Number(process.env.F5_RETRY_MAX_MS    ?? 15000);       // cap backoff
+const F5_ENABLE_PLAYWRIGHT = String(process.env.F5_ENABLE_PLAYWRIGHT ?? "1") !== "0";
+const F5_PLAYWRIGHT_TIMEOUT_MS     = Number(process.env.F5_PLAYWRIGHT_TIMEOUT_MS ?? 45000);
+const F5_PLAYWRIGHT_WAIT_TABLE_MS  = Number(process.env.F5_PLAYWRIGHT_WAIT_TABLE_MS ?? 15000);
+const F5_PLAYWRIGHT_MAX_FALLBACKS  = Number(process.env.F5_PLAYWRIGHT_MAX_FALLBACKS ?? 2); // cap per execution
+
 const HEADER = "draw_date,num1,num2,num3,num4,num5,special\n";
 const FIRST_YEAR = 1994;
 const THIS_YEAR = new Date().getUTCFullYear();
@@ -18,7 +26,6 @@ const DEFAULT_SINCE = "2015-10-04";
 const LNN_YEAR = (y) => `https://www.lottonumbers.com/georgia-fantasy-5/numbers/${y}`;
 
 const CACHE_DIR = ".cache";
-const COOKIE_FILE = path.join(CACHE_DIR, "lotto.cookies.json");
 const STORAGE_FILE = path.join(CACHE_DIR, "pw.storage.json");
 const HTML_CACHE_DIR = path.join(CACHE_DIR, "html");
 
@@ -39,6 +46,8 @@ const DATE_RE =
 // -------------------- Utilities --------------------
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const jitter = (base) => base + Math.floor(Math.random() * base);
+
+const backoff = (attempt) => Math.min(F5_RETRY_MAX_MS, F5_RETRY_BASE_MS * 2 ** (attempt - 1)) + Math.floor(Math.random() * 250);
 
 function resolveOutPath(outRelPath) {
   return path.isAbsolute(outRelPath) ? outRelPath : path.resolve(process.cwd(), outRelPath);
@@ -73,31 +82,38 @@ function parseArgs(argv = process.argv.slice(2)) {
   return args;
 }
 
-// -------------------- Cookie jar (persisted) --------------------
-async function loadJar() {
-  try {
-    const raw = await fs.readFile(COOKIE_FILE, "utf8");
-    return CookieJar.fromJSON(raw);
-  } catch {
-    return new CookieJar();
+// -------------------- HTTP (native fetch) --------------------
+async function fetchTextOnce(url, extraHeaders = {}) {
+  const res = await fetch(url, {
+    headers: { ...BASE_HEADERS, ...extraHeaders, referer: "https://www.lottonumbers.com/" },
+    signal: AbortSignal.timeout(F5_HTTP_TIMEOUT_MS),
+  });
+  if (res.status === 403 || res.status === 429) {
+    const err = new Error(`HTTP ${res.status}`);
+    err.status = res.status; // handled by caller (browser fallback)
+    throw err;
   }
-}
-async function saveJar(jar) {
-  await fs.mkdir(CACHE_DIR, { recursive: true });
-  await fs.writeFile(COOKIE_FILE, JSON.stringify(jar.toJSON()), "utf8");
+  if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
+  return await res.text();
 }
 
-// -------------------- HTTP client (got) --------------------
-async function makeHttpClient() {
-  const jar = await loadJar();
-  const client = got.extend({
-    http2: false,
-    cookieJar: jar,
-    headers: BASE_HEADERS,
-    timeout: { request: 15000 },
-    retry: { limit: 0 },
-  });
-  return { client, jar };
+async function fetchTextWithRetries(url, extraHeaders = {}) {
+  let lastErr;
+  for (let attempt = 1; attempt <= F5_FETCH_RETRIES; attempt++) {
+    try {
+      return await fetchTextOnce(url, extraHeaders);
+    } catch (err) {
+      const status = err?.status ?? 0;
+      // Let caller handle 403/429 (for Playwright fallback)
+      if (status === 403 || status === 429) throw err;
+      lastErr = err;
+      if (attempt === F5_FETCH_RETRIES) break;
+      const wait = backoff(attempt);
+      console.warn(`[Fantasy5] fetch retry ${attempt} for ${url} in ${wait}ms: ${err?.message ?? err}`);
+      await sleep(wait);
+    }
+  }
+  throw lastErr ?? new Error("fetch failed");
 }
 
 // -------------------- Disk HTML cache --------------------
@@ -118,39 +134,66 @@ async function fetchCached(url, fetchFn, ttlMs) {
   return html;
 }
 
-// -------------------- Playwright fallback --------------------
-async function fetchHtmlWithPlaywright(url) {
+let _pwBrowser = null;
+let _pwContext = null;
+let _pwFallbacksUsed = 0;
+
+async function ensureBrowser() {
+  if (_pwBrowser && _pwContext) return;
   const { chromium } = await import("playwright");
-  const browser = await chromium.launch({ headless: true });
+  _pwBrowser = await chromium.launch({ headless: true });
+  const hasState = await fs.stat(STORAGE_FILE).then(() => true).catch(() => false);
+  _pwContext = await _pwBrowser.newContext({
+    storageState: hasState ? STORAGE_FILE : undefined,
+    userAgent: BASE_HEADERS["user-agent"],
+    locale: "en-US",
+  });
+}
+
+async function closeBrowser() {
   try {
-    const hasState = await fs.stat(STORAGE_FILE).then(() => true).catch(() => false);
-    const context = await browser.newContext({
-      storageState: hasState ? STORAGE_FILE : undefined,
-      userAgent: BASE_HEADERS["user-agent"],
-      locale: "en-US",
-    });
-    const page = await context.newPage();
-    await page.goto(url, { waitUntil: "load", timeout: 45000 });
+    if (_pwContext) {
+      await _pwContext.storageState({ path: STORAGE_FILE }).catch(() => {});
+      await _pwContext.close();
+    }
+  } catch {}
+  try {
+    if (_pwBrowser) await _pwBrowser.close();
+  } catch {}
+  _pwBrowser = null;
+  _pwContext = null;
+}
+
+async function fetchHtmlWithPlaywright(url) {
+  if (!F5_ENABLE_PLAYWRIGHT) throw new Error("Playwright disabled by F5_ENABLE_PLAYWRIGHT=0");
+  if (_pwFallbacksUsed >= F5_PLAYWRIGHT_MAX_FALLBACKS) {
+    throw new Error("Playwright fallback cap reached");
+  }
+  _pwFallbacksUsed++;
+
+  await ensureBrowser();
+  const page = await _pwContext.newPage();
+  try {
+    await page.goto(url, { waitUntil: "load", timeout: F5_PLAYWRIGHT_TIMEOUT_MS });
     // Try cookie banners (best-effort)
     await page.locator('button:has-text("Accept")').click({ timeout: 2000 }).catch(() => {});
     await page.locator('button:has-text("Agree")').click({ timeout: 2000 }).catch(() => {});
     // Wait for any table to appear; older pages are static
-    await page.waitForSelector("table", { timeout: 15000 }).catch(() => {});
+    await page.waitForSelector("table", { timeout: F5_PLAYWRIGHT_WAIT_TABLE_MS }).catch(() => {});
     const html = await page.content();
-    await context.storageState({ path: STORAGE_FILE });
-    await context.close();
+    await page.close().catch(() => {});
     return html;
   } finally {
-    await browser.close();
+    // keep browser/context alive for reuse; closed in build function finally{}
   }
 }
 
 // -------------------- Fetch with 403/429 handling --------------------
-async function fetchHtmlOrBrowser(url, client) {
+async function fetchHtmlOrBrowser(url) {
   try {
-    return await client.get(url, { headers: { referer: "https://www.lottonumbers.com/" } }).text();
+    return await fetchTextWithRetries(url);
   } catch (err) {
-    const status = err?.response?.statusCode;
+    const status = err?.status;
     if (status === 403 || status === 429) {
       console.log(`[Fantasy5] ${status} from server, retrying via headless browser…`);
       return await fetchHtmlWithPlaywright(url);
@@ -209,9 +252,9 @@ function lnParseYearCheerio($) {
 }
 
 // -------------------- Year fetch (with caching, throttling) --------------------
-async function fetchYearLinesLNN(year, client, ttlMs) {
+async function fetchYearLinesLNN(year, ttlMs) {
   const url = LNN_YEAR(year);
-  const html = await fetchCached(url, (u) => fetchHtmlOrBrowser(u, client), ttlMs);
+  const html = await fetchCached(url, (u) => fetchHtmlOrBrowser(u), ttlMs);
   const $ = cheerio.load(html);
   return lnParseYearCheerio($);
 }
@@ -219,7 +262,6 @@ async function fetchYearLinesLNN(year, client, ttlMs) {
 // -------------------- Public API --------------------
 export async function buildFantasy5Csv(outRelPath = "public/data/ga/fantasy5.csv") {
   const outPath = resolveOutPath(outRelPath);
-  const { client } = await makeHttpClient();
 
   // CLI config
   const args = parseArgs();
@@ -233,16 +275,20 @@ export async function buildFantasy5Csv(outRelPath = "public/data/ga/fantasy5.csv
   console.log(`[Fantasy5] Years ${startYear}–${endYear} (filtered since ${since}); cache TTL ${ttlHours}h`);
 
   const all = [];
-  for (let y = startYear; y <= endYear; y++) {
-    try {
-      console.log(`[Fantasy5] Year ${y}…`);
-      const rows = await fetchYearLinesLNN(y, client, ttlMs);
-      console.log(`[Fantasy5] ${y}: ${rows.length} rows (pre-filter)`);
-      all.push(...rows);
-    } catch (e) {
-      console.warn(`[Fantasy5] ${y} failed: ${e?.message ?? e}`);
+  try {
+    for (let y = startYear; y <= endYear; y++) {
+      try {
+        console.log(`[Fantasy5] Year ${y}…`);
+        const rows = await fetchYearLinesLNN(y, ttlMs);
+        console.log(`[Fantasy5] ${y}: ${rows.length} rows (pre-filter)`);
+        all.push(...rows);
+      } catch (e) {
+        console.warn(`[Fantasy5] ${y} failed: ${e?.message ?? e}`);
+      }
+      await sleep(jitter(400)); // polite pacing
     }
-    await sleep(jitter(400)); // polite pacing
+  } finally {
+    await closeBrowser(); // ensure we don't hold the process open
   }
 
   // De-dupe, filter to 5/42 era, sort

@@ -13,22 +13,20 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.888.0",
     "@google-cloud/storage": "^7.17.1",
-    "playwright": "^1.55.0",
     "clsx": "^2.1.1",
     "mri": "^1.2.0",
     "next": "^14.2.32",
     "p-limit": "^3.1.0",
+    "cheerio": "1.1.2",
+    "playwright": "1.55.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "tough-cookie": "6.0.0",
     "undici": "^7.16.0"
   },
   "type": "module",
   "devDependencies": {
     "@types/node": "^24.3.1",
     "@types/react": "^19.1.12",
-    "cheerio": "1.1.2",
-    "got": "14.4.8",
     "tsx": "^4.20.5",
     "typescript": "^5.9.2"
   }
