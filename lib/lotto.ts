@@ -294,7 +294,7 @@ export async function fetchNY(options: {
 
   // ✅ For Fantasy 5, fetch from our API route (which handles R2/local) and parse
   if (game === 'ga_fantasy5') {
-    const res = await fetch('/api/ga/fantasy5', { cache: 'no-store' });
+    const res = await fetch('/api/ga/fantasy5?ts=' + Date.now(), { cache: 'no-store' });
     if (!res.ok) throw new Error(`GA Fantasy 5 ${res.status}: ${await res.text()}`);
     const text = await res.text();
     let all = parseGAFantasy5Csv(text);
@@ -430,7 +430,7 @@ function canonicalUrlFor(game: GameKey): string | null {
   if (game === 'powerball') return '/api/multi/powerball';
   if (game === 'megamillions') return '/api/multi/megamillions';
   if (game === 'ga_cash4life') return '/api/ga/cash4life';
-  if (game === 'ga_fantasy5') return '/api/ga/fantasy5';
+  if (game === 'ga_fantasy5') return '/api/ga/fantasy5?ts=' + Date.now();
   return null;
 }
 
@@ -439,7 +439,7 @@ async function fetchCanonical(game: GameKey): Promise<LottoRow[]> {
     game === 'powerball' ? '/api/multi/powerball' :
     game === 'megamillions' ? '/api/multi/megamillions' :
     game === 'ga_cash4life' ? '/api/ga/cash4life' :
-    game === 'ga_fantasy5' ? '/api/ga/fantasy5' :
+    game === 'ga_fantasy5' ? '/api/ga/fantasy5?ts=' + Date.now() :
     null;
 
   if (!url) throw new Error(`No canonical route for ${game}`);
