@@ -13,7 +13,7 @@ export default function SelectedLatest({ game }: { game: GameKey }) {
         const since = getCurrentEraConfig(game).start;
         const rows = await fetchRowsWithCache({ game, since, latestOnly: true });
         if (!alive) return;
-        setRow(rows[rows.length - 1] ?? null);
+        setRow(rows[0] ?? null);
       } finally {
         setBusy(false);
       }

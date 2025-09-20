@@ -55,8 +55,8 @@ export default function AnalyzeSidebar() {
     <section className="card" role ="note" aria-label="Analysis"  style={{ marginBottom: 8 }}>
       <div style={{ fontWeight:700, marginBottom: 8 }}>Analysis (All Games)</div>
       {err && <div className="hint" style={{ color:'var(--danger)' }}>{err}</div>}
-      {!err && <div className="hint" aria-live="polite">Loaded {okCount}/4 games.</div>}
       {busy && <div className="hint">Analyzing…</div>}
+      {!busy && !err && <div className="hint" aria-live="polite">Loaded {okCount}/4 games.</div>}
       {!busy && ORDER.map(g => {
         const a = data[g.key];
         return (

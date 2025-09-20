@@ -1,47 +1,31 @@
-import { NextResponse } from 'next/server';
-import fs from 'node:fs/promises';
-import path from 'node:path';
+// app/api/ga/fantasy5/route.ts
+import { NextResponse } from "next/server";
 
-export const dynamic = 'force-dynamic';
-export const runtime = 'nodejs';
-
-function envRemoteUrl(): string | undefined {
-  return process.env.LOTTO_REMOTE_CSV_URL_GA_FANTASY5
-    ?? (process.env.NEXT_PUBLIC_DATA_BASE_URL
-      ? `${process.env.NEXT_PUBLIC_DATA_BASE_URL}/ga/fantasy5.csv`
-      : undefined);
-}
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 export async function GET() {
-  const remote = envRemoteUrl();
-  if (remote) {
-    try {
-      const r = await fetch(remote, { cache: 'no-store' });
-      if (r.ok) {
-        const csv = await r.text();
-        console.log(`[fantasy5] using remote: ${remote}`);
-        return new NextResponse(csv, {
-          headers: {
-            'content-type': 'text/csv; charset=utf-8',
-            'cache-control': 'no-store',
-          },
-        });
-      }
-      console.warn(`[fantasy5] remote fetch failed ${r.status} ${r.statusText}`);
-    } catch (err) {
-      console.warn(`[fantasy5] remote fetch error: ${String(err)}`);
-    }
-  } else {
-    console.log('[fantasy5] remote URL not set; using local file');
+  const base = process.env.NEXT_PUBLIC_DATA_BASE_URL;
+  const explicit = process.env.LOTTO_REMOTE_CSV_URL_GA_FANTASY5;
+  const remote = explicit ?? (base ? `${base.replace(/\/+$/,'')}/ga/fantasy5.csv` : undefined);
+
+  if (!remote) {
+    return NextResponse.json({ error: "No remote configured for Fantasy 5" }, { status: 500 });
   }
 
-  // Fallback to the local seed/file in the container image
-  const file = path.join(process.cwd(), 'public', 'data', 'ga', 'fantasy5.csv');
-  const csv = await fs.readFile(file, 'utf8');
-  return new NextResponse(csv, {
-    headers: {
-      'content-type': 'text/csv; charset=utf-8',
-      'cache-control': 'no-store',
-    },
-  });
+  try {
+    const r = await fetch(remote, { cache: "no-store" as any, next: { revalidate: 0 } as any });
+    if (!r.ok) {
+      return NextResponse.json({ error: `Upstream ${r.status} for ${remote}` }, { status: 502 });
+    }
+
+    const headers = new Headers(r.headers);
+    headers.set("Content-Type", "text/csv; charset=utf-8");
+    headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+    headers.delete("ETag"); // avoid intermediary caching quirks
+
+    return new NextResponse(r.body, { status: 200, headers });
+  } catch (err: any) {
+    return NextResponse.json({ error: err?.message ?? "Remote fetch failed" }, { status: 502 });
+  }
 }

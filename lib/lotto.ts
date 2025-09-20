@@ -31,6 +31,20 @@ export type LottoRow = {
    return `lsp.cache.v1.${game}`;
  }
 
+ /** Canonical Next API endpoints per game (remote-first to GCS, no-store). */
+export const GAME_TO_API_PATH: Record<GameKey, string> = {
+  powerball: '/api/multi/powerball',
+  megamillions: '/api/multi/megamillions',
+  ga_cash4life: '/api/ga/cash4life',
+  ga_fantasy5: '/api/ga/fantasy5', // shim adds a ts-buster already if you want
+};
+
+export function apiPathForGame(game: GameKey): string {
+  const p = GAME_TO_API_PATH[game];
+  if (!p) throw new Error(`Unknown game key: ${game}`);
+  return p;
+}
+
  function toISODateOnly(s?: string): string | null {
   if (!s) return null;
   // Already YYYY-MM-DD
@@ -95,11 +109,16 @@ export async function fetchRowsWithCache(options: {
 
   let rows: LottoRow[] = [];
   try {
-    const all = await fetchCanonical(game); // uses your “min rows” gate
+    const all = await fetchCanonical(game); // remote-first via Next API → GCS
     rows = applyFilters(all, { since, until, latestOnly: effectiveLatestOnly });
   } catch {
-    // Fall back to Socrata
-    rows = await fetchNY({ game, since, until, latestOnly: effectiveLatestOnly, token });
+    // Fall back to Socrata only for Socrata-backed games
+    if (game === 'powerball' || game === 'megamillions' || game === 'ga_cash4life') {
+      rows = await fetchNY({ game, since, until, latestOnly: effectiveLatestOnly, token });
+    } else {
+      // For Fantasy 5 (no Socrata), rethrow so callers see the failure
+      throw;
+    }
   }
 
   if (!effectiveLatestOnly) writeCache(game, rows, era.start);
@@ -292,26 +311,9 @@ export async function fetchNY(options: {
 }): Promise<LottoRow[]> {
   const { game, since, until, latestOnly, token } = options;
 
-  // ✅ For Fantasy 5, fetch from our API route (which handles R2/local) and parse
+  // Fantasy 5 is not a Socrata source. Only PB/MM/C4L go through Socrata here.
   if (game === 'ga_fantasy5') {
-    const res = await fetch('/api/ga/fantasy5?ts=' + Date.now(), { cache: 'no-store' });
-    if (!res.ok) throw new Error(`GA Fantasy 5 ${res.status}: ${await res.text()}`);
-    const text = await res.text();
-    let all = parseGAFantasy5Csv(text);
-
-    // Apply filters client-side (same semantics as before)
-    if (latestOnly) all = all.slice(-1);
-    else if (since || until) {
-      const sinceD = since ? new Date(since) : undefined;
-      const untilD = until ? new Date(until) : undefined;
-      all = all.filter(r => {
-        const d = new Date(r.date);
-        if (sinceD && d < sinceD) return false;
-        if (untilD) { const end = new Date(untilD); end.setDate(end.getDate() + 1); if (d >= end) return false; }
-        return true;
-      });
-    }
-    return all;
+    throw new Error('fetchNY called for Fantasy 5 (no Socrata dataset).');
   }
 
   // ⬇️ Existing Socrata path (unchanged) for PB/MM/Cash4Life
@@ -345,40 +347,10 @@ export async function fetchNY(options: {
   return out;
 }
 
-// ---- Fantasy 5 pure CSV parser (accepts num1..num5 OR m1..m5) ----
-function parseGAFantasy5Csv(text: string): LottoRow[] {
-  const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0);
-  if (!lines.length) return [];
-  const header = lines.shift()!;
-  const cols = header.split(',').map(s => s.trim().toLowerCase());
-  const idx = (name: string) => cols.indexOf(name);
+// (Removed) Fantasy 5 special CSV parser — use parseCanonicalCsv for all canonical CSVs.
 
-  const iDate = idx('draw_date');
-  const i1 = idx('num1') >= 0 ? idx('num1') : idx('m1');
-  const i2 = idx('num2') >= 0 ? idx('num2') : idx('m2');
-  const i3 = idx('num3') >= 0 ? idx('num3') : idx('m3');
-  const i4 = idx('num4') >= 0 ? idx('num4') : idx('m4');
-  const i5 = idx('num5') >= 0 ? idx('num5') : idx('m5');
-
-  if ([iDate, i1, i2, i3, i4, i5].some(i => i < 0)) return [];
-
-  const out: LottoRow[] = [];
-  for (const line of lines) {
-    const t = line.split(',').map(s => s.trim());
-    if (t.length < 6) continue;
-    const d = new Date(t[iDate]); if (Number.isNaN(d.getTime())) continue;
-    const date = d.toISOString().slice(0, 10);
-    const nums = [t[i1], t[i2], t[i3], t[i4], t[i5]].map(v => parseInt(v, 10));
-    if (nums.some(n => !Number.isFinite(n))) continue;
-    const [n1, n2, n3, n4, n5] = nums;
-    out.push({ game: 'ga_fantasy5', date, n1, n2, n3, n4, n5, special: undefined });
-  }
-  return out;
-}
-
-// ---- Canonical CSV (R2 via Next API proxies) ----
-// Accepts either: draw_date,num1..num5,special  OR  draw_date,m1..m5,special
-function parseCanonicalCsv(csv: string, gameDefault: GameKey): LottoRow[] {
+// ---- Canonical CSV parser (one game per file) ----
+function parseCanonicalCsv(csv: string, game: GameKey): LottoRow[] {
   const lines = csv.trim().split(/\r?\n/);
   if (lines.length === 0) return [];
 
@@ -386,7 +358,6 @@ function parseCanonicalCsv(csv: string, gameDefault: GameKey): LottoRow[] {
   const cols = header.split(',').map(s => s.trim().toLowerCase());
   const idx = (name: string) => cols.indexOf(name);
 
-  const iGame = idx('game'); // optional
   const iDate = idx('draw_date');
 
   // Support both num1..num5 and m1..m5
@@ -396,17 +367,14 @@ function parseCanonicalCsv(csv: string, gameDefault: GameKey): LottoRow[] {
   const i4 = idx('num4') >= 0 ? idx('num4') : idx('m4');
   const i5 = idx('num5') >= 0 ? idx('num5') : idx('m5');
 
-  const iSpec = idx('special'); // optional for Fantasy5 (will be blank)
+  const iSpec = idx('special'); // optional
 
-  // If the canonical header doesn't match, bail early
-  if (iDate < 0 || [i1,i2,i3,i4,i5].some(i => i < 0)) return [];
+  if (iDate < 0 || [i1, i2, i3, i4, i5].some(i => i < 0)) return [];
 
   const out: LottoRow[] = [];
   for (const line of lines) {
     if (!line.trim()) continue;
     const t = line.split(',').map(s => s.trim());
-
-    const game = (iGame >= 0 && t[iGame]) ? (t[iGame] as GameKey) : gameDefault;
 
     const d = new Date(t[iDate]);
     if (Number.isNaN(d.getTime())) continue;
@@ -426,25 +394,17 @@ function parseCanonicalCsv(csv: string, gameDefault: GameKey): LottoRow[] {
   return out;
 }
 
-function canonicalUrlFor(game: GameKey): string | null {
-  if (game === 'powerball') return '/api/multi/powerball';
-  if (game === 'megamillions') return '/api/multi/megamillions';
-  if (game === 'ga_cash4life') return '/api/ga/cash4life';
-  if (game === 'ga_fantasy5') return '/api/ga/fantasy5?ts=' + Date.now();
-  return null;
+function canonicalUrlFor(game: GameKey): string {
+  const base = apiPathForGame(game);
+  // Add a lightweight cache-buster to avoid any intermediate caching surprises.
+  const sep = base.includes('?') ? '&' : '?';
+  return `${base}${sep}ts=${Date.now()}`;
 }
 
 async function fetchCanonical(game: GameKey): Promise<LottoRow[]> {
-  const url =
-    game === 'powerball' ? '/api/multi/powerball' :
-    game === 'megamillions' ? '/api/multi/megamillions' :
-    game === 'ga_cash4life' ? '/api/ga/cash4life' :
-    game === 'ga_fantasy5' ? '/api/ga/fantasy5?ts=' + Date.now() :
-    null;
+  const url = canonicalUrlFor(game);
 
-  if (!url) throw new Error(`No canonical route for ${game}`);
-
-  const res = await fetch(url, { cache: 'no-store' });
+  const res = await fetch(url, { cache: 'no-store', next: { revalidate: 0 } as any });
   if (!res.ok) throw new Error(`Canonical ${game} ${res.status}`);
 
   const text = await res.text();
@@ -460,7 +420,7 @@ async function fetchCanonical(game: GameKey): Promise<LottoRow[]> {
   const parsed = parseCanonicalCsv(text, game);
   if (parsed.length === 0) throw new Error(`Canonical ${game} parse failed`);
 
-  return parsed;
+  return parsed.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
 }
 
 function applyFilters(

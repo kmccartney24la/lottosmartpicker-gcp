@@ -1,23 +1,23 @@
+// app/api/ga/cash4life/route.ts
+
 import { NextResponse } from 'next/server';
-import { fetchNY, getCurrentEraConfig } from '@lib/lotto';
-import { rowsToCSV } from '@lib/csv';
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
 
 export async function GET() {
-  try {
-    const since = getCurrentEraConfig('ga_cash4life').start;
-    const rows = await fetchNY({ game: 'ga_cash4life', since });
-    const csv = rowsToCSV(rows);
-
-    return new NextResponse(csv, {
-      status: 200,
-      headers: {
-        'Content-Type': 'text/csv; charset=utf-8',
-        'Content-Disposition': `attachment; filename="ga_cash4life_${since}_today.csv"`,
-        'Cache-Control': 'no-store',
-      },
-    });
-  } catch (err: any) {
-    return NextResponse.json({ error: err?.message || 'Proxy failed' }, { status: 500 });
+  const base = process.env.NEXT_PUBLIC_DATA_BASE_URL;
+  if (!base) {
+    return NextResponse.json({ error: 'NEXT_PUBLIC_DATA_BASE_URL not set' }, { status: 500 });
   }
+  const url = `${base.replace(/\/+$/,'')}/ga/cash4life.csv`;
+  const r = await fetch(url, { cache: 'no-store' as any, next: { revalidate: 0 } as any });
+  if (!r.ok) {
+    return NextResponse.json({ error: `Upstream ${r.status} for ${url}` }, { status: 502 });
+  }
+  const h = new Headers(r.headers);
+  h.set('Content-Type', 'text/csv; charset=utf-8');
+  h.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  h.delete('ETag');
+  return new NextResponse(r.body, { status: 200, headers: h });
 }
 

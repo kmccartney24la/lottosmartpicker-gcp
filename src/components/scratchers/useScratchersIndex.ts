@@ -16,7 +16,7 @@ export function useScratchersIndex() {
     (async () => {
       setLoading(true);
       try {
-        const res = await fetch("/api/ga/scratchers", { cache: "no-store" });
+        const res = await fetch(`/api/ga/scratchers?t=${Date.now()}`, { cache: "no-store" });
         if (!res.ok) throw new Error(`scratchers ${res.status}`);
         const json = (await res.json()) as ScratchersIndexPayload;
         if (alive) setRaw(json);

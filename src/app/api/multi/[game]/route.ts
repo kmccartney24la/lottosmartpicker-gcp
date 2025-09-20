@@ -1,14 +1,13 @@
 // app/api/multi/[game]/route.ts
-import { NextResponse } from "next/server";
-import { remoteFor } from "@lib/server/remotes"; // ← your alias (no leading slash)
+import { NextResponse } from 'next/server';
 
+export const dynamic = 'force-dynamic';
 export const runtime = "nodejs";
 
+// Only multi-state games belong here.
 const MAP = {
-  powerball: "powerball",
-  megamillions: "megamillions",
-  ga_cash4life: "ga_cash4life",
-  ga_fantasy5: "ga_fantasy5",
+  powerball: "multi/powerball.csv",
+  megamillions: "multi/megamillions.csv",
 } as const;
 type RouteGame = keyof typeof MAP;
 
@@ -19,26 +18,22 @@ export async function GET(
   const raw = (ctx.params.game || "").toLowerCase().trim();
   if (!(raw in MAP)) {
     return NextResponse.json(
-      { error: `Unknown game '${raw}'. Supported: ${Object.keys(MAP).join(", ")}` },
+      { error: `Unknown multi-state game '${raw}'. Supported: ${Object.keys(MAP).join(", ")}` },
       { status: 400 }
     );
   }
 
-  const game = MAP[raw as RouteGame];
-  let url: string;
-  try {
-    url = remoteFor(game);
-  } catch (err: any) {
+  const base = process.env.NEXT_PUBLIC_DATA_BASE_URL;
+  if (!base) {
     return NextResponse.json(
-      { error: err?.message ?? "No remote URL configured" },
+      { error: "NEXT_PUBLIC_DATA_BASE_URL is not set" },
       { status: 500 }
     );
   }
 
-  
-
-  // Stream the CSV from R2 to the client.
-  const upstream = await fetch(url, { method: "GET", cache: "no-store" });
+  const path = MAP[raw as RouteGame];
+  const url = `${base.replace(/\/+$/,'')}/${path}`;
+  const upstream = await fetch(url, { method: "GET", cache: "no-store" as any, next: { revalidate: 0 } as any });
   if (!upstream.ok) {
     return NextResponse.json(
       { error: `Upstream ${upstream.status} fetching ${url}` },
@@ -46,14 +41,9 @@ export async function GET(
     );
   }
 
-  // Pass through content type/length if present.
-  const headers = new Headers({
-    "content-type": "text/csv; charset=utf-8",
-    "content-disposition": `attachment; filename="${game}.csv"`,
-    "cache-control": "public, max-age=300, must-revalidate",
-  });
-  const cl = upstream.headers.get("content-length");
-  if (cl) headers.set("content-length", cl);
-
+  const headers = new Headers(upstream.headers);
+  headers.set("Content-Type", "text/csv; charset=utf-8");
+  headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  headers.delete("ETag"); // avoid intermediate caching weirdness
   return new NextResponse(upstream.body, { status: 200, headers });
 }
