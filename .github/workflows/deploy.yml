@@ -90,5 +90,5 @@ jobs:
             --set-env-vars "GA_SCRATCHERS_INDEX_URL=${{ steps.envsel.outputs.DATA_BASE }}/ga/scratchers/index.json" \
             --set-env-vars "LOTTO_REMOTE_CSV_URL_POWERBALL=${{ steps.envsel.outputs.DATA_BASE }}/multi/powerball.csv" \
             --set-env-vars "LOTTO_REMOTE_CSV_URL_MEGAMILLIONS=${{ steps.envsel.outputs.DATA_BASE }}/multi/megamillions.csv" \
-            --set-env-vars "LOTTO_REMOTE_CSV_URL_GA_CASH4LIFE=${{ steps.envsel.outputs.DATA_BASE }}/ga/cash4life.csv" \
+            --set-env-vars "LOTTO_REMOTE_CSV_URL_CASH4LIFE=${{ steps.envsel.outputs.DATA_BASE }}/multi/cash4life.csv" \
             --set-env-vars "LOTTO_REMOTE_CSV_URL_GA_FANTASY5=${{ steps.envsel.outputs.DATA_BASE }}/ga/fantasy5.csv"

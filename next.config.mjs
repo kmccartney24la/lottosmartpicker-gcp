@@ -2,6 +2,7 @@
 /** @type {import('next').NextConfig} */
 export default {
   output: 'standalone',
+  productionBrowserSourceMaps: false,
   images: {
     remotePatterns: [
       { protocol: 'https', hostname: 'data.lottosmartpicker.com' },
@@ -10,6 +11,15 @@ export default {
   },
   async headers() {
     return [
+      // Keep API endpoints out of search and out of caches
+      {
+        source: '/api/:path*',
+        headers: [
+          { key: 'X-Robots-Tag', value: 'noindex, noimageindex, nofollow' },
+          { key: 'Cache-Control', value: 'no-store, no-cache, must-revalidate, proxy-revalidate' },
+          { key: 'Pragma', value: 'no-cache' },
+        ],
+      },
       // Long, immutable cache for Next static assets
       {
         source: '/_next/static/:path*',

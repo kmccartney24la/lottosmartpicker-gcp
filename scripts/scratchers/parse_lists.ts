@@ -1,13 +1,13 @@
 //scripts/scratchers/parse_lists.ts
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { BrowserContext, Page } from "playwright";
-import { openAndReady, withRetry } from "./_util";
+import type { BrowserContext, Page } from "playwright";
+import { openAndReady, withRetry } from "./_util.js";
 
 const ACTIVE_URL = "https://www.galottery.com/en-us/games/scratchers/active-games.html";
 const ENDED_URL  = "https://www.galottery.com/en-us/games/scratchers/ended-games.html";
 
-const OUT_DIR = "public/data/ga_scratchers";
+const OUT_DIR = "public/data/ga/scratchers";
 
 export type ScratcherListsNums = {
   activeNums: number[];

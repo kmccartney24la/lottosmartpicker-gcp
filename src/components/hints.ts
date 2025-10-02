@@ -1,3 +1,4 @@
+// src/components/hint.ts
 export const HINT_EXPLAIN: Record<string, string> = {
   'Balanced':
     'No strong hot/cold signals; no obvious sequences or tight clusters.',

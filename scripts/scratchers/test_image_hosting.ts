@@ -1,4 +1,4 @@
-﻿import { ensureHashKey, getStorage, setHostingOptions } from "./image_hosting";
+import { ensureHashKey, getStorage, setHostingOptions } from "./image_hosting.js";
 
 const url = process.argv[2];
 const gameNumber = Number(process.argv[3] || 9999);

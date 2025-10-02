@@ -1,3 +1,4 @@
+// src/components/Generator.tsx
 'use client';
 import { useMemo, useRef, useState } from 'react';
 import Info from 'src/components/Info';
@@ -80,12 +81,11 @@ export default function Generator({
   const hasSpecial = eraCfg.specialMax > 0;
 
   return (
-    <div className="card" style={{ maxWidth: 720 }}>
+    <section className="card generator-card">
       {/* Header */}
-      <div style={{ fontWeight: 700, marginBottom: 8 }}>Generator</div>
-      
+      <div className="card-title">Generator</div>
       {/* Recommended */}
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6, flexWrap: 'wrap' }}>
+      <div className="controls">
         <button
           className="btn btn-primary"
           onClick={applyRecommendedPreset}
@@ -98,7 +98,6 @@ export default function Generator({
                 : 'Click to analyze and apply the recommended weights'
             )
           }
-          style={{ marginLeft: 4 }}
         >
           Recommended
         </button>
@@ -115,36 +114,37 @@ export default function Generator({
       </div>
 
       {/* Main numbers weighting */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
-        <div style={{ fontWeight: 600 }}>Main numbers weighting</div>
-        <Info
-          tip={
-            'Main weighting:\n' +
-            '• hot: probability ∝ historical frequency\n' +
-            '• cold: probability ∝ inverse frequency (rarer → higher weight)\n' +
-            '• α blends uniform with history (0=uniform, 1=hot/cold)\n' +
-            '• A tiny smoothing prior reduces spiky behavior on low samples.'
-          }
+      <div className="generator-section">
+        <div className="controls items-start">
+          <div className="font-semibold">Main numbers weighting</div>
+          <Info
+            tip={
+              'Main weighting:\n' +
+              '• hot: probability ∝ historical frequency\n' +
+              '• cold: probability ∝ inverse frequency (rarer → higher weight)\n' +
+              '• α blends uniform with history (0=uniform, 1=hot/cold)\n' +
+              '• A tiny smoothing prior reduces spiky behavior on low samples.'
+            }
+          />
+        </div>
+        <input
+          aria-label="Main alpha"
+          type="range"
+          min={0}
+          max={1}
+          step={0.05}
+          value={alphaMain}
+          onChange={(e)=>setAlphaMain(parseFloat(e.target.value))}
+          className="generator-range"
         />
+        <div className="hint" aria-live="polite">alpha = {alphaMain.toFixed(2)} ({modeMain})</div>
       </div>
-      {/* (removed old hot/cold toggle buttons) */}
-      <input
-        aria-label="Main alpha"
-        type="range"
-        min={0}
-        max={1}
-        step={0.05}
-        value={alphaMain}
-        onChange={(e)=>setAlphaMain(parseFloat(e.target.value))}
-        style={{ width: '95%' }} 
-      />
-      <div className="hint" aria-live="polite">alpha = {alphaMain.toFixed(2)} ({modeMain})</div>
 
       {/* Special ball weighting (only for games that have a special) */}
       {hasSpecial && (
-        <>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12 }}>
-            <div style={{ fontWeight: 600 }}>Special ball weighting</div>
+        <div className="generator-section">
+          <div className="controls items-start">
+            <div className="font-semibold">Special ball weighting</div>
             <Info
               tip={
                 'Special ball weighting mirrors mains:\n' +
@@ -162,16 +162,21 @@ export default function Generator({
             step={0.05}
             value={alphaSpecial}
             onChange={(e)=>setAlphaSpecial(parseFloat(e.target.value))}
-            style={{ width: '95%' }} 
+            className="generator-range"
           />
           <div className="hint" aria-live="polite">alpha = {alphaSpecial.toFixed(2)} ({modeSpecial})</div>
-        </>
+        </div>
       )}
 
       {/* Options */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 12 }}>
-        <label style={{ fontSize: 14, display: 'flex', alignItems: 'center', gap: 6 }}>
-          <input type="checkbox" checked={avoidCommon} onChange={(e)=>setAvoidCommon(e.target.checked)} />
+      <div className="generator-options">
+        <label className="generator-checkbox-label">
+          <input
+            type="checkbox"
+            checked={avoidCommon}
+            onChange={(e)=>setAvoidCommon(e.target.checked)}
+            className="generator-checkbox-input"
+          />
           <span>Avoid common patterns</span>
           <Info
             tip={
@@ -180,25 +185,35 @@ export default function Generator({
               '• 4+ numbers ≤ 31 (date bias)\n' +
               '• Arithmetic sequences\n' +
               '• Tight clusters (small spread)\n' +
-              'This reduces “too common” combos players tend to pick.'
+              'This reduces "too common" combos players tend to pick.'
             }
           />
         </label>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span style={{ fontSize: 14 }}>Tickets:</span>
-          <input aria-label="Number of tickets" type="number" min={1} max={100} value={num} onChange={(e)=>setNum(parseInt(e.target.value||'1'))} style={{ width: 84 }} />
-        </div>
       </div>
 
-      {/* Actions */}
-      <div style={{ display: 'flex', alignItems:'center', gap: 8 }}>
-        <button onClick={()=>generate()} className="btn btn-primary" style={{ marginTop: 10 }}>
+      {/* Actions with Tickets input */}
+      <div className="generator-actions">
+        <div className="generator-tickets-control">
+          <span>Tickets:</span>
+          <input
+            aria-label="Number of tickets"
+            type="number"
+            min={1}
+            max={100}
+            value={num}
+            onChange={(e)=>setNum(parseInt(e.target.value||'1'))}
+            className="generator-number-input"
+          />
+        </div>
+        <button
+          onClick={()=>generate()}
+          className="btn btn-primary"
+        >
           Generate
         </button>
         <button
           onClick={copyTicketsToClipboard}
           className="btn btn-ghost"
-          style={{ marginTop: 10 }}
           disabled={tickets.length === 0}
           aria-label="Copy tickets to clipboard"
         >
@@ -206,12 +221,6 @@ export default function Generator({
         </button>
         <button
           className="btn btn-ghost"
-          style={{
-            marginTop: 10,
-            // subtle on/off affordance using your token colors
-            borderColor: showEvaluate ? 'var(--accent)' : 'var(--card-bd)',
-            outline: showEvaluate ? '2px solid rgba(37,99,235,.35)' : undefined,
-          }}
           aria-pressed={showEvaluate}
           aria-controls="evaluate-panel"
           onClick={() => setShowEvaluate(v => !v)}
@@ -222,40 +231,60 @@ export default function Generator({
       </div>
       
 {/* Evaluate My Numbers (togglable) */}
-      {showEvaluate && (
-        <div id="evaluate-panel" style={{ marginTop: 8 }}>
-          <EvaluateTicket
-            game={game}
-            rowsForGenerator={rowsForGenerator}
-            precomputedStats={stats}
-          />
-        </div>
-      )}
+{showEvaluate && (
+  <div id="evaluate-panel" className="generator-evaluate">
+    <EvaluateTicket
+      game={game}
+      rowsForGenerator={rowsForGenerator}
+      precomputedStats={stats}
+    />
+  </div>
+)}
 
-      {/* Results */}
-      <div aria-live="polite" ref={liveRef} style={{ position:'absolute', width:1, height:1, clip:'rect(0 0 0 0)', overflow:'hidden' }} />
-      <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 8 }}>
+{/* Results */}
+<div aria-live="polite" ref={liveRef} className="visually-hidden" />
+<div className="generator-results">
         {tickets.map((t, i) => {
           const hints = ticketHints(game, t.mains, t.special ?? 0, stats);
           return (
-            <div key={i} className="card" style={{ padding: 8 }}>
-              <div className="mono" aria-label={`Ticket ${i+1}`}>
-                {hasSpecial ? `${t.mains.join('-')} | ${t.special}` : t.mains.join('-')}
+            <div key={i} className="card">
+              {/* Bubble-rendered ticket numbers */}
+              <div className="mono num-bubbles" aria-label={`Ticket ${i+1}`}>
+                {t.mains.map((n, idx) => (
+                  <span key={`m-${idx}`} className="num-bubble" aria-label={`Main ${idx+1}`}>{n}</span>
+                ))}
+                {hasSpecial && (
+                  <>
+                    <span className="evaluate-separator" aria-hidden="true">|</span>
+                    <span
+                      className={
+                        `num-bubble ${
+                          game === 'multi_powerball' ? 'num-bubble--red'
+                          : game === 'multi_megamillions' ? 'num-bubble--blue'
+                          : game === 'multi_cash4life' ? 'num-bubble--green'
+                          : 'num-bubble--amber'
+                        }`
+                      }
+                      aria-label="Special"
+                    >
+                      {t.special}
+                    </span>
+                  </>
+                )}
               </div>
-              <div style={{ marginTop: 6 }}>
-                <div style={{ display:'flex', flexWrap:'wrap', gap: 6 }}>
-                  {hints.map(h => (
-                    <Pill key={h} tone={classifyHint(h)} title={HINT_EXPLAIN[h]}>
-                      {h}
-                    </Pill>
-                  ))}
-                </div>
+              {/* Hint pills */}
+              <div className="chips">
+                {hints.map(h => (
+                  <Pill key={h} tone={classifyHint(h)} title={HINT_EXPLAIN[h]}>
+                    {h}
+                  </Pill>
+                ))}
               </div>
             </div>
           );
         })}
         {tickets.length === 0 && <div className="hint">No tickets yet.</div>}
       </div>
-    </div>
+    </section>
   );
 }

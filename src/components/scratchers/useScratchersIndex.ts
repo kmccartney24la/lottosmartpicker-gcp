@@ -3,6 +3,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { ActiveGame } from "./types";
+import { fetchScratchersWithCache } from "@lib/scratchers";
 
 // API response can be either { games: ActiveGame[], updatedAt?: string } or an array of ActiveGame
 type ScratchersIndexPayload = { games: ActiveGame[]; updatedAt?: string } | ActiveGame[];
@@ -16,10 +17,8 @@ export function useScratchersIndex() {
     (async () => {
       setLoading(true);
       try {
-        const res = await fetch(`/api/ga/scratchers?t=${Date.now()}`, { cache: "no-store" });
-        if (!res.ok) throw new Error(`scratchers ${res.status}`);
-        const json = (await res.json()) as ScratchersIndexPayload;
-        if (alive) setRaw(json);
+        const games = await fetchScratchersWithCache();
+        if (alive) setRaw({ games, updatedAt: new Date().toISOString() });
       } catch (err) {
         console.error(err);
         if (alive) setRaw({ games: [] });

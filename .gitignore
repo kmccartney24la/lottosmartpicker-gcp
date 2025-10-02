@@ -9,4 +9,4 @@ node_modules/
 .cache/
 public/data/**/*.latest.csv
 public/data/**/*.partial
-public/data/ga_scratchers/_debug_trace.zip
+public/data/ga/scratchers/_debug_trace.zip

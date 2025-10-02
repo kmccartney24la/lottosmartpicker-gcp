@@ -1,3 +1,4 @@
+// src/components/Info.tsx
 'use client';
 export default function Info({ tip, label = 'Info' }: { tip: string; label?: string }) {
   // Hover/focus-only tooltip. No click/toggle logic.

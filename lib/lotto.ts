@@ -1,7 +1,20 @@
 // lib/lotto.ts
-export type GameKey = 'powerball' | 'megamillions' | 'ga_cash4life' | 'ga_fantasy5';
+// Stable game keys (target convention)
+ export type GameKey =
+   | 'multi_powerball'
+   | 'multi_megamillions'
+   | 'multi_cash4life'
+   | 'ga_fantasy5'
+   | 'ga_scratchers';
 
-const isMultiGame = (g: GameKey) => g === 'powerball' || g === 'megamillions';
+const isMultiGame = (g: GameKey) =>
+  g === 'multi_powerball' || g === 'multi_megamillions' || g === 'multi_cash4life';
+
+// Always go through the app proxy
+const FILE_BASE =
+  process.env.NEXT_PUBLIC_DATA_BASE ||
+  process.env.NEXT_PUBLIC_DATA_BASE_URL ||
+  '/api/file';
 
 function shouldSeedFullHistory(): boolean {
   // Guarded to Node/SSR; in browser `process` may not exist
@@ -27,22 +40,28 @@ export type LottoRow = {
  function isBrowser() { return typeof window !== 'undefined' && typeof localStorage !== 'undefined'; }
 
  function cacheKey(game: GameKey) {
-   // bump "v1" if you change the structure
-   return `lsp.cache.v1.${game}`;
- }
+  // bump whenever caching logic/shape changes
+  return `lsp.cache.v2.${game}`;
+}
 
  /** Canonical Next API endpoints per game (remote-first to GCS, no-store). */
 export const GAME_TO_API_PATH: Record<GameKey, string> = {
-  powerball: '/api/multi/powerball',
-  megamillions: '/api/multi/megamillions',
-  ga_cash4life: '/api/ga/cash4life',
-  ga_fantasy5: '/api/ga/fantasy5', // shim adds a ts-buster already if you want
+  multi_powerball:    `${FILE_BASE}/multi/powerball.csv`,
+  multi_megamillions: `${FILE_BASE}/multi/megamillions.csv`,
+  multi_cash4life:    `${FILE_BASE}/multi/cash4life.csv`,
+  ga_fantasy5:        `${FILE_BASE}/ga/fantasy5.csv`,
+  ga_scratchers:      `${FILE_BASE}/ga/scratchers/index.latest.json`,
 };
 
 export function apiPathForGame(game: GameKey): string {
   const p = GAME_TO_API_PATH[game];
   if (!p) throw new Error(`Unknown game key: ${game}`);
   return p;
+}
+
+function latestApiPathForGame(game: GameKey): string {
+  const p = apiPathForGame(game);
+  return p.replace(/\.csv(\?.*)?$/i, '.latest.csv');
 }
 
  function toISODateOnly(s?: string): string | null {
@@ -107,17 +126,38 @@ export async function fetchRowsWithCache(options: {
     }
   }
 
+  const env = !effectiveLatestOnly ? readCache(game) : null;
+  if (env && env.eraStart === era.start) {
+    try {
+      // Always prefer the tiny freshness probe; it’s cheap and precise.
+      const remoteLatest = await fetchLatestDate(game);
+      const cachedLatest = env.rows.length ? env.rows[env.rows.length - 1].date : null;
+      if (remoteLatest && cachedLatest === remoteLatest) {
+        // Cache matches the source — return immediately (even if TTL not elapsed).
+        return filterRowsForCurrentEra(env.rows, game);
+      }
+      // If we couldn’t read latest date (null), fall back to TTL freshness.
+      if (!remoteLatest && isCacheFresh(env)) {
+        return filterRowsForCurrentEra(env.rows, game);
+      }
+      // else: stale → fall through to full fetch
+    } catch {
+      // If probe fails but TTL says fresh, still use cache.
+      if (isCacheFresh(env)) return filterRowsForCurrentEra(env.rows, game);
+    }
+  }
+
   let rows: LottoRow[] = [];
   try {
     const all = await fetchCanonical(game); // remote-first via Next API → GCS
     rows = applyFilters(all, { since, until, latestOnly: effectiveLatestOnly });
-  } catch {
+  } catch (err) {
     // Fall back to Socrata only for Socrata-backed games
-    if (game === 'powerball' || game === 'megamillions' || game === 'ga_cash4life') {
+    if (game === 'multi_powerball' || game === 'multi_megamillions' || game === 'multi_cash4life') {
       rows = await fetchNY({ game, since, until, latestOnly: effectiveLatestOnly, token });
     } else {
       // For Fantasy 5 (no Socrata), rethrow so callers see the failure
-      throw;
+      throw err;
     }
   }
 
@@ -126,17 +166,17 @@ export async function fetchRowsWithCache(options: {
 }
 
 export const SOCRATA_BASE = 'https://data.ny.gov/resource';
-export const DATASETS: Record<Exclude<GameKey,'ga_fantasy5'>, { id: string; dateField: string; winningField: string; specialField?: string }> = {
-  powerball:    { id: 'd6yy-54nr', dateField: 'draw_date', winningField: 'winning_numbers' },
-  megamillions: { id: '5xaw-6ayf', dateField: 'draw_date', winningField: 'winning_numbers', specialField: 'mega_ball' },
-  ga_cash4life: { id: 'kwxv-fwze', dateField: 'draw_date', winningField: 'winning_numbers', specialField: 'cash_ball' }, // NY Open Data Cash4Life
+export const DATASETS: Record<Exclude<GameKey,'ga_fantasy5'|'ga_scratchers'>, { id: string; dateField: string; winningField: string; specialField?: string }> = {
+  multi_powerball:    { id: 'd6yy-54nr', dateField: 'draw_date', winningField: 'winning_numbers' },
+  multi_megamillions: { id: '5xaw-6ayf', dateField: 'draw_date', winningField: 'winning_numbers', specialField: 'mega_ball' },
+  multi_cash4life: { id: 'kwxv-fwze', dateField: 'draw_date', winningField: 'winning_numbers', specialField: 'cash_ball' }, // NY Open Data Cash4Life
 
 };
 
-export const DRAW_DOWS: Record<GameKey, Set<number>> = {
-  powerball: new Set([1, 3, 6]),
-  megamillions: new Set([2, 5]),
-  ga_cash4life: new Set([0,1,2,3,4,5,6]), // daily 9:00 p.m. ET
+export const DRAW_DOWS: Record<Exclude<GameKey,'ga_scratchers'>, Set<number>> = {
+  multi_powerball: new Set([1, 3, 6]),
+  multi_megamillions: new Set([2, 5]),
+  multi_cash4life: new Set([0,1,2,3,4,5,6]), // daily 9:00 p.m. ET
   ga_fantasy5:  new Set([0,1,2,3,4,5,6]), // daily 11:34 p.m. ET
 };
 
@@ -158,8 +198,8 @@ export type EraConfig = {
   description: string;      // human text about the change
 };
 
-export const CURRENT_ERA: Record<GameKey, EraConfig> = {
-  powerball: {
+export const CURRENT_ERA: Record<Exclude<GameKey,'ga_scratchers'>, EraConfig> = {
+  multi_powerball: {
     start: '2015-10-07',
     mainMax: 69,
     specialMax: 26,
@@ -168,7 +208,7 @@ export const CURRENT_ERA: Record<GameKey, EraConfig> = {
     description:
       'Powerball’s current matrix took effect on Oct 7, 2015: 5 mains from 1–69 and Powerball 1–26 (changed from 59/35).',
   },
-  megamillions: {
+  multi_megamillions: {
     start: '2025-04-08',
     mainMax: 70,
     specialMax: 24,
@@ -177,7 +217,7 @@ export const CURRENT_ERA: Record<GameKey, EraConfig> = {
     description:
       'Mega Millions’ current matrix took effect on Apr 8, 2025: 5 mains from 1–70 and Mega Ball 1–24 (reduced from 25).',
   },
-  ga_cash4life: {
+  multi_cash4life: {
     start: '2014-07-01', // conservative lower bound; matrix unchanged since launch in 2014 per NY Open Data
     mainMax: 60,
     specialMax: 4,
@@ -208,9 +248,9 @@ export function filterRowsForCurrentEra(rows: LottoRow[], game: GameKey): LottoR
 
 export function eraTooltipFor(game: GameKey): string {
   const era = CURRENT_ERA[game];
-  const name = game === 'powerball' ? 'Powerball'
-              : game === 'megamillions' ? 'Mega Millions'
-              : game === 'ga_cash4life' ? 'Cash4Life (GA)'
+  const name = game === 'multi_powerball' ? 'Powerball'
+              : game === 'multi_megamillions' ? 'Mega Millions'
+              : game === 'multi_cash4life' ? 'Cash4Life (GA)'
               : 'Fantasy 5 (GA)';
   return [
     `${name} (current era: ${era.label})`,
@@ -253,7 +293,7 @@ export function normalizeRowsLoose(rows: any[]): LottoRow[] {
 
   // helper: ensure the game value is one of our supported keys
   const isGameKey = (g: any): g is GameKey =>
-    g === 'powerball' || g === 'megamillions' || g === 'ga_cash4life' || g === 'ga_fantasy5';
+    g === 'multi_powerball' || g === 'multi_megamillions' || g === 'multi_cash4life' || g === 'ga_fantasy5';
 
   const out: LottoRow[] = [];
 
@@ -350,7 +390,7 @@ export async function fetchNY(options: {
 // (Removed) Fantasy 5 special CSV parser — use parseCanonicalCsv for all canonical CSVs.
 
 // ---- Canonical CSV parser (one game per file) ----
-function parseCanonicalCsv(csv: string, game: GameKey): LottoRow[] {
+export function parseCanonicalCsv(csv: string, game: GameKey): LottoRow[] {
   const lines = csv.trim().split(/\r?\n/);
   if (lines.length === 0) return [];
 
@@ -394,33 +434,44 @@ function parseCanonicalCsv(csv: string, game: GameKey): LottoRow[] {
   return out;
 }
 
-function canonicalUrlFor(game: GameKey): string {
-  const base = apiPathForGame(game);
-  // Add a lightweight cache-buster to avoid any intermediate caching surprises.
-  const sep = base.includes('?') ? '&' : '?';
-  return `${base}${sep}ts=${Date.now()}`;
+// No longer needed as API routes handle the URL construction and data fetching
+// function canonicalUrlFor(game: GameKey): string {
+//   const base = apiPathForGame(game);
+//   // Add a lightweight cache-buster to avoid any intermediate caching surprises.
+//   const sep = base.includes('?') ? '&' : '?';
+//   return `${base}${sep}ts=${Date.now()}`;
+// }
+
+// function latestCanonicalUrlFor(game: GameKey): string {
+//   const base = latestApiPathForGame(game);
+//   const sep = base.includes('?') ? '&' : '?';
+//   return `${base}${sep}ts=${Date.now()}`;
+// }
+
+async function fetchLatestDate(game: GameKey): Promise<string | null> {
+  if (game === 'ga_scratchers') return null;
+  const url = latestApiPathForGame(game);
+  const res = await fetch(url, { cache: 'no-store', next: { revalidate: 0 } as any });
+  if (!res.ok) return null;
+  const txt = await res.text();
+  const lines = txt.trim().split(/\r?\n/);
+  if (lines.length < 2) return null; // header-only
+  const last = lines[lines.length - 1].split(',')[0];
+  const d = new Date(last);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
 }
 
+// Canonical fetch parses CSV (not JSON)
 async function fetchCanonical(game: GameKey): Promise<LottoRow[]> {
-  const url = canonicalUrlFor(game);
-
+  if (game === 'ga_scratchers') throw new Error('not a draw game');
+  const url = apiPathForGame(game);
   const res = await fetch(url, { cache: 'no-store', next: { revalidate: 0 } as any });
   if (!res.ok) throw new Error(`Canonical ${game} ${res.status}`);
-
-  const text = await res.text();
-
-  // If the file is empty or header-only, bail so we can fall back to Socrata
-  const lines = text.trim().split(/\r?\n/).filter(Boolean);
-  const rowCount = Math.max(0, lines.length - 1); // exclude header
-
-  // 🔐 Gate canonical: require "enough" rows for PB/MM before trusting it
-  const minRows = isMultiGame(game) ? 1000 : 10; // adjust as you like
-  if (rowCount < minRows) throw new Error(`Canonical ${game} too small (${rowCount} rows)`);
-
-  const parsed = parseCanonicalCsv(text, game);
-  if (parsed.length === 0) throw new Error(`Canonical ${game} parse failed`);
-
-  return parsed.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  const csv = await res.text();
+  const rows = parseCanonicalCsv(csv, game);
+  const minRows = isMultiGame(game) ? 1000 : 10;
+  if (rows.length < minRows) throw new Error(`Canonical ${game} too small (${rows.length} rows)`);
+  return rows.sort((a,b)=>a.date.localeCompare(b.date));
 }
 
 function applyFilters(
@@ -442,9 +493,9 @@ function applyFilters(
 /* ---------------- UI helpers ---------------- */
 
 export function drawNightsLabel(game: GameKey): string {
-  if (game === 'powerball') return 'Mon/Wed/Sat';
-  if (game === 'megamillions') return 'Tue/Fri';
-  if (game === 'ga_cash4life') return 'Daily · 9:00 PM ET';
+  if (game === 'multi_powerball') return 'Mon/Wed/Sat';
+  if (game === 'multi_megamillions') return 'Tue/Fri';
+  if (game === 'multi_cash4life') return 'Daily · 9:00 PM ET';
   return 'Daily · 11:34 PM ET'; // ga_fantasy5
 }
 
@@ -475,14 +526,14 @@ export function nextDrawLabelNYFor(game: GameKey): string {
     d.setDate(d.getDate()+i);
     const { dow } = getNYParts(d);
     if (target.has(dow)) {
-      if (game==='ga_cash4life') return `${names[dow]} 9:00 PM ET`;
+      if (game==='multi_cash4life') return `${names[dow]} 9:00 PM ET`;
       if (game==='ga_fantasy5')  return `${names[dow]} 11:34 PM ET`;
       return `${names[dow]} ≈11:00 PM ET`;
     }
   }
-  if (game === 'powerball') return 'Mon/Wed/Sat ≈11:00 PM ET';
-  if (game === 'megamillions') return 'Tue/Fri ≈11:00 PM ET';
-  if (game === 'ga_cash4life') return 'Daily 9:00 PM ET';
+  if (game === 'multi_powerball') return 'Mon/Wed/Sat ≈11:00 PM ET';
+  if (game === 'multi_megamillions') return 'Tue/Fri ≈11:00 PM ET';
+  if (game === 'multi_cash4life') return 'Daily 9:00 PM ET';
   return 'Daily 11:34 PM ET';
 }
 

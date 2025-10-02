@@ -2,9 +2,9 @@
 import "server-only";
 
 export type GameKey =
-  | "powerball"
-  | "megamillions"
-  | "ga_cash4life"
+  | "multi_powerball"
+  | "multi_megamillions"
+  | "multi_cash4life"
   | "ga_fantasy5";
 
 function pick<T extends string | undefined>(...candidates: T[]) {
@@ -19,23 +19,23 @@ function required(name: string, ...candidates: Array<string | undefined>): strin
 
 export function remoteFor(game: GameKey): string {
   switch (game) {
-    case "powerball":
+    case "multi_powerball":
       return required(
-        "powerball",
+        "multi_powerball",
         process.env.LOTTO_REMOTE_CSV_URL_POWERBALL,
         process.env.MULTI_POWERBALL_REMOTE_CSV_URL
       );
-    case "megamillions":
+    case "multi_megamillions":
       return required(
-        "megamillions",
+        "multi_megamillions",
         process.env.LOTTO_REMOTE_CSV_URL_MEGAMILLIONS,
         process.env.MULTI_MEGAMILLIONS_REMOTE_CSV_URL
       );
-    case "ga_cash4life":
+    case "multi_cash4life":
       return required(
-        "ga_cash4life",
-        process.env.LOTTO_REMOTE_CSV_URL_GA_CASH4LIFE,
-        process.env.GA_CASH4LIFE_REMOTE_CSV_URL
+        "multi_cash4life",
+        process.env.LOTTO_REMOTE_CSV_URL_CASH4LIFE,
+        process.env.MULTI_CASH4LIFE_REMOTE_CSV_URL
       );
     case "ga_fantasy5":
       return required(

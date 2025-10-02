@@ -1,3 +1,4 @@
+// src/components/AnalyzeSidebar.tsx
 'use client';
 import { useEffect, useState } from 'react';
 import {
@@ -6,17 +7,17 @@ import {
 } from '@lib/lotto';
 
 const ORDER: { key: GameKey; label: string }[] = [
-  { key: 'powerball',    label: 'Powerball' },
-  { key: 'megamillions', label: 'Mega Millions' },
-  { key: 'ga_cash4life', label: 'Cash4Life' },
+  { key: 'multi_powerball',    label: 'Powerball' },
+  { key: 'multi_megamillions', label: 'Mega Millions' },
+  { key: 'multi_cash4life', label: 'Cash4Life' },
   { key: 'ga_fantasy5',  label: 'Fantasy 5' },
 ];
 
 type A = ReturnType<typeof analyzeGame>;
 
 export default function AnalyzeSidebar() {
-  const [data, setData] = useState<Record<GameKey, A | null>>({
-    powerball: null, megamillions: null, ga_cash4life: null, ga_fantasy5: null,
+  const [data, setData] = useState<Record<Exclude<GameKey,'ga_scratchers'>, A | null>>({
+    multi_powerball: null, multi_megamillions: null, multi_cash4life: null, ga_fantasy5: null,
   });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string|null>(null);
@@ -52,31 +53,45 @@ export default function AnalyzeSidebar() {
   }, []);
 
   return (
-    <section className="card" role ="note" aria-label="Analysis"  style={{ marginBottom: 8 }}>
-      <div style={{ fontWeight:700, marginBottom: 8 }}>Analysis (All Games)</div>
-      {err && <div className="hint" style={{ color:'var(--danger)' }}>{err}</div>}
-      {busy && <div className="hint">Analyzing…</div>}
-      {!busy && !err && <div className="hint" aria-live="polite">Loaded {okCount}/4 games.</div>}
-      {!busy && ORDER.map(g => {
-        const a = data[g.key];
-        return (
-          <div key={g.key} style={{ padding:'8px 0', borderTop:'1px solid var(--card-bd)' }}>
-            <div style={{ fontWeight:600, marginBottom:4 }}>{g.label}</div>
-            {a ? (
-              <ul className="hint" style={{ margin:0, paddingLeft: 18 }}>
-                <li><strong>Count of past draws:</strong> {a.draws}</li>
-                <li><strong>Jackpot odds:</strong> {`1 in ${jackpotOdds(g.key).toLocaleString()}`}</li>
-                {a.eraCfg.specialMax>0 && (
-                  <li><strong>Recommended weighting:</strong> mains <em>{a.recMain.mode}</em> (α={a.recMain.alpha.toFixed(2)}), special <em>{a.recSpec.mode}</em> (α={a.recSpec.alpha.toFixed(2)})</li>
-                )}
-                {a.eraCfg.specialMax===0 && (
-                  <li><strong>Recommended weighting:</strong> mains <em>{a.recMain.mode}</em> (α={a.recMain.alpha.toFixed(2)})</li>
-                )}
-              </ul>
-            ) : <div className="hint">Unavailable.</div>}
-          </div>
-        );
-      })}
+    <section className="card analyze-sidebar ticket-grid" role="note" aria-label="Analysis">
+      <div className="card-title">Analysis (All Games)</div>
+      {err && <div className="analyze-error">{err}</div>}
+      {busy && <div className="analyze-loading">Analyzing…</div>}
+      {!busy && !err && <div className="analyze-status" aria-live="polite">Loaded {okCount}/4 games.</div>}
+      <div className="analyze-games">
+        {!busy && ORDER.map(g => {
+          const a = data[g.key];
+          return (
+            <div key={g.key} className="analyze-game">
+              <div className="analyze-game-title">{g.label}</div>
+              {a ? (
+                <div className="analyze-game-details card-content-text">
+                  <div className="analyze-detail">
+                    <span className="analyze-label">Past draws:</span>
+                    <span className="analyze-value mono">{a.draws}</span>
+                  </div>
+                  <div className="analyze-detail">
+                    <span className="analyze-label">Jackpot odds:</span>
+                    <span className="analyze-value mono">1 in {jackpotOdds(g.key).toLocaleString()}</span>
+                  </div>
+                  <div className="analyze-detail analyze-recommendation">
+                    <span className="analyze-label">Recommended:</span>
+                    <span className="analyze-value mono">
+                      mains <em>{a.recMain.mode}</em> (α={a.recMain.alpha.toFixed(2)})
+                      {a.eraCfg.specialMax > 0 && (
+                        <>, special <em>{a.recSpec.mode}</em> (α={a.recSpec.alpha.toFixed(2)})</>
+                      )}
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                <div className="analyze-unavailable">Unavailable.</div>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </section>
   );
 }
+

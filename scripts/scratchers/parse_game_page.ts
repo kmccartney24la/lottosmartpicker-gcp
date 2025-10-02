@@ -1,6 +1,6 @@
 //scripts/scratchers/parse_game_page.ts
 import { chromium, type Page } from "playwright";
-import { oddsFromText } from "./_util";
+import { oddsFromText } from "./_util.js";
 
 export type GameDetail = {
   slug: string;                 // last path segment (e.g., "200x-the-money")

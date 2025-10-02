@@ -3,7 +3,8 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as crypto from "node:crypto";
 import { Buffer } from "node:buffer";
-import { fetch as undiciFetch, RequestInit, HeadersInit } from "undici";
+import { fetch as undiciFetch } from "undici";
+import type { RequestInit, HeadersInit } from "undici";
 import { S3Client, PutObjectCommand, HeadObjectCommand } from "@aws-sdk/client-s3";
 import { Storage } from "@google-cloud/storage";
 import { chromium } from "playwright";
@@ -49,10 +50,10 @@ export function setHostingOptions(opts: Partial<HostingOptions>) {
   gOptions = { ...gOptions, ...opts };
 }
 
-const OUT_DIR = "public/data/ga_scratchers";
+const OUT_DIR = "public/data/ga/scratchers";
 const MANIFEST_BASENAME = "_image_manifest.json";
 const MANIFEST_PATH = path.join(OUT_DIR, MANIFEST_BASENAME);
-const MANIFEST_GCS_OBJECT = "ga_scratchers/_image_manifest.json"; // optional remote mirror
+const MANIFEST_GCS_OBJECT = "ga/scratchers/_image_manifest.json"; // optional remote mirror
 
 // sourceUrl → manifest entry
 type ManifestEntry = {
@@ -376,17 +377,24 @@ class FSProvider implements StorageProvider {
   private publicBase: string;
 
   constructor() {
-    this.baseDir = path.join("public", "cdn", "ga_scratchers");
-    const localBase = process.env.LOCAL_PUBLIC_BASE_URL || "http://localhost:3000";
-    this.publicBase = `${localBase.replace(/\/+$/, "")}/cdn/ga_scratchers`;
+    // Canonical path (replaces legacy ga_scratchers)
+    this.baseDir = path.join("public", "cdn", "ga", "scratchers");
+    const localBase = (process.env.LOCAL_PUBLIC_BASE_URL || "http://localhost:3000").replace(/\/+$/, "");
+    this.publicBase = `${localBase}/cdn/ga/scratchers`;
+  }
+
+  private normalizeKey(key: string) {
+    return key.replace(/^\/+/, "").replace(/\\/g, "/");
   }
 
   publicUrlFor(key: string): string {
-    return `${this.publicBase}/${key}`;
+    const k = this.normalizeKey(key);
+    return `${this.publicBase}/${k}`;
   }
 
   async head(key: string) {
-    const full = path.join(this.baseDir, key);
+    const k = this.normalizeKey(key);
+    const full = path.join(this.baseDir, k);
     try {
       const st = await fs.stat(full);
       return { exists: st.isFile(), bytes: st.size };
@@ -395,18 +403,27 @@ class FSProvider implements StorageProvider {
     }
   }
 
-  async put(key: string, bytes: Uint8Array, contentType: string, cacheControl?: string): Promise<Hosted> {
-    const full = path.join(this.baseDir, key);
+  async put(
+    key: string,
+    bytes: Uint8Array,
+    contentType: string,
+    cacheControl?: string
+  ): Promise<Hosted> {
+    const k = this.normalizeKey(key);
+    const full = path.join(this.baseDir, k);
     if (!gOptions.dryRun) {
       await fs.mkdir(path.dirname(full), { recursive: true });
       await fs.writeFile(full, bytes);
       try {
         const headersPath = `${full}.headers.json`;
-        const hdr = { "Content-Type": contentType, "Cache-Control": cacheControl || "public, max-age=31536000, immutable" };
-        await fs.writeFile(headersPath, JSON.stringify(hdr), "utf8");
+        const hdr = {
+          "Content-Type": contentType,
+          "Cache-Control": cacheControl || "public, max-age=31536000, immutable",
+        };
+        await fs.writeFile(headersPath, JSON.stringify(hdr, null, 2), "utf8");
       } catch {}
     }
-    return { key, url: this.publicUrlFor(key), bytes: bytes.byteLength, contentType };
+    return { key: k, url: this.publicUrlFor(k), bytes: bytes.byteLength, contentType };
   }
 }
 

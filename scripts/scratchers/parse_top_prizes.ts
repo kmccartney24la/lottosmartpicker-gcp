@@ -1,5 +1,5 @@
-import { BrowserContext } from "playwright";
-import { openAndReady, saveDebug } from "./_util";
+import type { BrowserContext } from "playwright";
+import { openAndReady, saveDebug } from "./_util.js";
 
 const TOP_PRIZES_URL =
   "https://www.galottery.com/en-us/games/scratchers/scratchers-top-prizes-claimed.html";

@@ -87,30 +87,25 @@ export default function EvaluateTicket({
   }
 
   return (
-    <div className="card" style={{ marginTop: 12 }}>
-      <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-        <div style={{ fontWeight: 700 }}>Evaluate My Numbers</div>
+    <div className="card evaluate-ticket">
+      {/* playslip sheet */}
+      <div className="evaluate-ticket-sheet ticket ticket-grid ticket--perforated">
+      <div className="evaluate-header">
+        <div className="section-title">Evaluate My Numbers</div>
         <Info tip={
 `Check your own pick using the same analysis used for generated tickets.
-• Validates against the game’s domain & uniqueness.
-• Tags mirror the generator’s ticketHints.
+• Validates against the game's domain & uniqueness.
+• Tags mirror the generator's ticketHints.
 • No prediction claims—just descriptive heuristics.`} />
       </div>
 
-            {/* Inputs */}
-      <div className="controls" style={{ marginTop: 8, gap: 10 }}>
-        <label>
+      {/* Inputs */}
+      <div className="evaluate-inputs">
+        <label className="evaluate-mains-label">
           <span>Main numbers ({eraCfg.mainPick} of 1–{eraCfg.mainMax})</span>
 
           {/* Grid of one input per required main number */}
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: `repeat(${eraCfg.mainPick}, minmax(58px, 1fr))`,
-              gap: 25,
-              alignItems: 'center',
-            }}
-          >
+          <div className="evaluate-mains-grid">
             {Array.from({ length: eraCfg.mainPick }).map((_, i) => {
               const v = mains[i] ?? '';
               // inline validity to tint border if needed
@@ -131,26 +126,22 @@ export default function EvaluateTicket({
                   value={v}
                   onChange={e => updateMainAt(i, e.target.value)}
                   onWheel={e => (e.currentTarget as HTMLInputElement).blur()} // prevent accidental wheel changes
-                  style={{
-                    width: '100%',
-                    textAlign: 'center',
-                    ...(invalid ? { borderColor: 'var(--danger)' } : null),
-                  }}
+                  className={`evaluate-main-input ${invalid ? 'evaluate-input-invalid' : ''}`}
                 />
               );
             })}
           </div>
 
-          <div className="hint" style={{ marginTop: 6 }}>
+          <div className="evaluate-hint">
             Tips: each box takes <em>one</em> number, no repeats, all between 1 and {eraCfg.mainMax}.
           </div>
         </label>
 
         {hasSpecial && (
-          <label>
+          <label className="evaluate-special-label">
             <span>Special (1–{eraCfg.specialMax})</span>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span aria-hidden="true" className="mono" style={{ opacity: 0.65 }}>
+            <div className="evaluate-special-input-wrapper">
+              <span aria-hidden="true" className="mono evaluate-separator">
                 |
               </span>
               <input
@@ -163,36 +154,63 @@ export default function EvaluateTicket({
                 value={special}
                 onChange={e => setSpecial(e.target.value)}
                 onWheel={e => (e.currentTarget as HTMLInputElement).blur()}
-                style={{ width: 84, textAlign: 'center' }}
+                className="evaluate-special-input"
               />
             </div>
-            <div className="hint" style={{ marginTop: 6 }}>
+            <div className="evaluate-hint">
               Enter exactly one special-ball number.
             </div>
           </label>
         )}
 
-        <button className="btn btn-primary" onClick={evaluate} style={{ alignSelf: 'end' }}>
+        <button className="btn btn-primary evaluate-button" onClick={evaluate}>
           Evaluate
         </button>
       </div>
 
       {/* Validation errors */}
       {errors.length > 0 && (
-        <ul className="hint" style={{ color:'var(--danger)', marginTop: 8 }}>
+        <ul className="evaluate-errors">
           {errors.map((e,i) => <li key={i}>{e}</li>)}
         </ul>
       )}
 
       {/* Output */}
       {resultHints && (
-        <div style={{ marginTop: 10 }}>
-          <div className="mono">
-            {hasSpecial
-              ? `${mains.join('-')} | ${special}`
-              : mains.join('-')}
+        <div className="evaluate-results">
+          {/* Render each number in its own inline element so bubble styles apply */}
+          <div className="mono evaluate-ticket-display" aria-label="Your evaluated ticket">
+            {/* mains */}
+            {mains.map((m, i) => (
+              <span key={`m-${i}`} className="num-bubble" aria-label={`Main ${i + 1}`}>{m || '–'}</span>
+            ))}
+            {/* separator + special (if present) */}
+            {hasSpecial && (
+              <>
+                <span className="evaluate-separator" aria-hidden="true">|</span>
+                <span
+                  className={
+                    `num-bubble ${
+                      game === 'multi_powerball' ? 'num-bubble--red'
+                      : game === 'multi_megamillions' ? 'num-bubble--blue'
+                      : game === 'multi_cash4life' ? 'num-bubble--green'
+                      : 'num-bubble--amber'
+                    }`
+                  }
+                  aria-label="Special"
+                  data-kind={
+                    game === 'multi_powerball' ? 'pb'
+                    : game === 'multi_megamillions' ? 'mb'
+                    : game === 'multi_cash4life' ? 'cb'
+                    : 'special'
+                  }
+                >
+                  {special || '–'}
+                </span>
+              </>
+            )}
           </div>
-          <div style={{ marginTop: 6, display:'flex', flexWrap:'wrap', gap: 6 }}>
+          <div className="evaluate-hints">
             {resultHints.map(h => (
               <Pill key={h} tone={classifyHint(h)} title={HINT_EXPLAIN[h]}>
                 {h}
@@ -201,6 +219,7 @@ export default function EvaluateTicket({
           </div>
         </div>
       )}
+      </div>{/* /ticket sheet */}
     </div>
   );
 }

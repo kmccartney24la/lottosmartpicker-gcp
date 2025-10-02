@@ -51,7 +51,7 @@ jobs:
             canon="draw_date,num1,num2,num3,num4,num5,special"
 
             fetch_plain () {
-                local rel="$1"     # e.g. ga/cash4life.csv
+                local rel="$1"     # e.g. multi/cash4life.csv
                 local out="$2"
                 local tmp_raw
                 tmp_raw="$(mktemp)"
@@ -132,7 +132,7 @@ jobs:
             # Apply to the game you seeded; others are OK too.
             merge_csv multi/powerball.csv
             merge_csv multi/megamillions.csv
-            merge_csv ga/cash4life.csv
+            merge_csv multi/cash4life.csv
 
       - name: Commit CSV changes only (safe)
         run: |

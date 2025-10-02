@@ -88,16 +88,18 @@ export const DEFAULT_WEIGHTS: Weights = {
  *  3) Legacy envs: GA_SCRATCHERS_INDEX_URL (exact file), GA_SCRATCHERS_INDEX_BASE (folder),
  *     and their NEXT_PUBLIC_* variants
  *  4) Local dev fallbacks under /public
+ *  5) Final hardcoded canonical fallback to GCS (safety net)
  *
- * For each "base", we try BOTH folder layouts and BOTH filenames:
- *   /ga_scratchers/{index.latest.json,index.json}
+ * For each "base", we try BOTH filenames (prefer latest):
  *   /ga/scratchers/{index.latest.json,index.json}
+ *   (Legacy fallback also tries /ga_scratchers/{index.latest.json,index.json})
  *
  * If an env already points to a **file** (ends with .json), we keep it as-is and
  * (if it’s index.json) we also try the "latest" sibling first.
  */
 export function resolveIndexUrls(): string[] {
-  const env = typeof process !== "undefined" ? (process.env as Record<string, string | undefined>) : {};
+  const env =
+    typeof process !== "undefined" ? (process.env as Record<string, string | undefined>) : {};
 
   // Highest-priority runtime base(s)
   const bases: string[] = [];
@@ -130,13 +132,12 @@ export function resolveIndexUrls(): string[] {
   // Consider bases in the computed priority order
   const allBases: string[] = [
     ...bases,
-    // If legacyBaseEnv appears to be a **folder**, include it as a base
-    ...(legacyBaseEnv ? [legacyBaseEnv] : []),
+    ...(legacyBaseEnv ? [legacyBaseEnv] : []), // legacy folder as a low-priority base
   ]
     .map((b) => b.trim())
     .filter(Boolean);
 
-  // Helper: expand a "base" (which might be a root, a folder, or an already-pointing-to /ga_scratchers)
+  // Expand a "base" (root, folder, or direct file)
   function expandBase(baseRaw: string): string[] {
     const base = baseRaw.replace(/\/+$/, ""); // strip trailing slash
     const isFile = /\.json(\?.*)?$/i.test(base);
@@ -152,22 +153,22 @@ export function resolveIndexUrls(): string[] {
     }
 
     // If base already includes a scratchers folder, only add file variants under that folder.
-    const looksLikeScratchersFolder = /(\/ga_scratchers|\/ga\/scratchers)(\/|$)/.test(base);
+    const looksLikeScratchersFolder = /(\/ga\/scratchers|\/ga_scratchers)(\/|$)/.test(base);
     if (looksLikeScratchersFolder) {
-      return [
-        `${base}/index.latest.json`,
-        `${base}/index.json`,
-      ];
+      // Prefer canonical filenames
+      const canon = [`${base}/index.latest.json`, `${base}/index.json`];
+      return canon;
     }
 
-    // Otherwise, treat base as the CDN/data root and try both folder layouts.
+    // Otherwise, treat base as the CDN/data root.
+    // Prefer the **canonical** ga/scratchers path; then legacy ga_scratchers.
     return [
-      `${base}/ga_scratchers/index.latest.json`,
-      `${base}/ga_scratchers/index.json`,
       `${base}/ga/scratchers/index.latest.json`,
       `${base}/ga/scratchers/index.json`,
+      `${base}/ga_scratchers/index.latest.json`, // legacy fallback
+      `${base}/ga_scratchers/index.json`,       // legacy fallback
     ];
-    }
+  }
 
   for (const b of allBases) {
     for (const u of expandBase(b)) {
@@ -175,10 +176,23 @@ export function resolveIndexUrls(): string[] {
     }
   }
 
-  // Local dev fallbacks (served from /public)
-  const localLatest = "/data/ga_scratchers/index.latest.json";
-  const localArchive = "/data/ga_scratchers/index.json";
-  for (const u of [localLatest, localArchive]) {
+  // Local dev fallbacks (served from /public) — prefer canonical folder first
+  for (const u of [
+    "/data/ga/scratchers/index.latest.json",
+    "/data/ga/scratchers/index.json",
+    "/data/ga_scratchers/index.latest.json", // legacy local
+    "/data/ga_scratchers/index.json",        // legacy local
+  ]) {
+    if (!out.includes(u)) out.push(u);
+  }
+
+  // Final hardcoded canonical fallback (public GCS) as a safety net
+  // This matches: gs://lottosmartpicker-data/ga/scratchers/index.latest.json
+  const publicCanonical =
+    "https://storage.googleapis.com/lottosmartpicker-data/ga/scratchers/index.latest.json";
+  const publicCanonicalArchive =
+    "https://storage.googleapis.com/lottosmartpicker-data/ga/scratchers/index.json";
+  for (const u of [publicCanonical, publicCanonicalArchive]) {
     if (!out.includes(u)) out.push(u);
   }
 
@@ -194,21 +208,20 @@ export function resolveIndexUrls(): string[] {
  * Tries latest first, falls back to archive. Returns the `games` array (active-only).
  */
 export async function fetchScratchersWithCache(): Promise<ActiveGame[]> {
-  const urls = resolveIndexUrls();
-  for (const url of urls) {
-    try {
-      // On Next.js server, let ISR revalidate periodically; on client this is ignored.
-      const res = await fetch(url, { next: { revalidate: 3600 } as any, cache: 'no-store' as any });
-      if (!res.ok) continue;
-      const payload = await res.json() as ScratchersIndexPayload;
-      if (Array.isArray((payload as any).games)) {
-        return (payload as ScratchersIndexPayload).games;
-      }
-    } catch {
-      // continue
+  try {
+    // Always use the API route to proxy the request and handle CORS
+    const res = await fetch('/api/scratchers', { next: { revalidate: 3600 } as any, cache: 'no-store' as any });
+    if (!res.ok) {
+      console.error('Failed to fetch scratchers from API route:', res.status, res.statusText);
+      return [];
     }
+    const payload = await res.json() as ScratchersIndexPayload;
+    // The API route should always return a payload with a 'games' array
+    return payload.games ?? [];
+  } catch (error) {
+    console.error('Error fetching scratchers from API route:', error);
+    return [];
   }
-  return [];
 }
 
 /**

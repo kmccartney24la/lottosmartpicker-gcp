@@ -12,33 +12,23 @@ export function explainHint(hint: string): string | undefined {
 
 export default function HintLegend() {
   return (
-    <div className="card" style={{ padding: 10 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <div style={{ fontWeight: 700 }}>Tag Legend</div>
+    <div className="card hint-legend">
+      <div className="hint-legend-header">
+        <div className="hint-legend-title">Tag Legend</div>
+        <Info
+          tip={'These tags are descriptive heuristics based on recent draw statistics.\nThey do not predict outcomes.'}
+          label="How tags work"
+        />
       </div>
 
-      <ul className="hint" style={{ margin: 6, paddingLeft: 0, listStyle: 'none' }}>
+      <ul className="hint-legend-list">
         {Object.entries(EXPLAIN).map(([label, tip]) => (
-          <li
-            key={label}
-            style={{
-              display: 'grid',
-              gridTemplateColumns: '93px 1fr', // ✅ uniform pill column
-              columnGap: 10,
-              alignItems: 'start',              // ✅ top-align the row
-              marginBottom: 8,
-            }}
-          >
-            <Pill
-              tone={classifyHint(label)}
-              title={tip}
-              wrap
-              style={{ width: '77px' }}        // ✅ same as grid col for perfect alignment
-            >
+          <li key={label} className="hint-legend-item">
+            <Pill tone={classifyHint(label)} title={tip} wrap>
               {label}
             </Pill>
 
-            <div style={{ maxWidth: '100%' }}>{tip}</div>
+            <div className="hint-legend-description">{tip}</div>
           </li>
         ))}
       </ul>

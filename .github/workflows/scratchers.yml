@@ -66,14 +66,14 @@ jobs:
       - name: Fetch previous index/manifest from R2 (best-effort)
         continue-on-error: true
         run: |
-          mkdir -p public/data/ga_scratchers
+          mkdir -p public/data/ga/scratchers
           npx -y wrangler@4.36.0 r2 object get \
             "${R2_BUCKET}/ga/scratchers/index.latest.json" \
-            --file public/data/ga_scratchers/index.latest.json \
+            --file public/data/ga/scratchers/index.latest.json \
             --remote
           npx -y wrangler@4.36.0 r2 object get \
             "${R2_BUCKET}/ga/scratchers/_image_manifest.json" \
-            --file public/data/ga_scratchers/_image_manifest.json \
+            --file public/data/ga/scratchers/_image_manifest.json \
             --remote || true
 
       # Seed pass: open ALL modals so we capture ticket + odds.
@@ -87,7 +87,7 @@ jobs:
       - name: Assert GA-only URLs (post first scrape)
         run: |
           node -e "const fs=require('fs'); \
-          const p='public/data/ga_scratchers/index.latest.json'; \
+          const p='public/data/ga/scratchers/index.latest.json'; \
           const j=JSON.parse(fs.readFileSync(p,'utf8')); \
           const bad=[]; \
           for (const g of j.games){ \
@@ -107,7 +107,7 @@ jobs:
       - name: Fail if zero images parsed (post first scrape)
         run: |
           node -e "const fs=require('fs'); \
-          const s=JSON.parse(fs.readFileSync('public/data/ga_scratchers/_debug_images.summary.json','utf8')); \
+          const s=JSON.parse(fs.readFileSync('public/data/ga/scratchers/_debug_images.summary.json','utf8')); \
           if((s.counts?.withTicket||0)===0 && (s.counts?.withOdds||0)===0){ \
             console.error('No images parsed; failing early to surface scrape issues.'); \
             process.exit(1); \
@@ -119,11 +119,11 @@ jobs:
           --only-missing --concurrency=8
 
       - name: Upload image manifest
-        if: success() && hashFiles('public/data/ga_scratchers/_image_manifest.json') != ''
+        if: success() && hashFiles('public/data/ga/scratchers/_image_manifest.json') != ''
         run: |
           npx -y wrangler@4.36.0 r2 object put \
             "${R2_BUCKET}/ga/scratchers/_image_manifest.json" \
-            --file public/data/ga_scratchers/_image_manifest.json \
+            --file public/data/ga/scratchers/_image_manifest.json \
             --content-type application/json \
             --remote
 
@@ -132,7 +132,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: playwright-trace
-          path: public/data/ga_scratchers/_debug_trace.zip
+          path: public/data/ga/scratchers/_debug_trace.zip
           if-no-files-found: warn
           retention-days: 7
 
@@ -142,28 +142,28 @@ jobs:
         with:
           name: ga-scratchers-artifacts
           path: |
-            public/data/ga_scratchers/index.latest.json
-            public/data/ga_scratchers/index.json
-            public/data/ga_scratchers/_debug_*.json
-            public/data/ga_scratchers/_debug_*.html
-            public/data/ga_scratchers/_debug_*.png
+            public/data/ga/scratchers/index.latest.json
+            public/data/ga/scratchers/index.json
+            public/data/ga/scratchers/_debug_*.json
+            public/data/ga/scratchers/_debug_*.html
+            public/data/ga/scratchers/_debug_*.png
           if-no-files-found: warn
           retention-days: 7
 
       - name: Guarded R2 upload (index.latest.json)
-        if: success() && hashFiles('public/data/ga_scratchers/index.latest.json') != ''
+        if: success() && hashFiles('public/data/ga/scratchers/index.latest.json') != ''
         run: |
           npx -y wrangler@4.36.0 r2 object put \
             "${R2_BUCKET}/ga/scratchers/index.latest.json" \
-            --file public/data/ga_scratchers/index.latest.json \
+            --file public/data/ga/scratchers/index.latest.json \
             --content-type application/json \
             --remote
 
       - name: Guarded R2 upload (index.json)
-        if: success() && hashFiles('public/data/ga_scratchers/index.json') != ''
+        if: success() && hashFiles('public/data/ga/scratchers/index.json') != ''
         run: |
           npx -y wrangler@4.36.0 r2 object put \
             "${R2_BUCKET}/ga/scratchers/index.json" \
-            --file public/data/ga_scratchers/index.json \
+            --file public/data/ga/scratchers/index.json \
             --content-type application/json \
             --remote

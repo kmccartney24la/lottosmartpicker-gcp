@@ -1,9 +1,9 @@
-//scripts/scratchers/_utils.ts
+// scripts/scratchers/_util.ts
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { Page, BrowserContext } from "playwright";
+import type { Page, BrowserContext } from "playwright";
 
-const DATA_DIR = "public/data/ga_scratchers";
+const DATA_DIR = "public/data/ga/scratchers";
 
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
@@ -117,8 +117,8 @@ function normalizeGameUrl(u: string): string | undefined {
 
     // obvious non-game pages & service endpoints
     const blocked = new Set([
-      "active-games", "ended-games", "scratchers-top-prizes-claimed",
-      "become-a-retailer", "contact-us", "media-requests", "registration",
+      "active-games","ended-games","scratchers-top-prizes-claimed",
+      "become-a-retailer","contact-us","media-requests","registration",
     ]);
     if (
       blocked.has(slug) ||
@@ -135,25 +135,23 @@ function normalizeGameUrl(u: string): string | undefined {
   }
 }
 
-
 /** Pull candidate scratcher URLs out of arbitrary text/JSON/HTML. */
 function harvestUrlsFromText(txt: string, baseOrigin = "https://www.galottery.com") {
   const out = new Set<string>();
   const cleaned = (txt || "").replace(/\\u002F/gi, "/").replace(/\\\//g, "/");
 
-  // grab any absolute *.html under galottery.com
+  // absolute *.html under galottery.com
   const abs = /https?:\/\/www\.galottery\.com\/[^"'\s<>]+?\.html/gi;
   let m: RegExpExecArray | null;
   while ((m = abs.exec(cleaned))) out.add(m[0]);
 
-  // and relative *.html we’ll normalize later
+  // relative *.html → absolute
   const rel = /\/[^"'\s<>]+?\.html/gi;
   while ((m = rel.exec(cleaned))) {
     try { out.add(new URL(m[0], baseOrigin).toString()); } catch {}
   }
 
-  // NEW: also catch slug-only scratcher paths without ".html"
-  // e.g. "/en-us/games/scratchers/jumbo-bucks" (or AEM /content/... variant)
+  // slug-only scratcher paths without ".html"
   const slugOnly = /\/(?:en-us\/|content\/[^\/]+\/en(?:-us)?\/)?games\/scratchers\/([a-z0-9-]+)(?=["'\/?#\s])/gi;
   while ((m = slugOnly.exec(cleaned))) {
     const url = `https://www.galottery.com/en-us/games/scratchers/${m[1]}.html`;
@@ -169,19 +167,18 @@ export function attachNetworkHarvester(page: Page) {
 
   page.on("response", async (resp) => {
     try {
-       const url = resp.url();
-      // Always peek at the URL itself in case it already points at a slug
+      const url = resp.url();
+      // URL itself might already be a slug
       const direct = normalizeGameUrl(url);
       if (direct) store.add(direct);
 
-      // Read body with a size guard; many AEM fragments aren’t labeled as JSON/HTML.
-      const MAX = 2_000_000; // 2 MB
+      // Read body (size-guarded)
+      const MAX = 2_000_000;
       let body = "";
       try {
         const buf = await resp.body();
         if (buf && buf.length <= MAX) body = new TextDecoder("utf-8", { fatal: false }).decode(buf);
       } catch {
-        // fall back to text(); harmless if binary
         body = await resp.text().catch(() => "");
       }
       if (!body) return;
@@ -202,7 +199,7 @@ export function attachNetworkHarvester(page: Page) {
             if (n) store.add(n);
           }
         } catch {
-          // fall through to generic grep
+          // fallback to generic grep
         }
       }
 
@@ -212,16 +209,12 @@ export function attachNetworkHarvester(page: Page) {
   });
 }
 
-// Legacy compatibility, now just checks if normalize() accepts it.
-function strictGameUrlFilter(u: string): boolean {
-  return !!normalizeGameUrl(u);
-}
-
 type ReadyOpts = { loadMore?: boolean; maxScrolls?: number };
 
 export async function openAndReady(page: Page, url: string, opts?: ReadyOpts) {
-  await page.context().addInitScript(`/* (keep your existing shim here) */`);
+  await page.context().addInitScript(`/* esbuild helper shim (as in your original) */`);
 
+  // First navigation (best effort)
   try {
     await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60_000 });
   } catch (e: any) {
@@ -230,11 +223,10 @@ export async function openAndReady(page: Page, url: string, opts?: ReadyOpts) {
     if (!landed) throw e;
   }
 
-  // give AEM a beat and wait for any .html-ish link to appear
+  // Wait & prep, then add global helpers before re-navigation (keeps your intent)
   await page.waitForLoadState("networkidle", { timeout: 10_000 }).catch(() => {});
   await page.waitForTimeout(600);
   await page.waitForSelector('a[href$=".html"], [data-href$=".html"], [data-url$=".html"]', { timeout: 6000 }).catch(() => {});
-  // Context-level shim for esbuild helpers before any page scripts run.
   await page.context().addInitScript(`
     (function () {
       var g = typeof globalThis!=='undefined' ? globalThis : (typeof window!=='undefined'?window:this);
@@ -278,6 +270,7 @@ export async function openAndReady(page: Page, url: string, opts?: ReadyOpts) {
     })();
   `);
 
+  // Second navigation to ensure init script precedes page scripts
   try {
     await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60_000 });
   } catch (e: any) {
@@ -297,9 +290,7 @@ export async function openAndReady(page: Page, url: string, opts?: ReadyOpts) {
   ];
   for (const sel of overlaySelectors) {
     const btn = await page.$(sel).catch(() => null);
-    if (btn) {
-      try { await btn.click({ timeout: 2000 }); } catch {}
-    }
+    if (btn) { try { await btn.click({ timeout: 2000 }); } catch {} }
   }
 
   attachNetworkHarvester(page);
@@ -340,112 +331,113 @@ export async function waitForNumericGameLinks(
   const seen = new Set<string>();
 
   async function collectFromDom(): Promise<string[]> {
-    const evalOnce = () => page.evaluate(() => {
-      const out = new Set<string>();
-      const abs = (href: string) => { try { return new URL(href, window.location.href).toString(); } catch { return ""; } };
-
-      // helper: walk Shadow DOMs
-      const allRoots = (root: Document | ShadowRoot | Element): Element[] => {
-        const acc: Element[] = [];
-        const push = (el: Element) => {
-          acc.push(el);
-          const sr = (el as any).shadowRoot as ShadowRoot | null;
-          if (sr) acc.push(...Array.from(sr.querySelectorAll("*")));
+    const evalOnce = () =>
+      page.evaluate(() => {
+        const out = new Set<string>();
+        const abs = (href: string) => {
+          try { return new URL(href, window.location.href).toString(); } catch { return ""; }
         };
-        const scope = (root as any).querySelectorAll ? (root as any).querySelectorAll("*") : [];
-        Array.from(scope).forEach(push);
-        return acc;
-      };
 
-      // scan common attributes on whole tree (including shadow hosts)
-      const scanEls = [document.documentElement, ...allRoots(document)];
+        // helper: walk Shadow DOMs
+        const allRoots = (root: Document | ShadowRoot | Element): Element[] => {
+          const acc: Element[] = [];
+          const push = (el: Element) => {
+            acc.push(el);
+            const sr = (el as any).shadowRoot as ShadowRoot | null;
+            if (sr) acc.push(...Array.from(sr.querySelectorAll("*")));
+          };
+          const scope = (root as any).querySelectorAll ? (root as any).querySelectorAll("*") : [];
+          Array.from(scope).forEach(push);
+          return acc;
+        };
 
-      scanEls.forEach((el: any) => {
-        if (!el.getAttribute) return;
-        for (const key of ["data-init","data-items","data-teaser","data-props","data-options"]) {
-          const raw = el.getAttribute(key);
-          if (!raw) continue;
-          try {
-            const obj = JSON.parse(raw.replace(/\\u002F/gi, "/").replace(/\\\//g, "/"));
-            const bag = new Set<string>();
-            const walk = (v: any) => {
-              if (!v) return;
-              if (typeof v === "string") bag.add(v);
-              else if (Array.isArray(v)) v.forEach(walk);
-              else if (typeof v === "object") Object.values(v).forEach(walk);
-            };
-            walk(obj);
-            for (const s of Array.from(bag)) {
-              // accept .html or slug-only scratchers paths
-              if (/\/games\/scratchers\/[a-z0-9-]+(?:\.html)?/i.test(s)) out.add(abs(s));
-            }
-          } catch { /* not JSON, ignore */ }
-        }
-      });
+        // scan common attributes on whole tree (including shadow hosts)
+        const scanEls = [document.documentElement, ...allRoots(document)];
 
-      // 1) Anchors/forms – any *.html (normalize will whitelist real games)
-      document.querySelectorAll('a[href$=".html"]').forEach((a: any) => {
-        const href = a.getAttribute("href"); if (href) out.add(abs(href));
-      });
-      // Also anchors that have slug-only paths
-      document.querySelectorAll('a[href*="/games/scratchers/"]').forEach((a: any) => {
-        const href = a.getAttribute("href") || "";
-        if (/\/games\/scratchers\/[a-z0-9-]+(?:\.html)?/i.test(href)) out.add(abs(href));
-      });
-      document.querySelectorAll('form[action$=".html"]').forEach((f: any) => {
-        const act = f.getAttribute("action"); if (act) out.add(abs(act));
-      });
+        scanEls.forEach((el: any) => {
+          if (!el.getAttribute) return;
+          for (const key of ["data-init","data-items","data-teaser","data-props","data-options"]) {
+            const raw = el.getAttribute(key);
+            if (!raw) continue;
+            try {
+              const obj = JSON.parse(raw.replace(/\\u002F/gi, "/").replace(/\\\//g, "/"));
+              const bag = new Set<string>();
+              const walk = (v: any) => {
+                if (!v) return;
+                if (typeof v === "string") bag.add(v);
+                else if (Array.isArray(v)) v.forEach(walk);
+                else if (typeof v === "object") Object.values(v).forEach(walk);
+              };
+              walk(obj);
+              for (const s of Array.from(bag)) {
+                if (/\/games\/scratchers\/[a-z0-9-]+(?:\.html)?/i.test(s)) out.add(abs(s));
+              }
+            } catch { /* not JSON, ignore */ }
+          }
+        });
 
-      // 1b) Common tile patterns
-      document.querySelectorAll('[class*="tile"],[class*="game"] a[href*="/games/scratchers/"]').forEach((a: any) => {
-        const href = a.getAttribute("href"); if (href) out.add(abs(href));
-      });
+        // Anchors/forms – any *.html (normalize will whitelist real games)
+        document.querySelectorAll('a[href$=".html"]').forEach((a: any) => {
+          const href = a.getAttribute("href"); if (href) out.add(abs(href));
+        });
+        // Also anchors that have slug-only paths
+        document.querySelectorAll('a[href*="/games/scratchers/"]').forEach((a: any) => {
+          const href = a.getAttribute("href") || "";
+          if (/\/games\/scratchers\/[a-z0-9-]+(?:\.html)?/i.test(href)) out.add(abs(href));
+        });
+        document.querySelectorAll('form[action$=".html"]').forEach((f: any) => {
+          const act = f.getAttribute("action"); if (act) out.add(abs(act));
+        });
 
-      // 2) data-* attributes
-      const attrs = ["data-href","data-url","data-link","data-target","data-gtm-href","data-analytics-href"];
-      scanEls.forEach((el: any) => {
+        // Common tile patterns
+        document.querySelectorAll('[class*="tile"],[class*="game"] a[href*="/games/scratchers/"]').forEach((a: any) => {
+          const href = a.getAttribute("href"); if (href) out.add(abs(href));
+        });
+
+        // data-* attributes
+        const attrs = ["data-href","data-url","data-link","data-target","data-gtm-href","data-analytics-href"];
+        scanEls.forEach((el: any) => {
           for (const n of attrs) {
             const v = el.getAttribute(n);
             if (!v) continue;
             if (/\/games\/scratchers\/[a-z0-9-]+(?:\.html)?/i.test(v)) out.add(abs(v));
           }
-      });
+        });
 
-      // 3) inline onclick(...)
-      document.querySelectorAll("[onclick]").forEach((el: any) => {
-        const js = el.getAttribute("onclick") || "";
-        const m = js.match(/['"]((?:\/?)(?:en-us|content\/portal\/en)?\/games\/scratchers\/[^'"]+?)(?:\.html)?['"]/i);
-        if (m) out.add(abs(m[1]));
-      });
+        // inline onclick(...)
+        document.querySelectorAll("[onclick]").forEach((el: any) => {
+          const js = el.getAttribute("onclick") || "";
+          const m = js.match(/['"]((?:\/?)(?:en-us|content\/portal\/en)?\/games\/scratchers\/[^'"]+?)(?:\.html)?['"]/i);
+          if (m) out.add(abs(m[1]));
+        });
 
-      // 4) JSON blobs (attrs/scripts)
-      document.querySelectorAll('[data-json],[data-config],[data-model]').forEach((el: any) => {
-        for (const n of ["data-json","data-config","data-model"]) {
-          const blob = el.getAttribute(n);
-          if (blob && /\/games\/scratchers\//i.test(blob)) {
-            const re = /(["'])([^"']*\/games\/scratchers\/[a-z0-9-]+(?:\.html)?)\1/gi; let m;
-             while ((m = re.exec(blob))) out.add(abs(m[2]));
-            while ((m = re.exec(blob))) out.add(abs(m[2]));
+        // JSON blobs (attrs/scripts)
+        document.querySelectorAll('[data-json],[data-config],[data-model]').forEach((el: any) => {
+          for (const n of ["data-json","data-config","data-model"]) {
+            const blob = el.getAttribute(n);
+            if (blob && /\/games\/scratchers\//i.test(blob)) {
+              const re = /(["'])([^"']*\/games\/scratchers\/[a-z0-9-]+(?:\.html)?)\1/gi; let m;
+              while ((m = re.exec(blob))) out.add(abs(m[2]));
+            }
           }
-        }
-      });
-      document.querySelectorAll('script[type*="json"]').forEach((s: any) => {
-        const txt = s.textContent || "";
-        if (/\/games\/scratchers\//i.test(txt)) {
-          const re = /(["'])([^"']*\/games\/scratchers\/[a-z0-9-]+(?:\.html)?)\1/gi; let m;
-          while ((m = re.exec(txt))) out.add(abs(m[2]));
-        }
-      });
-      document.querySelectorAll('script:not([src])').forEach((s: any) => {
-        const txt = s.textContent || "";
-        if (/\/games\/scratchers\//i.test(txt)) {
-          const re = /(["'])([^"']*\/games\/scratchers\/[a-z0-9-]+(?:\.html)?)\1/gi; let mm;
-          while ((mm = re.exec(txt))) out.add(abs(mm[2]));
-        }
-      });
+        });
+        document.querySelectorAll('script[type*="json"]').forEach((s: any) => {
+          const txt = s.textContent || "";
+          if (/\/games\/scratchers\//i.test(txt)) {
+            const re = /(["'])([^"']*\/games\/scratchers\/[a-z0-9-]+(?:\.html)?)\1/gi; let m;
+            while ((m = re.exec(txt))) out.add(abs(m[2]));
+          }
+        });
+        document.querySelectorAll('script:not([src])').forEach((s: any) => {
+          const txt = s.textContent || "";
+          if (/\/games\/scratchers\//i.test(txt)) {
+            const re = /(["'])([^"']*\/games\/scratchers\/[a-z0-9-]+(?:\.html)?)\1/gi; let mm;
+            while ((mm = re.exec(txt))) out.add(abs(mm[2]));
+          }
+        });
 
-      return Array.from(out);
-    });
+        return Array.from(out);
+      });
 
     try {
       return await evalOnce();
@@ -468,48 +460,51 @@ export async function waitForNumericGameLinks(
     try {
       const html = await page.content();
       return Array.from(harvestUrlsFromText(html));
-    } catch { return []; }
+    } catch {
+      return [];
+    }
   }
 
   async function collectFromWindow(page: Page): Promise<string[]> {
-  const strings: string[] = await page.evaluate(() => {
-    const bag = new Set<string>();
-    const push = (v: any) => {
-      if (!v) return;
-      if (typeof v === "string") bag.add(v);
-      else if (Array.isArray(v)) v.forEach(push);
-      else if (typeof v === "object") Object.values(v).forEach(push);
-    };
+    const strings: string[] = await page.evaluate(() => {
+      const bag = new Set<string>();
+      const push = (v: any) => {
+        if (!v) return;
+        if (typeof v === "string") bag.add(v);
+        else if (Array.isArray(v)) v.forEach(push);
+        else if (typeof v === "object") Object.values(v).forEach(push);
+      };
 
-    try {
-      const dl = (globalThis as any).dataLayer;
-      if (Array.isArray(dl)) dl.forEach(push);
-    } catch {}
+      try {
+        const dl = (globalThis as any).dataLayer;
+        if (Array.isArray(dl)) dl.forEach(push);
+      } catch {}
 
-    try {
-      const w = globalThis as any;
-      for (const k of Object.keys(w)) {
-        const lk = k.toLowerCase();
-        if (lk.includes("game") || lk.includes("tile") || lk.includes("scratch")) push(w[k]);
-      }
-    } catch {}
+      try {
+        const w = globalThis as any;
+        for (const k of Object.keys(w)) {
+          const lk = k.toLowerCase();
+          if (lk.includes("game") || lk.includes("tile") || lk.includes("scratch")) push(w[k]);
+        }
+      } catch {}
 
-    return Array.from(bag);
-  });
+      return Array.from(bag);
+    });
 
-  return strings;
-}
+    return strings;
+  }
 
-  let stagnant = 0, lastCount = 0;
+  let stagnant = 0,
+    lastCount = 0;
 
   while (Date.now() - started < timeoutMs) {
     await page.evaluate(() => window.scrollBy(0, Math.round(window.innerHeight * 0.75))).catch(() => {});
     await sleep(350);
-    
-    const domLinks  = await collectFromDom();
-    const netLinks  = await collectFromNetwork();
+
+    const domLinks = await collectFromDom();
+    const netLinks = await collectFromNetwork();
     const htmlLinks = await collectFromHtmlOuter();
-    const winLinks  = await collectFromWindow(page); // NEW
+    const winLinks = await collectFromWindow(page);
 
     for (const raw of [...domLinks, ...netLinks, ...htmlLinks, ...winLinks]) {
       const norm = normalizeGameUrl(raw);
@@ -520,39 +515,46 @@ export async function waitForNumericGameLinks(
     if (count >= minCount) break;
 
     if (count === lastCount) stagnant += 1;
-    else { stagnant = 0; lastCount = count; }
+    else {
+      stagnant = 0;
+      lastCount = count;
+    }
 
     if (stagnant >= 3) {
-      await page.evaluate(() => new Promise<void>(r => {
-        try { (window as any).requestIdleCallback ? (window as any).requestIdleCallback(() => r(), { timeout: 800 }) : setTimeout(() => r(), 300);
-        } catch { setTimeout(() => r(), 300); }
-      })).catch(() => {});
+      await page
+        .evaluate(
+          () =>
+            new Promise<void>((r) => {
+              try {
+                (window as any).requestIdleCallback
+                  ? (window as any).requestIdleCallback(() => r(), { timeout: 800 })
+                  : setTimeout(() => r(), 300);
+              } catch {
+                setTimeout(() => r(), 300);
+              }
+            })
+        )
+        .catch(() => {});
       stagnant = 0;
     }
   }
 
-
-  // ---- compute results ONCE
   const results = Array.from(seen).sort();
 
-  // ---- write debug JSON either way
   try {
     await fs.writeFile(
-      path.join("public/data/ga_scratchers", `_debug_${nameHint}.links.json`),
+      path.join(DATA_DIR, `_debug_${nameHint}.links.json`),
       JSON.stringify({ count: results.length, links: results }, null, 2),
       "utf8"
     );
   } catch {}
 
-  // ---- if empty, dump HTML/PNG and fail
   if (results.length === 0) {
     await saveDebug(page, `_debug_links_${nameHint}_fail`);
     throw new Error(
-      `waitForNumericGameLinks: timed out without reaching minCount=${minCount}; ` +
-      `gathered=${results.length}`
+      `waitForNumericGameLinks: timed out without reaching minCount=${minCount}; gathered=${results.length}`
     );
   }
 
-  // ---- success
   return results;
 }

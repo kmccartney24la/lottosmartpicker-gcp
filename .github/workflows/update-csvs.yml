@@ -79,7 +79,7 @@ jobs:
 
           # Fetch remote object to a file, auto-decompress if it's gzip
           fetch_plain () {
-            local rel="$1"     # e.g. ga/cash4life.csv
+            local rel="$1"     # e.g. multi/cash4life.csv
             local out="$2"     # destination plain CSV
             local tmp_raw
             tmp_raw="$(mktemp)"
@@ -94,7 +94,7 @@ jobs:
           }
 
           merge_csv() {
-            local rel="$1"              # e.g. ga/cash4life.csv or multi/powerball.csv
+            local rel="$1"              # e.g. multi/cash4life.csv or multi/powerball.csv
             local local_file="public/data/$rel"
             local latest_file="${local_file%.csv}.latest.csv"
             local local_src="$local_file"
@@ -197,7 +197,7 @@ jobs:
 
           merge_csv multi/powerball.csv
           merge_csv multi/megamillions.csv
-          merge_csv ga/cash4life.csv
+          merge_csv multi/cash4life.csv
           merge_csv ga/fantasy5.csv
 
       - name: Show local CSVs (after merge, before upload)
@@ -206,7 +206,7 @@ jobs:
           set -euo pipefail
           for f in \
             public/data/ga/fantasy5.csv \
-            public/data/ga/cash4life.csv \
+            public/data/multi/cash4life.csv \
             public/data/multi/powerball.csv \
             public/data/multi/megamillions.csv
           do
@@ -304,7 +304,7 @@ jobs:
 
 
           verify_or_put ga/fantasy5.csv
-          verify_or_put ga/cash4life.csv
+          verify_or_put multi/cash4life.csv
           verify_or_put multi/powerball.csv
           verify_or_put multi/megamillions.csv
 
@@ -326,7 +326,7 @@ jobs:
             echo
           }
           check ga/fantasy5.csv
-          check ga/cash4life.csv
+          check multi/cash4life.csv
           check multi/powerball.csv
           check multi/megamillions.csv
 
