@@ -1,5 +1,6 @@
 // src/components/HintLegend.tsx
 'use client';
+import './HintLegend.css';
 import Info from 'src/components/Info';
 import Pill from 'src/components/Pill';
 import { HINT_EXPLAIN, classifyHint } from 'src/components/hints';
@@ -14,9 +15,11 @@ export default function HintLegend() {
   return (
     <div className="card hint-legend">
       <div className="hint-legend-header">
-        <div className="hint-legend-title">Tag Legend</div>
+        <div className="card-title hint-legend-title">Tag Legend</div>
         <Info
-          tip={'These tags are descriptive heuristics based on recent draw statistics.\nThey do not predict outcomes.'}
+          tip={
+            'Tags describe how a ticket compares to recent history (e.g., Hot mains, Cold special).\nThey are descriptive only — not predictions.'
+          }
           label="How tags work"
         />
       </div>

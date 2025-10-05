@@ -4,6 +4,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import './FiltersPanel.css';
+import Info from 'src/components/Info';
 import type { SortKey } from './types';
 
 /** Existing filter model (unchanged) */
@@ -30,6 +31,10 @@ export type FiltersPanelProps = Filters & {
   open: boolean;
   /** Backdrop/Escape handler (used only when drawerMode=true). */
   onClose?: () => void;
+  /** Optional: reflect and control reversed sort (does not change Filters model) */
+  isSortReversed?: boolean;
+  onToggleSortReverse?: () => void;
+  onSetSortReversed?: (v: boolean) => void;
 };
 
 // Reasonable, non-invasive assumptions for defaults (only used by Reset/chips)
@@ -56,19 +61,124 @@ export default function FiltersPanel(props: FiltersPanelProps) {
     drawerMode,
     open,
     onClose,
+    // optional sort reverse props
+    isSortReversed,
+    onToggleSortReverse,
   } = props;
+
+  // Capture the initial observed maximum ticket price once (used as dynamic ceiling).
+  const initialMaxRef = useRef<number>(priceMax);
+  // If parent ever provides a higher max later (e.g., dataset changed), adopt it once.
+  if (priceMax > initialMaxRef.current) initialMaxRef.current = priceMax;
+  const PRICE_CEIL = initialMaxRef.current; // replaces hardcoded 50
+
+  // ────────────────────────────────────────────────────────────────────────────
+  // Local *string* state for free-typing (commit on blur/Enter)
+  // ────────────────────────────────────────────────────────────────────────────
+  const [qStr, setQStr] = useState<string>(q ?? '');
+  const [pminStr, setPminStr] = useState<string>(String(priceMin));
+  const [pmaxStr, setPmaxStr] = useState<string>(String(priceMax));
+  const [toppctStr, setToppctStr] = useState<string>(String(Math.round(minTopAvail * 100)));
+  const [topremainStr, setTopremainStr] = useState<string>(String(minTopRemain));
+  const [announce, setAnnounce] = useState<string>('');
+  const announceRef = useRef<number | null>(null);
+
+  // Sync local strings whenever committed props change (e.g., reset/chips/url)
+  useEffect(() => setQStr(q ?? ''), [q]);
+  useEffect(() => setPminStr(String(priceMin)), [priceMin]);
+  useEffect(() => setPmaxStr(String(priceMax)), [priceMax]);
+  useEffect(() => setToppctStr(String(Math.round(minTopAvail * 100))), [minTopAvail]);
+  useEffect(() => setTopremainStr(String(minTopRemain)), [minTopRemain]);
+
+  // Debounce search → parent (200ms); do not debounce numeric commits
+  useEffect(() => {
+    const id = window.setTimeout(() => {
+      if (qStr !== q) onChange({ q: qStr });
+    }, 200);
+    return () => window.clearTimeout(id);
+  }, [qStr]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Helpers
+  const digitsOnly = (s: string) => s.replace(/[^\d]/g, '');
+  const parseIntLoose = (s: string): number | null => {
+    const d = digitsOnly(s);
+    if (d === '') return null;
+    const n = parseInt(d, 10);
+    return Number.isFinite(n) ? n : null;
+  };
+  const withAnnouncement = (msg: string | null) => {
+    if (!msg) return;
+    setAnnounce(msg);
+    if (announceRef.current) window.clearTimeout(announceRef.current);
+    announceRef.current = window.setTimeout(() => setAnnounce(''), 2500);
+  };
+  const preventWheelWhileFocused: React.WheelEventHandler<HTMLInputElement> = (e) => {
+    // Prevent accidental value changes on trackpads while focused
+    e.preventDefault();
+  };
+  const handleKeyCommit = (e: React.KeyboardEvent<HTMLInputElement>, onCommit: () => void, onRevert: () => void) => {
+    if (e.key === 'Enter') onCommit();
+    else if (e.key === 'Escape') onRevert();
+  };
+
+  // Committers (apply bounds + minimal cross-field correction)
+  const commitPriceMin = () => {
+    const maybe = parseIntLoose(pminStr);
+    if (maybe == null) { setPminStr(String(priceMin)); return; }
+    let newMin = clampInt(maybe, 1, PRICE_CEIL, priceMin);
+    let newMax = priceMax;
+    let note: string | null = null;
+    if (newMin > newMax) { newMax = newMin; note = `Adjusted to $${newMin}–$${newMax}`; }
+    onChange({ priceMin: newMin, priceMax: newMax });
+    setPminStr(String(newMin));
+    setPmaxStr(String(newMax));
+    withAnnouncement(note);
+  };
+  const commitPriceMax = () => {
+    const maybe = parseIntLoose(pmaxStr);
+    if (maybe == null) { setPmaxStr(String(priceMax)); return; }
+    let newMax = clampInt(maybe, 1, PRICE_CEIL, priceMax);
+    let newMin = priceMin;
+    let note: string | null = null;
+    if (newMin > newMax) { newMin = newMax; note = `Adjusted to $${newMin}–$${newMax}`; }
+    onChange({ priceMin: newMin, priceMax: newMax });
+    setPminStr(String(newMin));
+    setPmaxStr(String(newMax));
+    withAnnouncement(note);
+  };
+  const commitTopPct = () => {
+    const maybe = parseIntLoose(toppctStr);
+    if (maybe == null) { setToppctStr(String(Math.round(minTopAvail * 100))); return; }
+    const pct = clampInt(maybe, 0, 100, Math.round(minTopAvail * 100));
+    onChange({ minTopAvail: pct / 100 });
+    setToppctStr(String(pct));
+  };
+  const commitTopRemain = () => {
+    const maybe = parseIntLoose(topremainStr);
+    if (maybe == null) { setTopremainStr(String(minTopRemain)); return; }
+    const rem = Math.max(0, maybe);
+    onChange({ minTopRemain: rem });
+    setTopremainStr(String(rem));
+  };
 
   // Reset all filters to defaults (keeps updatedAt untouched)
   const resetAll = React.useCallback(() => {
     onChange({
       q: DEFAULTS.q,
+      // Keep ceiling dynamic: min back to default, max to current ceiling.
       priceMin: DEFAULTS.priceMin,
-      priceMax: DEFAULTS.priceMax,
+      priceMax: PRICE_CEIL,
       minTopAvail: DEFAULTS.minTopAvail,
       minTopRemain: DEFAULTS.minTopRemain,
       lifecycle: DEFAULTS.lifecycle,
       sortKey: DEFAULTS.sortKey,
     });
+    // local mirrors
+    setQStr(DEFAULTS.q);
+    setPminStr(String(DEFAULTS.priceMin));
+    setPmaxStr(String(PRICE_CEIL));
+    setToppctStr(String(Math.round(DEFAULTS.minTopAvail * 100)));
+    setTopremainStr(String(DEFAULTS.minTopRemain));
   }, [onChange]);
 
   // Clear a single chip/field (priceMin chip clears both min/max)
@@ -76,16 +186,22 @@ export default function FiltersPanel(props: FiltersPanelProps) {
     switch (key) {
       case 'q':
         onChange({ q: DEFAULTS.q });
+        setQStr(DEFAULTS.q);
         break;
       case 'priceMin':
       case 'priceMax':
-        onChange({ priceMin: DEFAULTS.priceMin, priceMax: DEFAULTS.priceMax });
+        // Clear price → default min, dynamic ceiling for max
+        onChange({ priceMin: DEFAULTS.priceMin, priceMax: PRICE_CEIL });
+        setPminStr(String(DEFAULTS.priceMin));
+        setPmaxStr(String(PRICE_CEIL));
         break;
       case 'minTopAvail':
         onChange({ minTopAvail: DEFAULTS.minTopAvail });
+        setToppctStr(String(Math.round(DEFAULTS.minTopAvail * 100)));
         break;
       case 'minTopRemain':
         onChange({ minTopRemain: DEFAULTS.minTopRemain });
+        setTopremainStr(String(DEFAULTS.minTopRemain));
         break;
       case 'lifecycle':
         onChange({ lifecycle: DEFAULTS.lifecycle });
@@ -141,8 +257,8 @@ export default function FiltersPanel(props: FiltersPanelProps) {
 
       const patch: Partial<Filters> = {};
       if (params.has('q')) patch.q = params.get('q') || '';
-      if (params.has('pmin')) patch.priceMin = clampInt(params.get('pmin'), 1, 50, DEFAULTS.priceMin);
-      if (params.has('pmax')) patch.priceMax = clampInt(params.get('pmax'), 1, 50, DEFAULTS.priceMax);
+      if (params.has('pmin')) patch.priceMin = clampInt(params.get('pmin'), 1, PRICE_CEIL, DEFAULTS.priceMin);
+      if (params.has('pmax')) patch.priceMax = clampInt(params.get('pmax'), 1, PRICE_CEIL, PRICE_CEIL);
       if (params.has('toppct')) {
         const pct = clampInt(params.get('toppct'), 0, 100, Math.round(DEFAULTS.minTopAvail * 100));
         patch.minTopAvail = pct / 100;
@@ -153,6 +269,12 @@ export default function FiltersPanel(props: FiltersPanelProps) {
         if (v === 'all' || v === 'new' || v === 'continuing') patch.lifecycle = v;
       }
       if (params.has('sort')) patch.sortKey = (params.get('sort') as SortKey) || DEFAULTS.sortKey;
+
+      // Optional: read "rev" (reverse sort) if parent wants it
+      if (props.onSetSortReversed && params.has('rev')) {
+        const v = String(params.get('rev')).toLowerCase();
+        props.onSetSortReversed(v === '1' || v === 'true' || v === 'yes');
+      }
 
       if (Object.keys(patch).length) onChange(patch);
     }, 0);
@@ -165,16 +287,19 @@ export default function FiltersPanel(props: FiltersPanelProps) {
     const params = new URLSearchParams();
     if (q.trim()) params.set('q', q.trim());
     if (priceMin !== DEFAULTS.priceMin) params.set('pmin', String(priceMin));
-    if (priceMax !== DEFAULTS.priceMax) params.set('pmax', String(priceMax));
+    // Compare against dynamic ceiling rather than static default
+    if (priceMax !== PRICE_CEIL) params.set('pmax', String(priceMax));
     if (minTopAvail !== DEFAULTS.minTopAvail) params.set('toppct', String(Math.round(minTopAvail * 100)));
     if (minTopRemain !== DEFAULTS.minTopRemain) params.set('topremain', String(minTopRemain));
     if (lifecycle !== DEFAULTS.lifecycle) params.set('life', lifecycle);
     if (sortKey !== DEFAULTS.sortKey) params.set('sort', sortKey);
+    // Preserve reverse toggle in URL if provided
+    if (typeof isSortReversed === 'boolean' && isSortReversed) params.set('rev', '1');
 
     const qstr = params.toString();
     const url = qstr ? `?${qstr}` : window.location.pathname;
     window.history.replaceState(null, '', url);
-  }, [q, priceMin, priceMax, minTopAvail, minTopRemain, lifecycle, sortKey]);
+  }, [q, priceMin, priceMax, minTopAvail, minTopRemain, lifecycle, sortKey, isSortReversed]);
 
   // ────────────────────────────────────────────────────────────────────────────
   // Drawer plumbing (SSR-safe)
@@ -241,25 +366,27 @@ export default function FiltersPanel(props: FiltersPanelProps) {
           <strong id={ids.title}>Filters &amp; Sort</strong>
           {updatedAt && (
             <div className="filters-updated" aria-live="polite">
-              Updated {updatedAt}
+              Updated {new Date(updatedAt).toLocaleDateString()}
             </div>
           )}
+          {/* polite area for commit adjustments */}
+          <div className="hint-inline" aria-live="polite">{announce}</div>
         </div>
         <div className="controls header-controls filters-actions">
           {drawerMode && onClose && (
             <button
               type="button"
-              className="btn btn-ghost filters-close-btn"
+              className="btn plain icon-only"
               onClick={onClose}
               aria-label="Close filters"
               title="Close"
             >
-              ×
+              <span aria-hidden>✕</span>
             </button>
           )}
           <button
             type="button"
-            className="btn btn-ghost filters-reset-btn"
+            className="btn btn-primary filters-reset-btn"
             onClick={resetAll}
             aria-label="Reset all filters to defaults"
             title="Reset all"
@@ -272,9 +399,9 @@ export default function FiltersPanel(props: FiltersPanelProps) {
 
       {/* Chips */}
       {chips.length > 0 && (
-        <div className="chips filters-chips" role="status" aria-live="polite">
+        <div className="filters-chips" role="status" aria-live="polite">
           {chips.map(({ key, label }) => (
-            <span className="chip" key={key}>
+            <span className="filters-chip" key={key}>
               {label}
               <button
                 type="button"
@@ -294,26 +421,39 @@ export default function FiltersPanel(props: FiltersPanelProps) {
       <div className="filters-sections">
         {/* Sort */}
         <section aria-labelledby="sec-sort" className="filters-section">
-          <h3 id="sec-sort" className="section-title">Sort by</h3>
-          <label htmlFor={ids.sort}>
-            <span className="visually-hidden">Sort key</span>
-          </label>
-          <select
-            id={ids.sort}
-            value={sortKey}
-            onChange={(e) => onChange({ sortKey: e.currentTarget.value as SortKey })}
-            aria-label="Sort results by"
-            className="filters-select compact-control"
-          >
-            <option value="best">Best (price ↓ then adjusted ↑)</option>
-            <option value="adjusted">Adjusted odds (lower = better)</option>
-            <option value="odds">Printed odds (lower = better)</option>
-            <option value="price">Ticket price</option>
-            <option value="topPrizeValue">Top prize $</option>
-            <option value="topPrizesRemain">Top prizes remaining</option>
-            <option value="%topAvail">% top-prizes remaining</option>
-            <option value="name">Name (A→Z)</option>
-          </select>
+          <h3 id="sec-sort" className="section-title">
+            Sort by
+          </h3>
+          <div className="sort-row">
+            <label htmlFor={ids.sort}>
+              <span className="visually-hidden">Sort key</span>
+            </label>
+            <select
+              id={ids.sort}
+              value={sortKey}
+              onChange={(e) => onChange({ sortKey: e.currentTarget.value as SortKey })}
+              aria-label="Sort results by"
+              className="filters-select compact-control"
+            >
+              <option value="best">Best (printed odds → prizes left → price)</option>
+              <option value="name">Name (A→Z)</option>
+              <option value="startDate">Launch date</option>
+              <option value="price">Ticket price</option>
+              <option value="odds">Printed odds (lower = better)</option>
+              <option value="adjusted">Adjusted odds (lower = better)</option>
+              <option value="topPrizeValue">Top prize $</option>
+              <option value="topPrizesRemain">Top prizes remaining</option>
+              <option value="%topAvail">% top-prizes remaining</option>
+            </select>
+            <button
+              type="button"
+              className="btn ghost icon-only sort-reverse-btn"
+              aria-pressed={!!isSortReversed}
+              aria-label={isSortReversed ? 'Reverse sort: on (descending relative to current key)' : 'Reverse sort: off (ascending/standard for key)'}
+              title="Reverse sort"
+              onClick={onToggleSortReverse}
+            >↕</button>
+          </div>
         </section>
 
         {/* Search */}
@@ -326,8 +466,8 @@ export default function FiltersPanel(props: FiltersPanelProps) {
             <input
               id={ids.search}
               type="search"
-              value={q}
-              onChange={(e) => onChange({ q: e.target.value })}
+              value={qStr}
+              onChange={(e) => setQStr(e.currentTarget.value)}
               placeholder="Name or Game #"
               aria-label="Search name or game number"
               className="filters-input"
@@ -340,49 +480,47 @@ export default function FiltersPanel(props: FiltersPanelProps) {
           <h3 id="sec-price" className="section-title">Price</h3>
           <div className="filters-price-grid">
             <label htmlFor={ids.pmin} className="filters-price-label">
-              <span>Min price</span>
-              <div className="input-wrap" data-has-suffix="true">
+              <span>Min price $</span>
+              <div className="input-wrap" data-has-suffix="false">
                 <input
                   id={ids.pmin}
-                  type="number"
-                  min={1}
-                  max={50}
-                  step={1}
-                  value={priceMin}
-                  onChange={(e) =>
-                    onChange({ priceMin: clampInt(e.currentTarget.value, 1, 50, 1) })
-                  }
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  value={pminStr}
+                  onChange={(e) => setPminStr(e.currentTarget.value)}
+                  onBlur={commitPriceMin}
+                  onKeyDown={(e) => handleKeyCommit(e, commitPriceMin, () => setPminStr(String(priceMin)))}
+                  onWheel={preventWheelWhileFocused}
                   aria-label="Minimum ticket price"
                   aria-describedby="price-hint"
                   className="filters-input"
                 />
-                <span className="inside-suffix">$</span>
               </div>
             </label>
 
             <label htmlFor={ids.pmax} className="filters-price-label">
-              <span>Max price</span>
-              <div className="input-wrap" data-has-suffix="true">
+              <span>Max price $</span>
+              <div className="input-wrap" data-has-suffix="false">
                 <input
                   id={ids.pmax}
-                  type="number"
-                  min={1}
-                  max={50}
-                  step={1}
-                  value={priceMax}
-                  onChange={(e) =>
-                    onChange({ priceMax: clampInt(e.currentTarget.value, 1, 50, 50) })
-                  }
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  value={pmaxStr}
+                  onChange={(e) => setPmaxStr(e.currentTarget.value)}
+                  onBlur={commitPriceMax}
+                  onKeyDown={(e) => handleKeyCommit(e, commitPriceMax, () => setPmaxStr(String(priceMax)))}
+                  onWheel={preventWheelWhileFocused}
                   aria-label="Maximum ticket price"
                   aria-describedby="price-hint"
                   className="filters-input"
                 />
-                <span className="inside-suffix">$</span>
               </div>
             </label>
           </div>
           <div className="filters-hint" aria-live="polite" id="price-hint">
-            Range $1–$50
+            Range $1–${PRICE_CEIL}
           </div>
         </section>
 
@@ -392,22 +530,20 @@ export default function FiltersPanel(props: FiltersPanelProps) {
           <div className="filters-prizes-grid">
             <label htmlFor={ids.toppct} className="filters-prize-label">
               <span>Min top-prize %</span>
-              <div className="input-wrap" data-has-suffix="true">
+              <div className="input-wrap" data-has-suffix="false">
                 <input
                   id={ids.toppct}
-                  type="number"
-                  min={0}
-                  max={100}
-                  step={5}
-                  value={Math.round(minTopAvail * 100)}
-                  onChange={(e) => {
-                    const pct = clampInt(e.currentTarget.value, 0, 100, 0);
-                    onChange({ minTopAvail: pct / 100 });
-                  }}
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  value={toppctStr}
+                  onChange={(e) => setToppctStr(e.currentTarget.value)}
+                  onBlur={commitTopPct}
+                  onKeyDown={(e) => handleKeyCommit(e, commitTopPct, () => setToppctStr(String(Math.round(minTopAvail * 100))))}
+                  onWheel={preventWheelWhileFocused}
                   aria-label="Minimum percent of top prizes remaining"
                   className="filters-input"
                 />
-                <span className="inside-suffix">%</span>
               </div>
             </label>
 
@@ -416,15 +552,14 @@ export default function FiltersPanel(props: FiltersPanelProps) {
               <div className="input-wrap" data-has-suffix="false">
                 <input
                   id={ids.topremain}
-                  type="number"
-                  min={0}
-                  step={1}
-                  value={minTopRemain}
-                  onChange={(e) =>
-                    onChange({
-                      minTopRemain: Math.max(0, parseInt(e.currentTarget.value || '0', 10) || 0),
-                    })
-                  }
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  value={topremainStr}
+                  onChange={(e) => setTopremainStr(e.currentTarget.value)}
+                  onBlur={commitTopRemain}
+                  onKeyDown={(e) => handleKeyCommit(e, commitTopRemain, () => setTopremainStr(String(minTopRemain)))}
+                  onWheel={preventWheelWhileFocused}
                   aria-label="Minimum number of top prizes remaining"
                   className="filters-input"
                 />
@@ -447,8 +582,7 @@ export default function FiltersPanel(props: FiltersPanelProps) {
             className="filters-select compact-control"
           >
             <option value="all">All active</option>
-            <option value="new">New only</option>
-            <option value="continuing">Continuing only</option>
+            <option value="new">New</option>
           </select>
         </section>
       </div>
@@ -523,6 +657,8 @@ function readableSort(k: SortKey): string {
     case 'topPrizesRemain': return 'Top prizes remaining';
     case '%topAvail': return '% top-prizes remaining';
     case 'name': return 'Name (A→Z)';
+    // Forward-compat with parent if it supports this key
+    case 'startDate': return 'Start date';
     default: return String(k);
   }
 }

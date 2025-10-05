@@ -1,5 +1,6 @@
 // src/components/AnalyzeSidebar.tsx
 'use client';
+import './AnalyzeSidebar.css';
 import { useEffect, useState } from 'react';
 import {
   GameKey, analyzeGame, fetchRowsWithCache, getCurrentEraConfig,
@@ -67,7 +68,7 @@ export default function AnalyzeSidebar() {
               {a ? (
                 <div className="analyze-game-details card-content-text">
                   <div className="analyze-detail">
-                    <span className="analyze-label">Past draws:</span>
+                    <span className="analyze-label">Total draws analyzed:</span>
                     <span className="analyze-value mono">{a.draws}</span>
                   </div>
                   <div className="analyze-detail">

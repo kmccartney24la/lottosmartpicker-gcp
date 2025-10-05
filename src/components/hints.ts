@@ -10,7 +10,7 @@ export const HINT_EXPLAIN: Record<string, string> = {
     'Special ball z-score > 1 (more frequent lately).',
   'Cold special':
     'Special ball z-score < -1 (less frequent lately).',
-'Pattern looks common':
+'Common pattern':
     'Contains patterns many people choose.',
 };
 
@@ -19,6 +19,6 @@ export function classifyHint(hint: string): 'hot' | 'cold' | 'neutral' | 'warn' 
   if (hint === 'Balanced') return 'neutral';
   if (hint === 'Hot mains' || hint === 'Hot special') return 'hot';
   if (hint === 'Cold special' || hint.startsWith('Cold mains')) return 'cold';
-  if (hint === 'Pattern looks common') return 'warn';
+  if (hint === 'Common pattern') return 'warn';
   return 'neutral';
 }

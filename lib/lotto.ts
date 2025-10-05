@@ -667,7 +667,7 @@ export function generateTicket(
 export function ticketHints(game:GameKey, mains:number[], special:number, stats: ReturnType<typeof computeStats>): string[] {
   const hints:string[] = [];
   const common = looksTooCommon(mains, game);
-  if (common) hints.push('Pattern looks common');
+  if (common) hints.push('Common pattern');
   const lowCount = mains.filter(n=>(stats.countsMain.get(n)||0) <= 1).length;
   if (lowCount >= 3) hints.push('Cold mains');
   const hotCount = mains.filter(n=> (stats.zMain.get(n)||0) > 1).length;

@@ -12,13 +12,25 @@ export function useScratchersIndex() {
   const [raw, setRaw] = useState<ScratchersIndexPayload | null>(null);
   const [loading, setLoading] = useState(false);
 
+  const inferUpdatedAt = (games: ActiveGame[]): string | undefined => {
+    // Prefer max per-game updatedAt if the API doesn’t send one at the top level
+    let maxTs = 0;
+    for (const g of games) {
+      const t = Date.parse(g.updatedAt ?? "");
+      if (Number.isFinite(t) && t > maxTs) maxTs = t;
+    }
+    return maxTs > 0 ? new Date(maxTs).toISOString() : undefined;
+  };
+
   useEffect(() => {
     let alive = true;
     (async () => {
       setLoading(true);
       try {
         const games = await fetchScratchersWithCache();
-        if (alive) setRaw({ games, updatedAt: new Date().toISOString() });
+        // If your API ever returns { games, updatedAt }, feel free to use that directly.
+        // For now, compute from per-game timestamps so FiltersPanel shows the correct date.
+        if (alive) setRaw({ games, updatedAt: inferUpdatedAt(games) });
       } catch (err) {
         console.error(err);
         if (alive) setRaw({ games: [] });

@@ -1,6 +1,7 @@
 // src/components/Generator.tsx
 'use client';
-import { useMemo, useRef, useState } from 'react';
+import './Generator.css';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Info from 'src/components/Info';
 import Pill from './Pill';
 import { HINT_EXPLAIN, classifyHint } from './hints';
@@ -31,10 +32,13 @@ export default function Generator({
   const modeSpecial: 'hot'|'cold' = alphaSpecial >= 0.5 ? 'hot' : 'cold';
 
   const [avoidCommon, setAvoidCommon] = useState(true);
-  const [num, setNum] = useState(10);
+  // String state so the box can be cleared while typing; default is "4"
+  const [numInput, setNumInput] = useState('4');
   const [tickets, setTickets] = useState<{ mains: number[]; special?: number }[]>([]); // special optional for Fantasy 5
   const liveRef = useRef<HTMLDivElement|null>(null);
   const [showEvaluate, setShowEvaluate] = useState(false);
+  // Track last applied recommendation so we don't re-apply redundantly
+  const lastAppliedRef = useRef<{ game: GameKey; aMain: number; aSpec: number } | null>(null);
 
   // ---- Era-aware data & stats (always current era) ----
   const eraCfg = useMemo(() => getCurrentEraConfig(game), [game]);
@@ -55,12 +59,36 @@ export default function Generator({
     if (rec) applyRecommendation(rec);
   }
 
+  // Auto-apply recommended weighting once rows are available for the selected game.
+  // Prefers precomputed analysis; otherwise asks parent to compute it.
+  useEffect(() => {
+    let alive = true;
+    // Wait until we actually have rows for this game; prevents premature application.
+    if (!rowsEra || rowsEra.length === 0) return;
+    (async () => {
+      const rec = analysisForGame ?? (await onEnsureRecommended());
+      if (!alive || !rec) return;
+      const aMain = Number(rec.recMain.alpha.toFixed(2));
+      const aSpec = Number(rec.recSpec.alpha.toFixed(2));
+      const last = lastAppliedRef.current;
+      // Only apply if this is a new game or the recommendation changed.
+      if (!last || last.game !== game || last.aMain !== aMain || last.aSpec !== aSpec) {
+        setAlphaMain(aMain);
+        if (eraCfg.specialMax > 0) setAlphaSpecial(aSpec);
+        lastAppliedRef.current = { game, aMain, aSpec };
+      }
+    })();
+    return () => { alive = false; };
+  }, [game, rowsEra.length, analysisForGame, onEnsureRecommended, eraCfg.specialMax]);
+
   function generate(rows = rowsEra as any[]) {
     if (!rows || rows.length === 0) { setTickets([]); return; }
+    const parsed = parseInt(numInput, 10);
+    const target = Number.isFinite(parsed) ? Math.max(1, Math.min(100, parsed)) : 4; // clamp, fallback to 4
     const out: { mains: number[]; special?: number }[] = [];
     const seen = new Set<string>();
     let guard = 0;
-    while (out.length < num && guard < num * 50) {
+    while (out.length < target && guard < target * 50) {
       const t = generateTicket(rows, game, { modeMain, modeSpecial, alphaMain, alphaSpecial, avoidCommon }, eraCfg) as { mains:number[]; special?:number };
       const key = `${t.mains.join('-')}:${t.special ?? ''}`;
       if (!seen.has(key)) { seen.add(key); out.push(t); }
@@ -103,12 +131,12 @@ export default function Generator({
         </button>
         <Info
           tip={
-            'Recommended uses past drawing stats with gentle safeguards:\n' +
-            '• Measures dispersion (CV) of hit counts for mains & special.\n' +
-            '• Converts CV → hot/cold + α, then applies small per-game α clamps.\n' +
-            '• Adds light smoothing to avoid overfitting when samples are small.\n' +
-            '• “Hot” leans toward frequent hitters; “Cold” toward underrepresented.\n' +
-            'This biases random sampling; it does not predict outcomes.'
+            'Recommended uses recent draw history to set weights automatically:\n' +
+            '• Checks how uneven the numbers have been.\n' +
+            '• Chooses “hot” (more frequent) or “cold” (less frequent) for mains and special.\n' +
+            '• Sets α = how strongly to lean (0 = even, 1 = strong bias), with per-game limits.\n' +
+            '• Adds light smoothing so small samples don’t overreact.\n' +
+            'Note: This only biases random picks. It does not predict results.'
           }
         />
       </div>
@@ -119,11 +147,11 @@ export default function Generator({
           <div className="font-semibold">Main numbers weighting</div>
           <Info
             tip={
-              'Main weighting:\n' +
-              '• hot: probability ∝ historical frequency\n' +
-              '• cold: probability ∝ inverse frequency (rarer → higher weight)\n' +
-              '• α blends uniform with history (0=uniform, 1=hot/cold)\n' +
-              '• A tiny smoothing prior reduces spiky behavior on low samples.'
+              'Main numbers weighting:\n' +
+              '• hot = favor numbers that have hit more often\n' +
+              '• cold = favor numbers that have hit less often\n' +
+              '• α controls strength (0 = even, 1 = max bias)\n' +
+              '• Light smoothing keeps small samples from being too spiky.'
             }
           />
         </div>
@@ -142,15 +170,16 @@ export default function Generator({
 
       {/* Special ball weighting (only for games that have a special) */}
       {hasSpecial && (
-        <div className="generator-section">
+        <div className="generator-section generator-section--special">
           <div className="controls items-start">
             <div className="font-semibold">Special ball weighting</div>
             <Info
               tip={
-                'Special ball weighting mirrors mains:\n' +
-                '• hot: weight by frequency; cold: weight by inverse frequency.\n' +
-                '• α blends uniform with history (0 = uniform, 1 = pure hot/cold).\n' +
-                '• Very small domains (like 1–4) use conservative α clamps.'
+                'Special ball weighting:\n' +
+                '• hot = favor specials that have hit more often\n' +
+                '• cold = favor specials that have hit less often\n' +
+                '• α controls strength (0 = even, 1 = max bias)\n' +
+                '• Very small ranges (e.g., 1–4) use conservative limits.'
               }
             />
           </div>
@@ -180,12 +209,13 @@ export default function Generator({
           <span>Avoid common patterns</span>
           <Info
             tip={
-              'Heuristic filter:\n' +
-              '• Consecutive triplets\n' +
-              '• 4+ numbers ≤ 31 (date bias)\n' +
-              '• Arithmetic sequences\n' +
-              '• Tight clusters (small spread)\n' +
-              'This reduces "too common" combos players tend to pick.'
+              'Avoid common patterns:\n' +
+              'Filters out tickets lots of people pick, like:\n' +
+              '• 3+ consecutive numbers\n' +
+              '• 4 or more numbers ≤ 31 (birthdays)\n' +
+              '• Straight arithmetic sequences\n' +
+              '• Very tight clusters\n' +
+              'Goal: reduce shared picks—not to change odds.'
             }
           />
         </label>
@@ -200,8 +230,8 @@ export default function Generator({
             type="number"
             min={1}
             max={100}
-            value={num}
-            onChange={(e)=>setNum(parseInt(e.target.value||'1'))}
+            value={numInput}
+            onChange={(e)=>setNumInput(e.target.value)}
             className="generator-number-input"
           />
         </div>

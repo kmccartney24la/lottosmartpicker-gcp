@@ -23,7 +23,14 @@ function initTheme(): ThemeKey {
   return saved && THEMES.has(saved) ? saved : 'system';
 }
 
-export default function ThemeSwitcher({ className = '' }: { className?: string }) {
+export default function ThemeSwitcher({
+  className = '',
+  variant = 'full',
+}: {
+  className?: string;
+  /** 'full' renders label+select; 'bare' renders just the select (for custom wrappers) */
+  variant?: 'full' | 'bare';
+}) {
   const [theme, setTheme] = useState<ThemeKey>(() => initTheme());
   const [announce, setAnnounce] = useState('');
   const [tId, setTId] = useState<number | null>(null); // debounce id for live region
@@ -67,9 +74,29 @@ export default function ThemeSwitcher({ className = '' }: { className?: string }
     return () => mq.removeEventListener?.('change', onChange);
   }, [theme]);
 
- return (
+ if (variant === 'bare') {
+    return (
+      <>
+        <select
+          id={selId}
+          aria-label="Theme"
+          value={theme}
+          onChange={(e) => setTheme(e.target.value as ThemeKey)}
+          className={`compact-control ${className}`.trim()}
+        >
+          <option value="system">System</option>
+          <option value="light">Light</option>
+          <option value="dark">Dark</option>
+          <option value="contrast">Contrast</option>
+        </select>
+        <span aria-live="polite" className="visually-hidden">{announce}</span>
+      </>
+    );
+  }
+
+  return (
     <label className={className} htmlFor={selId}>
-     <span>Theme</span>
+      <span>Theme</span>
       <select
         id={selId}
         value={theme}

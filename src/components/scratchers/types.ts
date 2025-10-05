@@ -1,3 +1,4 @@
+// src/components/scratchers/types.ts
 export type ActiveGame = {
   gameNumber: number;
   name: string;
@@ -28,4 +29,6 @@ export type SortKey =
   | 'topPrizeValue'
   | 'topPrizesRemain'
   | '%topAvail'
-  | 'name';
+  | 'name'
+  | 'startDate';
+  

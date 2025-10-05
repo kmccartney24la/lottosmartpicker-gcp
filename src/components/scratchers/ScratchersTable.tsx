@@ -49,14 +49,13 @@ const TopLeftCell = ({ g }: { g: ActiveGame }) => {
   );
 };
 
-function lifecycleLabel(v?: ActiveGame['lifecycle']) {
-  if (!v) return null;
-  const map: Record<string, string> = {
-    new: 'New',
-    ending: 'Ending soon',
-    active: 'Active',
-  };
-  return map[v] ?? v[0]?.toUpperCase() + v.slice(1);
+function lifecycleLabelFromStartDate(startDate?: string): string | null {
+  if (!startDate) return null;
+  const d = new Date(startDate);
+  if (Number.isNaN(d.getTime())) return null;
+  const cutoff = new Date();
+  cutoff.setMonth(cutoff.getMonth() - 6);
+  return d >= cutoff ? 'New' : null;
 }
 
 function Price({ value }: { value: number | undefined }) {
@@ -433,14 +432,14 @@ const ScratchersTable = forwardRef<HTMLDivElement, ScratchersTableProps>(functio
                 <td className="col-name whitespace-normal overflow-visible text-clip">
                   <div className="title font-bold leading-tight">
                     {g.name}{' '}
-                    {lifecycleLabel(g.lifecycle) && (
-                      <span
-                        className={`chip lifecycle ${g.lifecycle}`}
-                        title={lifecycleLabel(g.lifecycle) ?? undefined}
-                      >
-                        {lifecycleLabel(g.lifecycle)}
-                      </span>
-                    )}
+                    {(() => {
+                      const label = lifecycleLabelFromStartDate(g.startDate);
+                      return label ? (
+                        <span className="chip lifecycle new" title={label}>
+                          {label}
+                        </span>
+                      ) : null;
+                    })()}
                   </div>
                   {/* Compact meta line appears on mid widths when some columns are hidden */}
                   <div className="row-meta mono">
@@ -479,7 +478,7 @@ const ScratchersTable = forwardRef<HTMLDivElement, ScratchersTableProps>(functio
           const pct  = Math.round(pctTopPrizesRemain(g) * 100);
           const kind = currentKindFor(g.gameNumber);
           const src  = (kind === 'odds' ? g.oddsImageUrl : g.ticketImageUrl) || g.ticketImageUrl || g.oddsImageUrl;
-          const lifecycle = lifecycleLabel(g.lifecycle);
+          const lifecycle = lifecycleLabelFromStartDate(g.startDate);
           return (
             <div key={g.gameNumber} role="listitem" className={`mobile-card ${showThumbs ? 'twocol' : ''}`}>
               {/* LEFT column (media) – only for detailed/expanded */}
@@ -523,7 +522,7 @@ const ScratchersTable = forwardRef<HTMLDivElement, ScratchersTableProps>(functio
                   <div className="title-wrap inline-flex items-center gap-2">
                     <div className="name">{g.name}</div>
                   </div>
-                  {lifecycle && <span className={`chip lifecycle ${g.lifecycle}`}>{lifecycle}</span>}
+                  {lifecycle && <span className="chip lifecycle new">{lifecycle}</span>}
                 </div>
                 <div className="line2 mono">
                   <span aria-label="Game number">#{g.gameNumber}</span>

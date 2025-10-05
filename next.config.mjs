@@ -7,6 +7,7 @@ export default {
     remotePatterns: [
       { protocol: 'https', hostname: 'data.lottosmartpicker.com' },
       { protocol: 'https', hostname: 'data-staging.lottosmartpicker.com' },
+      { protocol: 'https', hostname: 'storage.googleapis.com' },
     ],
   },
   async headers() {
@@ -46,8 +47,24 @@ export default {
         headers: [
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
           { key: 'X-Content-Type-Options', value: 'nosniff' },
-          { key: 'X-Frame-Options', value: 'DENY' },        // unless you need embedding
-          { key: 'Permissions-Policy', value: 'geolocation=(), microphone=(), camera=()' },
+          { key: 'X-Frame-Options', value: 'DENY' },
+          { key: 'Strict-Transport-Security', value: 'max-age=31536000; includeSubDomains; preload' },
+          { key: 'Permissions-Policy', value: 'geolocation=(), microphone=(), camera=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(), gyroscope=(), magnetometer=()' },
+          {
+            key: 'Content-Security-Policy',
+            value: [
+              "default-src 'self'",
+              "script-src 'self' 'unsafe-inline' https://pagead2.googlesyndication.com https://www.googletagmanager.com",
+              "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+              "font-src 'self' https://fonts.gstatic.com",
+              "img-src 'self' data: https://data.lottosmartpicker.com https://data-staging.lottosmartpicker.com https://storage.googleapis.com https://pagead2.googlesyndication.com https://www.google.com",
+              "connect-src 'self' https://data.lottosmartpicker.com https://data-staging.lottosmartpicker.com https://storage.googleapis.com",
+              "frame-src 'none'",
+              "object-src 'none'",
+              "base-uri 'self'",
+              "form-action 'self'"
+            ].join('; ')
+          }
         ],
       },
       // inside headers() – staging only
