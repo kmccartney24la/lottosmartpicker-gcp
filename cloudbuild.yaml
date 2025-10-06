@@ -1,0 +1,90 @@
+# cloudbuild.yaml
+# Build & push immutable timestamp tag, then move "latest" alias to the same image.
+# Deploy Cloud Run service + update Cloud Run job to track the "latest" tag.
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+substitutions:
+  _REGION: us-central1
+  _PROJECT: lottosmartpicker-prod
+  _REPO: app
+  _IMAGE_NAME: lottosmartpicker-scratchers
+  _SERVICE: lottosmartpicker-scratchers-web
+  _JOB: scratchers
+
+steps:
+  # 1) Docker build with timestamp tag
+  - name: gcr.io/cloud-builders/docker
+    id: build
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        STAMP=$(date +%Y%m%d-%H%M%S)
+        BASE="${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/${_IMAGE_NAME}"
+        TAGGED="${BASE}:${STAMP}"
+        LATEST="${BASE}:latest"
+
+        echo "Building ${TAGGED}"
+        docker build -t "${TAGGED}" .
+
+        echo "Tagging latest ${LATEST}"
+        docker tag "${TAGGED}" "${LATEST}"
+
+        echo "Writing tags to /workspace/tags.env"
+        {
+          echo "STAMP=${STAMP}"
+          echo "TAGGED=${TAGGED}"
+          echo "LATEST=${LATEST}"
+        } > /workspace/tags.env
+
+  # 2) Push both tags
+  - name: gcr.io/cloud-builders/docker
+    id: push
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        source /workspace/tags.env
+        docker push "${TAGGED}"
+        docker push "${LATEST}"
+
+  # 3) Deploy Cloud Run SERVICE (serve your Next.js app)
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    id: deploy-service
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        source /workspace/tags.env
+        gcloud run deploy "${_SERVICE}" \
+          --project="${_PROJECT}" \
+          --region="${_REGION}" \
+          --image="${LATEST}" \
+          --platform=managed \
+          --allow-unauthenticated \
+          --port=3000
+
+  # 4) Create/update Cloud Run JOB to always use latest
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    id: upsert-job
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        source /workspace/tags.env
+        if gcloud run jobs describe "${_JOB}" --project="${_PROJECT}" --region="${_REGION}" >/dev/null 2>&1; then
+          gcloud run jobs update "${_JOB}" \
+            --project="${_PROJECT}" \
+            --region="${_REGION}" \
+            --image="${LATEST}"
+        else
+          gcloud run jobs create "${_JOB}" \
+            --project="${_PROJECT}" \
+            --region="${_REGION}" \
+            --image="${LATEST}" \
+            --max-retries=3
+        fi
+
+images:
+  - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/${_IMAGE_NAME}:latest

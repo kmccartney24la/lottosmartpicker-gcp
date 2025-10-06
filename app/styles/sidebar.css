@@ -1,0 +1,107 @@
+/* ======================================================================
+   app/styles/sidebar.css
+   ----------------------------------------------------------------------
+
+/* Global Drawer / Sidebar styles */
+@layer components {
+  .sidebar {
+    position: fixed;
+    top: 0; bottom: 0;
+    width: min(420px, 90vw);
+    background: var(--card);
+    /* Keep below the Filters drawer but above page content */
+    z-index: var(--z-drawer, 10010);
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    height: 100dvh;
+    overflow: hidden;
+    transform: translateX(100%);
+    transition: transform .25s ease;
+    box-shadow: -8px 0 24px rgba(0,0,0,.25);
+    --sidebar-header-h: 56px;
+    --sidebar-footer-h: 48px;
+  }
+  .sidebar.right { right: 0; border-left: 1px solid var(--card-bd); transform: translateX(100%); }
+  .sidebar.left  { left: 0;  border-right: 1px solid var(--card-bd); transform: translateX(-100%); box-shadow: 8px 0 24px rgba(0,0,0,.25); }
+  .sidebar.open  { transform: translateX(0); }
+
+  .sidebar.bottom {
+    left: 0; right: 0; bottom: 0;
+    width: 100%;
+    height: min(85vh, 720px);
+    border-top: 1px solid var(--card-bd);
+    box-shadow: 0 -12px 28px rgba(0,0,0,.25);
+    transform: translateY(100%);
+  }
+  .sidebar.bottom.open { transform: translateY(0); }
+
+  .backdrop {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,.45);
+    /* Below ALL drawers; tap-to-close still works */
+    z-index: var(--z-overlay, 9990);
+    pointer-events: auto;
+  }
+
+  .sidebar-header {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-4);
+    border-bottom: 1px solid var(--card-bd);
+    background: color-mix(in oklab, var(--card), transparent 10%);
+    min-height: var(--sidebar-header-h);
+  }
+  .sidebar-title { font-size: var(--text-lg); font-weight: 700; color: var(--ink-strong); }
+  .sidebar-controls { display: inline-flex; gap: var(--space-2); align-items: center; }
+
+  .sidebar-content {
+    min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
+    padding: var(--space-4);
+  }
+
+  .sidebar-pagination {
+    display: flex; align-items: center; justify-content: space-between; gap: var(--space-3);
+    padding: var(--space-3) var(--space-4);
+    border-top: 1px solid var(--card-bd); background: var(--card);
+    min-height: var(--sidebar-footer-h);
+    padding-bottom: calc(var(--space-3) + env(safe-area-inset-bottom));
+  }
+
+  /* Compact density mode */
+  .sidebar-content.compact {
+    --rows-per-page: 25;
+    --_cell-py: 2px; --_cell-px: 6px;
+    --sidebar-thead-h: 28px;
+    --sidebar-vpad: calc(var(--space-2) + var(--space-2));
+    --sidebar-row-h: max(0px, calc(100dvh - var(--sidebar-header-h) - var(--sidebar-footer-h) - var(--sidebar-vpad) - var(--sidebar-thead-h)));
+    font-size: var(--text-xs);
+    padding: var(--space-2);
+    min-height: 0;
+    /* ⬇️ Make COMPACT scrollable within the drawer, not the page */
+    max-height: calc(100dvh - var(--sidebar-header-h) - var(--sidebar-footer-h));
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .sidebar-content.compact td,
+  .sidebar-content.compact th {
+    padding: 2px 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .sidebar-content.compact .numbers-cell { display: inline-flex; gap: 4px; }
+  /* Force compact bubble sizing to win over any later component styles */
+  .sidebar-content.compact .num-bubble {
+    min-width: 20px !important;
+    width: 20px !important;
+    height: 20px !important;
+    line-height: 20px; /* tidy vertical centering */
+    font-size: 12px !important;
+    border-radius: 999px;
+  }
+
+  .sidebar-table thead th { position: sticky; top: 0; z-index: 1; background: var(--card); border-bottom: 1px solid var(--card-bd); }
+
+  /* Sort/close text helpers */
+  .sidebar-sort-text { font-size: var(--text-sm); }
+  .sidebar-close-text { font-size: var(--text-sm); }
+
+  @media (prefers-reduced-motion: reduce){ .sidebar, .sidebar.bottom { transition: none; } }
+}

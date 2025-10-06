@@ -1,0 +1,532 @@
+/* ======================================================================
+   app/styles/globals.css
+   ----------------------------------------------------------------------
+   Purpose:
+   • Provide the cascade layers for global styles
+   • Contain only reset/base/layout/common components/utilities
+   • Route-specific styles live in per-route CSS (e.g. scratchers.css)
+   • BinderTabs & Sidebar now use CSS Modules
+   ====================================================================== */
+
+@import './media.css';
+
+/* Define cascade order */
+@layer reset, base, layout, components, utilities, pages, experimental;
+
+/* ---------------- RESET ---------------- */
+@layer reset {
+  /* Normalize-ish reset (minimal, since Next includes modern normalize) */
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+  html, body {
+    margin: 0;
+    padding: 0;
+  }
+}
+
+/* ---------------- BASE ---------------- */
+@layer base {
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-sans), system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";
+    font-variant-numeric: tabular-nums lining-nums;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  /* Accessible default link styling using theme tokens */
+  a {
+    color: var(--link);
+    text-decoration: none;
+    text-underline-offset: 2px;
+  }
+  a:hover { color: var(--link-hover); text-decoration: underline; }
+  a:visited { color: var(--link-visited); }
+  a:focus-visible {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 2px;
+    text-decoration: underline;
+  }
+  main {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 0;
+    overflow-x: hidden;
+  }
+  main.layout-rails {
+    max-width: none;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+
+  body:has(.sidebar.open),
+  body:has(.filters-panel.mobile-drawer.open) {
+    overflow: hidden;
+  }
+}
+
+/* ---------------- LAYOUT ---------------- */
+@layer layout {
+  .flex-1 { flex: 1; }
+  .grid { display: grid; gap: var(--space-4); }
+  .grid > * { min-width: 0; }
+
+  .controls { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center; }
+  .controls.header-controls { align-items: flex-start; }
+  .header-controls .btn { margin-bottom: 0; }
+
+  .layout-grid { display: grid; gap: var(--space-4); }
+  .layout-grid > * { min-width: 0; }
+
+  /* Draws main grid balance: 3:2 on desktop, 1 col below */
+  .main-content {
+    grid-template-columns: 1fr;
+    row-gap: var(--space-4);
+  }
+  @media (--bp-desktop) {
+    .main-content {
+      grid-template-columns: 3fr 2fr;
+      column-gap: var(--space-6);
+    }
+  }
+
+  /* Rails + center rules (non-page-specific) */
+  .layout-rails {
+    display: grid;
+    grid-template-columns: 1fr;
+    column-gap: 0;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    margin: 0 auto;
+    overflow-x: hidden;
+  }
+  .layout-rails > .rail { display: none; }
+  .rails-center {
+    max-width: var(--center-max);
+    margin-inline: auto;
+    min-width: 0;
+    padding-inline: var(--stack-gap);
+  }
+
+  @media (--bp-desktop-only) {
+    .layout-rails {
+      grid-template-columns:
+        minmax(0, calc(100% - var(--rail-w) - var(--rail-gap)))
+        var(--rail-w);
+      column-gap: var(--rail-gap);
+      justify-content: center;
+    }
+    .layout-rails > .rail--right { display: block; }
+    .rails-center { padding-inline: 0; }
+  }
+  @media (--bp-wide) {
+    .layout-rails {
+      grid-template-columns:
+        var(--rail-w)
+        minmax(0, calc(100% - (2 * var(--rail-w)) - (2 * var(--rail-gap))))
+        var(--rail-w);
+      column-gap: var(--rail-gap);
+      justify-content: center;
+    }
+    .layout-rails > .rail { display: block; }
+    .rails-center { padding-inline: 0; }
+  }
+
+  .rail__inner { display: grid; gap: var(--space-6); position: relative; }
+
+  /* Ads */
+  .ad-slot {
+    display: block;
+    width: 100%;
+    border: 1.5px dashed var(--card-bd);
+    border-radius: var(--radius-card);
+    background: color-mix(in oklab, var(--card) 12%, transparent);
+    position: relative;
+    overflow: hidden;
+  }
+  .ad-slot::before {
+    content: "Ad";
+    position: absolute;
+    top: 6px; right: 10px;
+    font-size: var(--text-xs);
+    color: var(--muted-strong); /* tiny text: ensure AA contrast */
+  }
+  .ad-slot--rail-300x600 { width: var(--rail-w); height: 600px; }
+  .ad-slot--rail-300x250 { width: var(--rail-w); height: 250px; }
+  .ad-slot--rect-280 { width: 100%; height: 280px; }
+  .ad-slot > * { width: 100%; height: 100%; display: block; }
+  .ad-slot iframe, .ad-slot img { width: 100%; height: 100%; border: 0; }
+
+  .rail .ad-slot { margin-top: var(--space-4); }
+  .rail--left  .ad-slot { margin-left: 0; margin-right: auto; }
+  .rail--right .ad-slot { margin-left: auto; margin-right: 0; }
+
+  @media (--bp-desktop) {
+    .ad-slot--rect-280 { display: none; }
+  }
+}
+
+/* ---------------- COMPONENTS ---------------- */
+@layer components {
+
+  /* Themed content links (cards, body copy, hints) */
+
+  .card a, .card-content-text a, .hint a {
+    color: var(--link);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .card a:hover, .card-content-text a:hover, .hint a:hover { color: var(--link-hover); }
+  .card a:visited, .card-content-text a:visited, .hint a:visited { color: var(--link-visited); }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--card-bd);
+    border-radius: var(--radius-card);
+    padding: var(--space-4);
+  }
+
+  .ticket {
+    background: var(--paper);
+    color: var(--ink);
+    border-radius: var(--ticket-radius);
+    border: 1px solid var(--card-bd);
+    position: relative;
+  }
+  .ticket--perforated::before,
+  .ticket--perforated::after {
+    content: "";
+    position: absolute;
+    top: 0; bottom: 0;
+    width: var(--ticket-gutter);
+    background:
+      radial-gradient(circle at center, transparent calc(var(--ticket-hole) - 1px), var(--paper) var(--ticket-hole)) center/100% calc(var(--ticket-hole) * 2) repeat-y,
+      linear-gradient(to right, var(--grid-line), var(--grid-line)) left center/1px 100% no-repeat;
+    pointer-events: none;
+  }
+  .ticket--perforated::before { left: 0; }
+  .ticket--perforated::after { right: 0; }
+
+  .ticket-grid {
+    background:
+      linear-gradient(var(--grid-line) 1px, transparent 1px) 0 0 / 100% 28px,
+      linear-gradient(90deg, var(--grid-line) 1px, transparent 1px) 0 0 / 36px 100%;
+  }
+
+  .num-bubbles { display: flex; flex-wrap: wrap; gap: var(--space-1); }
+  .num-bubble {
+    display: inline-grid; place-items: center;
+    min-width: 30px; height: 30px;
+    border-radius: 9999px;
+    font-weight: 700;
+    font-size: var(--text-sm);
+    font-variant-numeric: tabular-nums lining-nums;
+    border: 1px solid color-mix(in oklab, currentColor 30%, transparent);
+    box-shadow: 0 1px 0 rgba(0,0,0,.05) inset;
+  }
+  .num-bubble--red   { background: color-mix(in oklab, var(--bubble-red) 12%, transparent); color: var(--bubble-red); }
+  .num-bubble--blue  { background: color-mix(in oklab, var(--bubble-blue) 12%, transparent); color: var(--bubble-blue); }
+  .num-bubble--green { background: color-mix(in oklab, var(--bubble-green) 12%, transparent); color: var(--bubble-green); }
+  .num-bubble--amber { background: color-mix(in oklab, var(--bubble-amber) 12%, transparent); color: var(--bubble-amber); }
+
+  /* Special-ball via sidebar[data-game] (game-specific tokens) */
+  .sidebar[data-game] {
+    --special-tone: var(--bubble-amber);
+    --special-fg: #111;
+  }
+  .sidebar[data-game="multi_powerball"] {
+    --special-tone: var(--bubble-red);
+    --special-fg: #fff;
+  }
+  .sidebar[data-game="multi_megamillions"] {
+    --special-tone: var(--bubble-blue);
+    --special-fg: #fff;
+  }
+  .sidebar[data-game="multi_cash4life"] {
+    --special-tone: var(--bubble-green);
+    --special-fg: #fff;
+  }
+  .num-bubble--special {
+    background: color-mix(in oklab, var(--special-tone) 12%, transparent);
+    color: var(--special-tone);
+  }
+
+  /* Buttons */
+  .btn {
+    min-height: var(--touch-target-min);
+    display: inline-flex; align-items: center; justify-content: center;
+    line-height: 1.2;
+    border-radius: 10px;
+    border: 1px solid var(--card-bd);
+    padding: var(--space-2) var(--space-4);
+    cursor: pointer;
+    font-size: var(--text-sm);
+    font-weight: 500;
+    transition: all 0.15s ease;
+    margin: 0;
+  }
+  .controls .btn { margin: var(--space-1); }
+  .btn-primary { background: var(--accent); color: var(--accent-contrast); border-color: transparent; }
+  .btn-ghost { background: transparent; color: var(--fg); }
+
+  .btn:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  }
+  .btn:active { transform: translateY(0); }
+  .btn:focus-visible {
+    outline: 3px solid var(--focus-ring);
+    outline-offset: 2px;
+  }
+
+  /* Draws: header controls tightening (no inline styles) */
+  .latest-and-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+  }
+  .game-select-card { display: grid; gap: var(--space-1); }
+  /* Let .card-title drive size/weight/color for the Game label */
+  .game-select-label { opacity: 1; }
+
+  @media (--bp-mobile) {
+    .btn {
+      min-height: var(--touch-target-comfortable);
+      padding: var(--space-3) var(--space-5);
+      margin: var(--space-1);
+    }
+  }
+
+  /* Chips */
+  .chips { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+  .chip {
+    display: inline-flex; align-items: center; gap: var(--space-2);
+    border: 1px solid var(--card-bd);
+    border-radius: 999px;
+    /* Slightly slimmer pill style for better vertical balance */
+    padding: calc(var(--space-1) * 0.5) var(--space-2);
+    font-size: var(--text-xs);
+    margin: var(--space-1);
+    min-height: 24px; /* reduced from 28px */
+    line-height: 1.25;
+    cursor: default;
+    vertical-align: middle;
+    box-sizing: border-box;
+  }
+  .chip.warn { border-color: var(--danger); color: var(--danger); }
+
+  .chip--hot {
+    color: var(--danger);
+    border-color: color-mix(in oklab, var(--danger) 60%, transparent);
+    background: color-mix(in oklab, var(--danger) 10%, transparent);
+  }
+  .chip--cold {
+    color: var(--accent);
+    border-color: color-mix(in oklab, var(--accent) 60%, transparent);
+    background: color-mix(in oklab, var(--accent) 10%, transparent);
+  }
+  .chip--neutral {
+    color: var(--fg);
+    border-color: var(--card-bd);
+    background: color-mix(in oklab, var(--card) 60%, transparent);
+  }
+  .chip--warn,
+  .chip.warn {
+    color: var(--bubble-amber);
+    border-color: color-mix(in oklab, var(--bubble-amber) 60%, transparent);
+    background: color-mix(in oklab, var(--bubble-amber) 12%, transparent);
+  }
+
+  /* Tables (shared) */
+  table { width: 100%; border-collapse: collapse; }
+  th, td {
+    padding: 8px;
+    border-bottom: 1px solid var(--card-bd);
+    font-variant-numeric: tabular-nums lining-nums;
+  }
+  table.compact th, table.compact td { padding: 4px 6px; font-size: 12px; }
+
+  /* Simple table section header (used by scratchers expanded mode) */
+  .table-header {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: var(--space-3);
+    padding-bottom: var(--space-2);
+    border-bottom: 1px solid var(--card-bd);
+  }
+  .table-header-title { margin: 0; font-size: var(--text-lg); font-weight: 600; }
+  .table-header .btn { min-height: var(--touch-target-min); padding: var(--space-2) var(--space-4); }
+
+  /* Forms & inputs */
+  .controls label { display: flex; flex-direction: column; gap: var(--space-1); margin-top: 0; padding-top: 0; }
+  label > span { font-size: var(--text-xs); opacity: .8; }
+  input, select {
+    background: var(--card); color: var(--fg); border: 1px solid var(--card-bd);
+    border-radius: 8px; padding: var(--space-2);
+    min-height: var(--touch-target-min); line-height: 1.2; display: block;
+    font-size: var(--text-sm); transition: border-color .15s ease, box-shadow .15s ease;
+  }
+  input:focus, select:focus {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 2px;
+    border-color: var(--accent);
+    box-shadow: none;
+  }
+  select.compact-control { min-width: 140px; }
+  select {
+    appearance: none; background-position: right 10px center; background-repeat: no-repeat;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 20 20'%3E%3Cpath d='M5 7l5 6 5-6z' fill='%239aa4b2'/%3E%3C/svg%3E");
+    padding-right: 2rem;
+  }
+  select option { background: var(--card); color: var(--fg); }
+  @media (forced-colors: active) { select, option { forced-color-adjust: auto; background: Canvas; color: CanvasText; } }
+  input[type="range"] { width: 100%; }
+  .field-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+  .field-row input { flex: 1 1 auto; min-width: 0; }
+  .suffix { font-size: 12px; opacity: .8; min-width: 1.25em; text-align: center; }
+  .input-wrap { position: relative; display: flex; align-items: center; }
+  .input-wrap input { width: 100%; box-sizing: border-box; min-width: 0; }
+  .input-wrap .inside-suffix {
+    position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+    font-size: 12px; color: var(--muted-strong); pointer-events: none; /* small text: AA */
+  }
+  .card input[type="number"] { box-sizing: border-box; width: 100%; min-width: 0; padding-right: 1.6em; }
+  input[type="number"]::-webkit-outer-spin-button,
+  input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  input[type="number"] { -moz-appearance: textfield; }
+  .card label > span { overflow-wrap: anywhere; }
+  .card section > .section-title { --section-title-gap: 4px; }
+
+  /* Ticket “form rows” */
+  .ticket-row { display: grid; gap: 8px; grid-template-columns: repeat(6, minmax(0, 1fr)); align-items: center; }
+  .ticket-row .cell {
+    height: 36px; display: grid; place-items: center;
+    border: 1px dashed var(--grid-line);
+    background: color-mix(in oklab, var(--paper) 90%, transparent);
+    border-radius: 6px;
+  }
+
+  /* Header (shared) */
+  .site-header {
+    position: sticky; top: 0; z-index: var(--z-header, 300);
+    backdrop-filter: blur(8px);
+    background: color-mix(in oklab, var(--bg), transparent 25%);
+    border-bottom: 1px solid var(--card-bd);
+  }
+  .site-header.site-header--static { position: static; backdrop-filter: none; }
+  .site-header__inner {
+    display: grid; grid-template-columns: 1fr auto; align-items: center;
+    gap: var(--space-3); padding: var(--space-3) var(--space-4);
+  }
+  .brand { display: flex; align-items: center; min-width: 0; }
+  .brand__link { display: inline-flex; align-items: center; gap: var(--space-2); text-decoration: none; color: inherit; }
+  .brand__title { margin: 0; font-size: var(--text-xl); font-weight: 800; letter-spacing: .01em; color: var(--ink-strong); white-space: nowrap; }
+  .tabbar { display: flex; gap: var(--space-2); padding: var(--space-2) var(--space-4); overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .tabbar__tab { text-decoration: none; }
+  @media (--bp-mobile) {
+    .site-header__inner { padding: var(--space-2) var(--space-3); gap: var(--space-2); }
+    .brand__title { font-size: var(--text-lg); }
+  }
+  @media (orientation: landscape) and (--bp-mobile){
+    .site-header__inner { padding-top: var(--space-2); padding-bottom: var(--space-2); }
+  }
+
+  /* Center clamp utility (used beyond Scratchers in original) */
+  .rails-center > .center-clamp {
+    max-width: var(--center-max);
+    margin-inline: auto;
+    padding-inline: 0;
+    box-sizing: border-box;
+    min-width: 0;
+  }
+}
+
+/* ---------------- UTILITIES ---------------- */
+@layer utilities {
+  .mt-3 { margin-top: var(--space-3); }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+  .hint { font-size: 12px; opacity: .8; }
+  .section-title { font-size: 14px; letter-spacing: .02em; margin: 14px 0 4px 0; }
+  .card-title { font-weight: 700; margin-bottom: 6px; color: var(--ink-strong); }
+  .card-content-text { font-size: var(--text-sm); }
+  .visually-hidden {
+    position: absolute !important;
+    height: 1px; width: 1px; overflow: hidden;
+    clip: rect(1px,1px,1px,1px); white-space: nowrap; clip-path: inset(50%);
+    border: 0; padding: 0; margin: -1px;
+  }
+
+  /* Vertical stack utilities */
+  .vstack { --vspace: var(--space-4); }
+  .vstack > * + * { margin-top: var(--vspace); }
+  .vstack--3 { --vspace: var(--space-3); }
+  .vstack--4 { --vspace: var(--space-4); }
+  .vstack--5 { --vspace: var(--space-5); }
+
+  /* Tooltip helper */
+  .help {
+    position: relative; display: inline-flex; justify-content: center; align-items: center;
+    margin-left: 6px; cursor: help; border: 1px solid var(--card-bd); border-radius: 999px;
+    padding: 0 6px; font-size: 11px; line-height: 18px; min-width: 18px; height: 18px;
+  }
+  /* Legacy, only used if an element explicitly opts in with data-legacy-tip */
+  .help[data-legacy-tip]:hover::after, .help[data-legacy-tip]:focus-visible::after {
+    content: attr(data-tip); position: absolute; left: 50%; transform: translateX(-50%);
+    bottom: calc(100% + 8px); background: var(--card); color: var(--fg);
+    border: 1px solid var(--card-bd); border-radius: 8px; padding: 8px 10px;
+    width: min(320px, 80vw); z-index: 20; pointer-events: none; white-space: pre-wrap;
+    /* ensure solid look even if an ancestor sets opacity */
+  opacity: 1;
+  box-shadow: 0 6px 18px rgba(0,0,0,.12);
+  }
+  .help[data-legacy-tip]:hover::before, .help[data-legacy-tip]:focus-visible::before {
+    content: ""; position: absolute; width: 8px; height: 8px; background: var(--card);
+    border-left: 1px solid var(--card-bd); border-top: 1px solid var(--card-bd);
+    transform: translateX(-50%) rotate(45deg); left: 50%; bottom: calc(100% + 4px);
+    opacity: 1;
+  }
+
+  /* Header/footer/notes gutters */
+  .site-header, .site-footer, .disclaimer, .legal, footer {
+    box-sizing: border-box; max-width: 1200px; margin-inline: auto; padding-inline: clamp(12px, 4vw, 20px);
+  }
+
+  /* Accessibility: touch/focus/hover/active parity */
+  .controls.header-controls .btn { align-self: flex-end; }
+  /* Remove .chip from the generic touch-target min-height so chips can be slimmer */
+  button, input, select, .thumb-arrow, .thumb-open, input[type="range"], input[type="checkbox"] {
+    min-height: var(--touch-target-min);
+  }
+  button, .thumb-arrow, .thumb-open { min-width: var(--touch-target-min); }
+  input[type="checkbox"] { min-width: var(--space-5); min-height: var(--space-5); }
+  button:focus-visible, input:focus-visible, select:focus-visible,
+  .chip-x:focus-visible, .thumb-arrow:focus-visible, .thumb-open:focus-visible,
+  input[type="range"]:focus-visible, input[type="checkbox"]:focus-visible {
+    outline: 3px solid var(--focus-ring); outline-offset: 2px;
+  }
+  input[type="range"]:focus-visible { outline-width: 2px; }
+  @media (hover: hover) {
+    button:hover, .chip-x:hover, .thumb-arrow:hover, .thumb-open:hover { transform: translateY(-1px); }
+    input[type="range"]:hover { opacity: .8; }
+  }
+  @media (hover: none) {
+    button:hover, .chip-x:hover, .thumb-arrow:hover, .thumb-open:hover { transform: none; }
+    input[type="range"]:hover { opacity: 1; }
+  }
+  button:active, .chip-x:active, .thumb-arrow:active, .thumb-open:active { transform: scale(.98); }
+  input[type="checkbox"]:active { transform: scale(1.1); }
+}
+
+/* ---------------- PAGES ---------------- */
+/* reserved for global page-level overrides, empty here */
+
+/* ---------------- EXPERIMENTAL ---------------- */
+/* reserved for heavy feature-specific rules, empty here */
+
+/* End of globals.css */

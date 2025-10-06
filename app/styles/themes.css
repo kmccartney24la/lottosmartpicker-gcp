@@ -1,0 +1,169 @@
+/* ======================================================================
+   app/styles/themes.css
+   ----------------------------------------------------------------------
+   Purpose:
+   • Centralize theme mappings for light / dark / high-contrast
+   • Provide system fallbacks when no [data-theme] is set
+   Notes:
+   • Keep values identical to the original globals.css.
+   • No class renames; only CSS custom properties are defined here.
+   • Import order: tokens.css → themes.css → layered styles.
+   ====================================================================== */
+
+/* ---------------- System fallbacks (when NO [data-theme] is present) ---------------- */
+
+/* System LIGHT */
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f8fafc;
+    --fg: #0b1220;
+    --muted: #475569;
+    --muted-strong: #334155; /* AA on light bg */
+
+    --card: #ffffff;
+    --card-bd: #d0d7e2;
+
+    --accent: #1e40af;
+    --accent-contrast: #ffffff;
+    /* Links */
+    --link: #1e40af;          /* AA on light bg */
+    --link-hover: #1d4ed8;    /* brighter on hover, still AA */
+    --link-visited: #6b21a8;  /* violet 800, AA on light bg */
+    /* Focus */
+    --focus-ring: #2563eb;
+    --focus-ring-contrast: #000000;
+
+    --danger: #b91c1c;
+
+    /* Ticket / playslip in light */
+    --paper: #faf9f7;
+    --ink: #1f2937;
+    --ink-ghost: #f1f5f9;
+    --ink-strong: #0f172a;
+    --grid-line: rgba(2, 6, 23, .08);
+  }
+}
+
+/* System DARK */
+@media (prefers-color-scheme: dark) {
+  :root {
+    /* Base surfaces (match original defaults) */
+    --bg: #0a0a0a;
+    --fg: #ffffff;
+    --muted: #cbd5e1;
+    --muted-strong: #e2e8f0; /* brighter muted for small text */
+
+    --card: #111318;
+    --card-bd: #243244;
+
+    --accent: #2563eb;
+    --accent-contrast: #ffffff;
+    /* Links on dark */
+    --link: #60a5fa;         /* sky 400 – AA on near-black */
+    --link-hover: #93c5fd;   /* sky 300 */
+    --link-visited: #a78bfa; /* violet 300 – AA on dark */
+    /* Focus */
+    --focus-ring: #60a5fa;
+    --focus-ring-contrast: #ffffff;
+
+    --danger: #ef4444;
+
+    /* Ticket / playslip in dark */
+    --paper: #0b0c10;
+    --ink: #e5e7eb;
+    --ink-ghost: #111827;
+    --ink-strong: var(--fg);
+    --grid-line: rgba(148,163,184,.15);
+  }
+}
+
+/* ---------------- Explicit theme selection via [data-theme] ---------------- */
+
+[data-theme="light"] {
+  --bg: #f8fafc;
+  --fg: #0b1220;
+  --muted: #475569;
+  --muted-strong: #334155;
+
+  --card: #ffffff;
+  --card-bd: #d0d7e2;
+
+  --accent: #1e40af;
+  --accent-contrast: #ffffff;
+  /* Links */
+  --link: #1e40af;
+  --link-hover: #1d4ed8;
+  --link-visited: #6b21a8;
+  /* Focus */
+  --focus-ring: #2563eb;
+  --focus-ring-contrast: #000000;
+
+  --danger: #b91c1c;
+
+  /* Ticket / playslip */
+  --paper: #faf9f7;
+  --ink: #1f2937;
+  --ink-ghost: #f1f5f9;
+  --ink-strong: #0f172a;
+  --grid-line: rgba(2, 6, 23, .08);
+}
+
+[data-theme="dark"] {
+  --bg: #0a0a0a;
+  --fg: #ffffff;
+  --muted: #cbd5e1;
+  --muted-strong: #e2e8f0;
+
+  --card: #111318;
+  --card-bd: #243244;
+
+  --accent: #2563eb;
+  --accent-contrast: #ffffff;
+  /* Links */
+  --link: #60a5fa;
+  --link-hover: #93c5fd;
+  --link-visited: #a78bfa;
+  /* Focus */
+  --focus-ring: #60a5fa;
+  --focus-ring-contrast: #ffffff;
+
+  --danger: #ef4444;
+
+  /* Ticket / playslip */
+  --paper: #0b0c10;
+  --ink: #e5e7eb;
+  --ink-ghost: #111827;
+  --ink-strong: var(--fg);
+  --grid-line: rgba(148,163,184,.15);
+}
+
+[data-theme="contrast"] {
+  --bg: #000000;
+  --fg: #ffffff;
+  --muted: #ffffff;        /* avoid dim text in HC */
+  --muted-strong: #ffffff; /* ensure always AA in HC */
+
+  --card: #000000;
+  --card-bd: #ffffff;      /* clear separators in HC */
+
+  --accent: #00eaff;       /* cyan for maximal clarity on black */
+  --accent-contrast: #000000; /* for filled chips/buttons */
+  /* Links in HC */
+  --link: #00eaff;
+  --link-hover: #7df9ff;
+  --link-visited: #ffcc00; /* distinct but bright */
+  /* Focus ring must pop on all elements */
+  --focus-ring: #ffffff;
+  --focus-ring-contrast: #000000;
+
+  --danger: #ff4d4d;
+
+  /* Ticket / playslip (high contrast) */
+  --paper: #000000;
+  --ink: #ffffff;
+  --ink-ghost: #0a0a0a;
+  --ink-strong: var(--fg);
+  --grid-line: rgba(255,255,255,.25);
+}
+
+/* End of themes.css */

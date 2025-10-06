@@ -1,0 +1,119 @@
+/* ======================================================================
+   app/styles/tokens.css
+   ----------------------------------------------------------------------
+   Purpose:
+   • Single source of truth for design tokens (colors, spacing, type, sizes)
+   • Breakpoints via @custom-media (PostCSS preset-env)
+   • Shared layout tokens used by rails/grid
+   Notes:
+   • No classes/selectors here beyond :root (keeps tokens global).
+   • Not wrapped in @layer so these vars are always available.
+   ====================================================================== */
+
+:root {
+  /* ---------- Core Palette & Surfaces ---------- */
+  --bg: #0a0a0a;
+  --fg: #ffffff;
+  --muted: #cbd5e1;
+  --card: #111318;
+  --card-bd: #243244;
+  --accent: #2563eb;
+  --accent-contrast: #ffffff;
+  --danger: #ef4444;
+  --info-bg: rgba(37,99,235,.08);
+
+  /* ---------- Typography ---------- */
+  --font-sans: ui-sans-serif;
+  --text-xs: 12px;
+  --text-sm: 14px;
+  --text-base: 16px;
+  --text-lg: 18px;
+  --text-xl: 20px;
+  --text-2xl: 24px;
+  --text-3xl: 30px;
+
+  /* ---------- Spacing Scale ---------- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 28px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+
+  /* ---------- Touch & Density ---------- */
+  --touch-target-min: 44px;
+  --touch-target-comfortable: 48px;
+  --touch-spacing-min: 8px;
+  --touch-spacing-mobile: 12px;
+
+  --density-compact: 0.85;
+  --density-normal: 1;
+  --density-comfortable: 1.15;
+
+  /* ---------- Radius, Stacks, Binder Tabs ---------- */
+  --radius-card: 14px;
+  --stack-gap: var(--space-4);
+
+  --binder-overlap: 30px;
+  --tabs-shift: 14px;
+  --binder-fudge: 10px;
+
+  /* ---------- Ticket / Playslip Tokens ---------- */
+  --paper: #faf9f7;
+  --ink: #1f2937;
+  --ink-ghost: #f1f5f9;
+  --ink-strong: #0f172a;
+  --grid-line: rgba(2, 6, 23, .08);
+
+  --bubble-red:   #e11d48;
+  --bubble-blue:  #2563eb;
+  --bubble-green: #10b981;
+  --bubble-amber: #f59e0b;
+
+  --ticket-radius: 18px;
+  --ticket-hole:   8px;
+  --ticket-gutter: 14px;
+
+  /* ---------- Z-index scale (centralized) ---------- */
+  --z-base: 0;
+  --z-header: 300;
+  --z-overlay: 900;  /* backdrops, scrims */
+  --z-drawer: 1000;  /* side drawers, modals */
+
+  /* ---------- Layout / Rails ---------- */
+  --center-max: 1120px;
+  --page-gutter: var(--stack-gap);
+  --rail-w: 300px;
+  --rail-gap: var(--space-6, 24px);
+
+  /* ---------- Breakpoint *values* (for JS or raw media if ever needed) ---------- */
+  --breakpoint-mobile: 767.98px;
+  --breakpoint-tablet: 768px;
+  --breakpoint-desktop: 1024px;
+  --breakpoint-wide: 1536px;
+
+  /* ---------- Legacy aliases (kept for compatibility) ---------- */
+  --control-h: var(--touch-target-min);
+}
+
+/* ======================================================================
+   @custom-media breakpoints
+   Use as:  @media (--bp-mobile) { ... }
+            @media (--bp-desktop) and (orientation: landscape) { ... }
+   ====================================================================== */
+@custom-media --bp-mobile (max-width: 767.98px);
+@custom-media --bp-tablet (min-width: 768px) and (max-width: 1023.98px);
+@custom-media --bp-desktop (min-width: 1024px);
+@custom-media --bp-desktop-only (min-width: 1024px) and (max-width: 1535.98px);
+@custom-media --bp-wide (min-width: 1536px);
+
+/* Convenience orientation queries (optional but handy) */
+@custom-media --bp-mobile-landscape (max-width: 767.98px) and (orientation: landscape);
+@custom-media --bp-mobile-portrait (max-width: 767.98px) and (orientation: portrait);
+
+/* Forced colors / accessibility helpers (kept as tokens to encourage reuse) */
+/* (No concrete values here; actual rules belong in components/pages) */

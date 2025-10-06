@@ -8,15 +8,5 @@ infra/.terraform/
 .cache/
 public/data/**/*.latest.csv
 public/data/**/*.partial
-public/data/ga/scratchers/_debug_trace.zipnode_modules/
-.next/
-.out/
-.env*
-.vercel/
-.DS_Store
-
-# cache/scratch
-.cache/
-public/data/**/*.latest.csv
-public/data/**/*.partial
 public/data/ga/scratchers/_debug_trace.zip
+# cache/scratch
