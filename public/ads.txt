@@ -1,0 +1,3 @@
+# LottoSmartPicker 9000 ads.txt
+# AdSense publisher ID
+google.com, pub-4600301552385887, DIRECT, f08c47fec0942fa0
