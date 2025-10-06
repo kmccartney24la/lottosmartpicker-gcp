@@ -1,0 +1,47 @@
+/* app/page.css */
+/* Position relative to the entire header panel (the controls card) */
+.header-controls {
+  position: relative;
+}
+
+.header-controls .past-draws-btn {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  z-index: 2;
+}
+
+/* For ≤1023px: move Past Draws button into Latest Draw card (SelectedLatest) */
+@media (max-width: 1023px) {
+  .latest-and-actions {
+    position: relative;
+  }
+
+  .latest-and-actions .selected-latest {
+    position: relative;
+    padding-top: calc(var(--space-2) * 3); /* room for button */
+  }
+
+  .latest-and-actions .past-draws-btn {
+    position: absolute;
+    top: var(--space-2);
+    right: var(--space-2);
+    z-index: 3;
+  }
+}
+
+@media (max-width: 420px) {
+  .header-controls .past-draws-btn {
+    top: var(--space-1);
+    right: var(--space-1);
+  }
+}
+
+/* --------------------------------------------------------------
+   Align the top panel (game switcher + latest draw) with ad rails
+   by shifting the center column down slightly.
+   Adjust the offset as needed to match the rails' top inset.
+-------------------------------------------------------------- */
+.layout-rails .rails-center .center-clamp {
+  padding-top: var(--space-4);
+}

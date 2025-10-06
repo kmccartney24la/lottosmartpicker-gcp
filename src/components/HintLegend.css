@@ -1,0 +1,73 @@
+/* ===========================
+   src/components/HintLegend.css
+   =========================== */
+
+/* HintLegend Component */
+.hint-legend {
+  padding: var(--space-3);
+  margin-bottom: var(--space-2);
+}
+
+.hint-legend-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.hint-legend-title {
+  /* Inherit .card-title typography; keep only spacing */
+  margin-bottom: 0; /* header handles spacing */
+}
+
+.hint-legend-list {
+  margin: 0;
+  padding-left: var(--space-4);
+  font-size: var(--text-sm);
+  line-height: 1.4;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+/* Center descriptions with their tag pills */
+.hint-legend-item {
+  display: flex;               /* overrides any previous grid settings */
+  align-items: center;         /* vertical centering */
+  gap: var(--space-2);
+}
+.hint-legend-description { align-self: center; }
+
+.hint-legend-list li {
+  margin-bottom: var(--space-1);
+}
+.hint-legend-list li:last-child {
+  margin-bottom: 0;
+}
+
+.hint-legend-item {
+  display: grid;
+  grid-template-columns: 93px 1fr;
+  column-gap: var(--space-3);
+  align-items: start;
+  margin-bottom: var(--space-2);
+}
+
+.hint-legend-item:last-child {
+  margin-bottom: 0;
+}
+
+.hint-legend-description {
+  font-size: var(--text-sm);
+  line-height: 1.4;
+  color: var(--muted-strong);
+  max-width: 100%;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Mobile optimizations for component-specific styles */
+@media (max-width: var(--breakpoint-mobile)) {  
+  .hint-legend-item {
+    grid-template-columns: 1fr;
+    gap: var(--space-2);
+  }
+}

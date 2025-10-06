@@ -1,0 +1,143 @@
+/* ===========================
+   PastDrawsSidebar (scoped)
+   Keep visuals only; layout lives in app/globals.css
+   =========================== */
+
+/* Header */
+#past-draws .sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-4);
+  border-bottom: 1px dashed var(--card-bd);
+  gap: var(--space-3);
+  background-image:
+    linear-gradient(var(--grid-line) 1px, transparent 1px);
+  background-size: 100% 32px;
+  background-position: 0 100%;
+}
+
+#past-draws .sidebar-title {
+  font-weight: 700;
+  font-size: var(--text-lg);
+  color: var(--ink-strong);
+}
+
+#past-draws .sidebar-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+#past-draws .sidebar-sort-btn .sidebar-sort-short,
+#past-draws .sidebar-close-icon,
+#past-draws .sidebar-nav-icon {
+  display: none;
+}
+
+#past-draws .sidebar-compact-label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+#past-draws .sidebar-compact-label input[type="checkbox"] {
+  min-width: var(--space-4);
+  min-height: var(--space-4);
+}
+
+/* Table visuals (sticky thead, bubble baseline) */
+#past-draws .sidebar-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+#past-draws .sidebar-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--card);
+  border-bottom: 1px solid var(--card-bd);
+  text-align: left;
+}
+#past-draws .sidebar-table tbody td {
+  vertical-align: middle;
+}
+
+/* Number bubbles row */
+#past-draws .numbers-cell,
+#past-draws .special-cell {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+#past-draws .sidebar-pagination-info {
+  font-size: var(--text-xs);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+#past-draws .sidebar-pagination-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+#past-draws .sidebar-page-info {
+  font-size: var(--text-xs);
+  color: var(--muted);
+  margin: 0 var(--space-2);
+  font-variant-numeric: tabular-nums;
+}
+
+#past-draws sidebar-nav-text {
+  display: inline;
+}
+
+#past-draws .sidebar-nav-icon {
+  display: none;
+}
+
+/* Mobile optimizations for sidebars */
+@media (max-width: var(--breakpoint-mobile)) {
+  #past-draws .sidebar-header {
+    padding: var(--space-3);
+    flex-wrap: wrap;
+  }
+  
+  #past-draws .sidebar-title {
+    font-size: var(--text-base);
+  }
+  
+  #past-draws .sidebar-controls {
+    gap: var(--space-1);
+  }
+  
+  /* Show icons, hide text on mobile for space */
+  #past-draws .sidebar-sort-btn .sidebar-sort-text,
+  #past-draws .sidebar-close-text,
+  #past-draws .sidebar-nav-text {
+    display: none;
+  }
+  
+  #past-draws .sidebar-sort-btn .sidebar-sort-short,
+  #past-draws .sidebar-close-icon,
+  #past-draws .sidebar-nav-icon {
+    display: inline;
+  }
+  
+  #past-draws .sidebar-compact-label {
+    font-size: var(--text-xs);
+  }
+  
+  #past-draws .sidebar-compact-label input[type="checkbox"] {
+    min-width: var(--space-5);
+    min-height: var(--space-5);
+    transform: scale(1.1);
+  }
+}

@@ -1,5 +1,5 @@
 // lib/csv.ts
-import type { LottoRow } from '@lib/lotto';
+import type { LottoRow } from 'lib/lotto.ts';
 
 /** Pure helper: runs in any runtime (no fs/path). */
 export function rowsToCSV(rows: LottoRow[], eol: '\n' | '\r\n' = '\n'): string {

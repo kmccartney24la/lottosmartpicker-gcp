@@ -1,0 +1,58 @@
+/* ===========================
+   src/components/SelectedLatest.css
+   =========================== */
+
+/* SelectedLatest Component */
+.selected-latest {
+  padding: var(--space-2);
+  min-width: 260px;
+  min-height: 64px;
+}
+
+/* Use the shared .card-title typography. Only keep spacing tweaks if needed. */
+.selected-latest-title {
+  margin-bottom: var(--space-1);
+}
+
+/* Make the date smaller, like the game switcher options.
+   Increase specificity so it wins over header card typography. */
+.selected-latest .selected-latest-meta .selected-latest-date {
+  color: var(--muted);
+  margin-bottom: var(--space-1);
+  font-size: var(--text-xs);
+  font-weight: 400;
+  line-height: 1.25;
+  display: inline-block;
+}
+
+/* Ensure <small> renders predictably across browsers */
+.selected-latest .selected-latest-meta small.selected-latest-date {
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+
+.selected-latest-meta{
+  display:inline-flex;
+  align-items:center;
+  gap: var(--space-2);
+}
+
+.selected-latest-tags { margin: var(--space-1) 0 var(--space-2); display:flex; flex-wrap:wrap; gap: var(--space-1); }
+
+.selected-latest-loading,
+.selected-latest-empty {
+  font-size: var(--text-xs);
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.selected-latest-content {
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+.selected-latest-date {
+  color: var(--muted);
+  margin-bottom: var(--space-1); /* keeps stack rhythm on wrap */
+  font-size: var(--text-xs);
+}

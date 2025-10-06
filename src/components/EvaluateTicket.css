@@ -1,0 +1,287 @@
+/* ===========================
+   src/components/EvaluateTicket.css
+   =========================== */
+
+.evaluate-ticket {
+  margin-top: var(--space-3);
+  max-width: 100%;
+  overflow: hidden;
+  /* Grid + perforation now live on the inner sheet to avoid double padding */
+  padding: 0;
+}
+
+.evaluate-ticket-sheet{
+  position: relative;
+  border-radius: var(--ticket-radius);
+  /* Room for perforation gutters on both sides */
+  padding: var(--space-3) calc(var(--ticket-gutter) + var(--space-3));
+}
+
+.evaluate-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.evaluate-inputs {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  max-width: 100%;
+  overflow: hidden;
+}
+
+/* Inline inputs row: mains + | + special */
+.evaluate-inline-label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-width: 100%;
+}
+.evaluate-inline-inputs {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-flow: row wrap;          /* horizontal row that wraps when needed */
+  overflow: visible;            /* no horizontal scrolling */
+  row-gap: var(--space-2);      /* tidy wrapped rows */
+}
+
+/* Keep separator tidy when wrapping */
+.evaluate-inline-inputs .evaluate-separator {
+  margin: 0 var(--space-1);
+  opacity: .65;
+  flex: 0 0 auto;
+}
+
+.evaluate-mains-label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-width: 100%;
+}
+
+/* Fixed, touch-friendly width that stays in a horizontal row and wraps */
+.evaluate-main-input {
+  flex: 0 0 56px;
+  width: 56px;
+  min-width: 56px;
+  text-align: center;
+  min-height: var(--touch-target-min);
+  border: 1px dashed var(--grid-line);
+  background: color-mix(in oklab, var(--paper) 92%, transparent);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.evaluate-input-invalid {
+  /* Default invalid: show a red border; let component-specific rules decide bg */
+  border-color: var(--danger) !important;
+}
+
+/* Keep red tint for MAIN inputs only */
+.evaluate-main-input.evaluate-input-invalid {
+  background: color-mix(in oklab, var(--danger) 6%, transparent);
+}
+/* Preserve the game tint for SPECIAL input even if invalid */
+.evaluate-special-input.evaluate-input-invalid {
+  background: inherit !important;
+}
+
+.evaluate-separator {
+  opacity: 0.65;
+}
+
+.evaluate-special-input {
+  flex: 0 0 76px;
+  width: 76px;
+  min-width: 76px;
+  text-align: center;
+  min-height: var(--touch-target-min);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  /* Bubble-like visuals to match .num-bubble */
+  border-radius: 9999px;
+  border: 1px solid color-mix(in oklab, currentColor 30%, transparent);
+  box-shadow: 0 1px 0 rgba(0,0,0,.05) inset;
+  background: color-mix(in oklab, var(--paper) 92%, transparent);
+}
+.evaluate-main-input:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+/* Harmonize focus with the current tone */
+.evaluate-special-input:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+/* Color accents (match bubble tones) */
+.evaluate-inline-inputs input.evaluate-special-input.special--red {
+  color: var(--bubble-red);
+  border-color: color-mix(in oklab, var(--bubble-red) 30%, transparent) !important;
+  background: color-mix(in oklab, var(--bubble-red) 12%, transparent) !important;
+}
+.evaluate-inline-inputs input.evaluate-special-input.special--blue {
+  color: var(--bubble-blue);
+  border-color: color-mix(in oklab, var(--bubble-blue) 30%, transparent) !important;
+  background: color-mix(in oklab, var(--bubble-blue) 12%, transparent) !important;
+}
+.evaluate-inline-inputs input.evaluate-special-input.special--green {
+  color: var(--bubble-green);
+  border-color: color-mix(in oklab, var(--bubble-green) 30%, transparent) !important;
+  background: color-mix(in oklab, var(--bubble-green) 12%, transparent) !important;
+}
+.evaluate-inline-inputs input.evaluate-special-input.special--amber {
+  color: var(--bubble-amber);
+  border-color: color-mix(in oklab, var(--bubble-amber) 30%, transparent) !important;
+  background: color-mix(in oklab, var(--bubble-amber) 12%, transparent) !important;
+}
+
+.evaluate-button {
+  align-self: flex-start;
+}
+
+.evaluate-hint {
+  font-size: var(--text-xs);
+  color: var(--muted);
+  margin-top: var(--space-2);
+}
+
+.evaluate-errors {
+  color: var(--danger);
+  font-size: var(--text-sm);
+  margin-top: var(--space-2);
+  padding-left: var(--space-4);
+}
+
+.evaluate-results {
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--card-bd);
+}
+
+.evaluate-ticket-display {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  font-size: var(--text-lg);
+  margin-bottom: var(--space-2);
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+/* Separator between mains and special */
+.evaluate-separator{
+  margin: 0 var(--space-1);
+  opacity: .65;
+}
+
+/* Special ball coloring fallback by game (only if .num-bubble modifiers aren’t present) */
+.evaluate-ticket-display > [data-kind="pb"]:not(.num-bubble) {
+  color: var(--bubble-red);
+  background: color-mix(in oklab, var(--bubble-red) 12%, transparent);
+}
+.evaluate-ticket-display > [data-kind="mb"]:not(.num-bubble) {
+  color: var(--bubble-blue);
+  background: color-mix(in oklab, var(--bubble-blue) 12%, transparent);
+}
+.evaluate-ticket-display > [data-kind="cb"]:not(.num-bubble) {
+  color: var(--bubble-green);
+  background: color-mix(in oklab, var(--bubble-green) 12%, transparent);
+}
+.evaluate-ticket-display > [data-kind="special"]:not(.num-bubble) {
+  color: var(--bubble-amber);
+  background: color-mix(in oklab, var(--bubble-amber) 12%, transparent);
+}
+
+.evaluate-hints {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* Mobile optimizations for EvaluateTicket */
+@media (--bp-mobile) {
+  .evaluate-mains-grid {
+    grid-template-columns: repeat(auto-fit, minmax(56px, 1fr));
+    gap: var(--space-2);
+    max-width: 100%;
+  }
+
+  /* Wrap inputs instead of horizontal scrolling */
+  .evaluate-inline-inputs { align-content: flex-start; }
+
+  .evaluate-inline-inputs input {
+    flex: 0 0 auto; /* honor fixed widths while wrapping */
+  }
+  
+  .evaluate-main-input,
+  .evaluate-special-input {
+    min-height: var(--touch-target-comfortable);
+    font-size: var(--text-base);
+    padding: var(--space-3);
+    /* keep fixed widths defined above for consistent wrapping */
+  }
+  
+  .evaluate-special-input {
+    width: 80px;       /* slight bump for readability */
+    min-width: 80px;   /* keep touch size when wrapping */
+  }
+  
+  .evaluate-button {
+    align-self: stretch;
+    margin-top: var(--space-2);
+  }
+  
+  .evaluate-hints {
+    gap: var(--touch-spacing-mobile);
+  }
+  
+  .evaluate-inline-inputs { gap: var(--space-2); }
+  .evaluate-inline-inputs .evaluate-separator { flex-shrink: 0; }
+}
+
+/* Very narrow screens - more aggressive optimization */
+@media (max-width: 360px) {
+  /* keep wrapping; still no horizontal scroll */
+  .evaluate-inline-inputs {
+    gap: var(--space-1);
+    flex-wrap: wrap;
+    overflow: visible;
+  }
+  
+  .evaluate-main-input {
+    font-size: var(--text-sm);
+    padding: var(--space-2);
+  }
+  
+  .evaluate-special-input {
+    width: 72px;
+    min-width: 72px;
+    font-size: var(--text-sm);
+    padding: var(--space-2);
+  }
+  
+  /* Stack special input on very narrow screens */
+  .evaluate-special-input-wrapper {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-2);
+  }
+  
+  .evaluate-separator {
+    align-self: center;
+    font-size: var(--text-lg);
+  }
+}
+
+/* Desktop: restore single-row with horizontal scroll fallback */
+@media (--bp-desktop) {
+  .evaluate-inline-inputs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 2px; /* avoid scrollbar overlap */
+  }
+}

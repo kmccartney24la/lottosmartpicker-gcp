@@ -1,0 +1,28 @@
+// tsconfig.scripts.json
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    // We only want this strict rule for NodeNext scripts so we catch missing .js
+    "verbatimModuleSyntax": true,
+
+    "rootDir": "scripts",
+    "outDir": "dist/scripts",
+    "noEmit": false,
+    "declaration": false,
+    "sourceMap": false,
+    "isolatedModules": false,
+
+    "types": ["node"],
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+
+    // IMPORTANT: no path aliases here
+    "paths": {}
+  },
+  "include": ["scripts/**/*.ts", "scripts/**/*.tsx", "scripts/**/*.d.ts"],
+  "exclude": ["node_modules", ".next", "public", "dist", "tests"]
+}

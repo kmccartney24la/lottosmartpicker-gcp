@@ -1,0 +1,394 @@
+/* ===========================
+   src/components/FiltersPanel.css
+   =========================== */
+
+.filters-panel {
+  position: sticky;
+  top: var(--space-4);
+  align-self: start;
+  max-width: 260px;
+  /* Subtle playslip backdrop */
+  background: var(--card);
+  border: 1px solid var(--card-bd);
+  border-radius: var(--radius-card);
+  padding: var(--space-3);
+  /* very subtle inner grid */
+  background-image:
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+  background-size: 100% 28px, 36px 100%;
+  background-position: 0 0, 0 0;
+  box-shadow:
+    0 1px 0 color-mix(in oklab, var(--fg) 4%, transparent),
+    0 6px 18px color-mix(in oklab, var(--fg) 16%, transparent);
+}
+
+.filters-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+  min-height: 40px;
+}
+
+.filters-title-section {
+  flex: 1;
+  min-width: 0;
+}
+
+.filters-updated {
+  font-size: var(--text-xs);
+  color: var(--muted);
+  font-family: var(--font-mono, monospace);
+  font-variant-numeric: tabular-nums;
+  margin-top: var(--space-1);
+  font-weight: 400;
+}
+
+.filters-reset-btn .filters-reset-icon {
+  display: none;
+}
+
+.filters-chips {
+  margin-bottom: var(--space-2);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  row-gap: var(--space-2);
+  max-height: 88px; /* avoids huge panels when many filters applied */
+  overflow: auto;
+  padding-right: var(--space-1);
+}
+
+.filters-sections {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.filters-section {
+  display: flex;
+  flex-direction: column;
+  padding-top: var(--space-2);
+  gap: 0px;
+}
+
+.filters-select,
+.filters-input {
+  width: 100%;
+  height: 32px;                 /* unify control height */
+  line-height: 30px;
+  font-size: var(--text-sm);
+  border: 1px solid var(--card-bd);
+  background: var(--card);
+  color: var(--fg);
+  border-radius: 8px;
+  padding: 0 var(--space-3);
+  outline: none;
+}
+
+.filters-price-grid,
+.filters-prizes-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.filters-price-label,
+.filters-prize-label {
+  min-width: 0;
+  margin-top: 0;
+}
+
+.filters-hint {
+  font-size: var(--text-xs);
+  color: var(--muted);
+  font-family: var(--font-mono, monospace);
+  font-variant-numeric: tabular-nums;
+  margin-top: var(--space-1);
+  font-weight: 400;
+}
+
+/* Drawer header stays sticky *inside* the scrolling drawer content */
+.filters-panel.mobile-drawer .filters-header {
+  position: sticky;
+  top: 0;
+  background: var(--card);
+  padding-bottom: var(--space-3);
+  margin-bottom: var(--space-4);
+  border-bottom: 1px dashed var(--card-bd);
+  z-index: 2;
+  box-shadow: 0 2px 10px color-mix(in oklab, var(--fg) 18%, transparent); /* subtle separation while scrolling */
+}
+
+/* === Drawer mode: turn the filters panel into a real right-side modal === */
+.filters-panel.mobile-drawer{
+  position: fixed;            /* lift above page flow */
+  top: 0; right: 0; bottom: 0;
+  width: min(420px, 90vw);
+  height: 100dvh;
+  /* Put this ABOVE any app sidebars & generic backdrops */
+  z-index: var(--z-filters-drawer, 10020);
+  isolation: isolate;          /* create a new top-level stacking context */
+  pointer-events: auto;        /* be explicit */
+  border-left: 1px solid var(--card-bd);
+  box-shadow: -8px 0 24px color-mix(in oklab, var(--fg) 25%, transparent);
+  display: grid;
+  grid-template-rows: auto 1fr;
+  overflow: hidden;           /* drawer owns scroll via its content */
+  transform: translateX(100%);          /* closed state; JS should toggle open */
+  transition: transform .25s ease;
+}
+.filters-panel.mobile-drawer.open{
+  transform: translateX(0);
+}
+
+/* Left-side variant (when side="left") */
+.filters-panel.mobile-drawer.left{
+  left: 0;
+  right: auto;
+  border-right: 1px solid var(--card-bd);
+  border-left: none;
+  box-shadow: 8px 0 24px color-mix(in oklab, var(--fg) 25%, transparent);
+  transform: translateX(-100%);
+}
+.filters-panel.mobile-drawer.left.open{
+  transform: translateX(0);
+}
+
+/* Drawer body scroll area */
+.filters-panel.mobile-drawer .filters-sections{
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-right: var(--space-2);
+  pointer-events: auto;
+}
+
+.filters-panel.mobile-drawer .filters-close-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--touch-target-min);
+  min-height: var(--touch-target-min);
+  padding: var(--space-2);
+  border: 1px solid var(--card-bd);
+  background: var(--card);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: var(--text-lg);
+  color: var(--fg);
+}
+
+.filters-panel.mobile-drawer .filters-close-btn:hover {
+  background: var(--accent);
+  color: var(--accent-contrast);
+}
+
+/* Input adornments (suffix) and number input polish */
+.input-wrap{ position: relative; }
+.inside-suffix{
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-family: var(--font-mono, monospace);
+  font-size: var(--text-sm);
+  color: var(--muted);
+  pointer-events: none;
+}
+/* When we show units inside the box, add right padding;
+   for the new labels-with-units approach, this is usually unused. */
+.filters-input[data-unit]{ padding-right: 2.25rem; }
+/* Right-align numerics for easier scanning (text+numeric) */
+.filters-input{
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+/* Keep number spinners hidden where inputs remain type=number elsewhere */
+input[type="number"].filters-input::-webkit-outer-spin-button,
+input[type="number"].filters-input::-webkit-inner-spin-button{ -webkit-appearance: none; margin: 0; }
+input[type="number"].filters-input{ -moz-appearance: textfield; }
+
+/* Focus states for accessibility */
+.filters-select:focus-visible,
+.filters-input:focus-visible{
+  border-color: var(--accent);
+  background: color-mix(in oklab, var(--fg) 45%, transparent);
+}
+
+/* Title + reset alignment and reset visual tweak */
+.filters-header{
+  display: flex;
+  align-items: flex-start; /* top-align reset with title */
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.filters-title-section{
+  display: grid;
+  gap: var(--space-1);
+}
+
+.filters-updated{
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+/* Top-align Reset with the title — inline panel only (not the drawer) */
+.filters-panel:not(.mobile-drawer) .filters-title-section strong{
+  display: block;
+  line-height: 1; /* remove extra leading that can throw off optical top */
+}
+.filters-panel:not(.mobile-drawer) .filters-actions{
+  align-self: flex-start;
+  display: flex;
+  align-items: flex-start; /* make inner buttons top-align */
+  gap: var(--space-2);
+  margin-top: 0;
+}
+.filters-panel:not(.mobile-drawer) .filters-reset-btn{
+  align-self: flex-start;
+  margin-top: 0;
+  /* Match select/control height (fallbacks cover different token names) */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 32px;
+  padding: 0 var(--space-3);
+  line-height: 1; /* use flex centering instead of line-height tricks */
+  /* Slight optical nudge if your select has a border that makes it seem taller.
+     Tweak/remove if not needed in your theme. */
+  transform: translateY(-6px);
+}
+/* Compact filter chips; un-box the "x" */
+.filters-chips{
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+.filters-chip{
+  --h: 26px;
+  display: inline-flex;
+  align-items: center;
+  gap: .4rem;
+  height: var(--h);
+  padding: 0 .6rem;
+  font-size: var(--text-sm);
+  border-radius: 999px;
+  /* Subtle tint so chips stand out from the panel */
+  background: color-mix(in oklab, var(--accent) 12%, var(--card));
+  border: 1px solid color-mix(in oklab, var(--accent) 28%, var(--border));
+}
+.filters-chip .chip-x{
+  line-height: 1;
+  padding: 0;
+  width: auto;
+  height: auto;
+  background: transparent; /* remove box */
+  border: 0;
+  color: var(--muted);
+  cursor: pointer;
+}
+.filters-chip .chip-x:hover{ color: var(--text); }
+
+/* Small inline hint used for commit adjustments */
+.hint-inline{
+  font-size: var(--text-xs);
+  color: var(--muted);
+  margin-top: var(--space-1);
+  min-height: 1em; /* reserve space to avoid layout shift */
+}
+
+/* Sort row: dropdown + tiny reverse button */
+.sort-row{
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.sort-reverse-btn{
+  line-height: 1;
+  padding: 0 .5rem;
+  height: 2rem;
+  min-width: 2rem;
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+   Inline panel (desktop) – tighten label→input spacing only here.
+   Side drawer (.mobile-drawer) keeps its existing spacing.
+   ──────────────────────────────────────────────────────────────────────────── */
+.filters-panel:not(.mobile-drawer) .filters-price-label,
+.filters-panel:not(.mobile-drawer) .filters-prize-label{
+  display: grid;                 /* ensure consistent stacking of label + input */
+  align-items: start;
+  gap: var(1px);           /* tighter than drawer */
+}
+.filters-panel:not(.mobile-drawer) .filters-price-label .input-wrap,
+.filters-panel:not(.mobile-drawer) .filters-prize-label .input-wrap{
+  margin-top: 0;                 /* remove any extra top spacing if present */
+}
+.filters-panel:not(.mobile-drawer) .filters-price-grid,
+.filters-panel:not(.mobile-drawer) .filters-prizes-grid{
+  row-gap: var(--space-1);       /* slightly tighter rows in these grids */
+  column-gap: var(--space-1);
+}
+
+/* Dedicated backdrop for Filters drawer.
+   Use a fixed numeric z-index to avoid conflicts with global --z-overlay. */
+.filters-backdrop{
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.45);
+  z-index: 9990; /* backdrop < 10020 drawer */
+  pointer-events: auto;
+}
+
+/* Section titles — subtle visual hierarchy */
+.section-title{
+  font-size: var(--text-sm);
+  font-weight: 600;
+  letter-spacing: .01em;
+}
+
+/* Mobile optimizations for FiltersPanel */
+@media (max-width: var(--breakpoint-mobile)) {
+  .filters-panel:not(.mobile-drawer) {
+    position: static;
+    max-width: none;
+    margin-bottom: var(--space-4);
+  }
+  
+  .filters-header {
+    flex-wrap: wrap;
+    gap: var(--space-3);
+  }
+  
+  .filters-reset-btn .filters-reset-text {
+    display: none;
+  }
+  
+  .filters-reset-btn .filters-reset-icon {
+    display: inline;
+  }
+  
+  .filters-price-grid,
+  .filters-prizes-grid {
+    grid-template-columns: 1fr;
+    gap: var(--space-3);
+  }
+  
+  .filters-sections {
+    gap: var(--space-5);
+  }
+  
+  .filters-section {
+    padding-top: var(--space-2);
+    gap: 0px;
+  }
+
+  /* Bigger touch area on mobile without heavy visual change */
+  .filters-select,
+  .filters-input{
+    height: 36px;
+    line-height: 34px;
+    border-radius: 10px;
+  }
+}

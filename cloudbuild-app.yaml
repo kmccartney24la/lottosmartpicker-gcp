@@ -1,0 +1,188 @@
+# cloudbuild-app.yaml
+# Build & push app image, update the service, verify with a smoke test,
+# and retarget jobs to this image.
+
+substitutions:
+  _REGION: "us-central1"
+  _SERVICE: "lottosmartpicker-app"
+  _TAG: "us-central1-docker.pkg.dev/lottosmartpicker-prod/app/lottosmartpicker:latest"
+  _PUBLIC_BASE_URL: "https://storage.googleapis.com/lottosmartpicker-data"
+  _RUN_SMOKE_TEST: "1"
+  _APP_URL: "https://app.lottosmartpicker.com"
+  _UPDATE_JOBS: "1"
+  _NODE_EXPECTED: "v20.19.5"
+  # Optional: fail build if Fantasy 5 CSV is "small". 0 = off (default), 1 = on
+  _STRICT_DATA_SMOKE: "0"
+  # If your /api/file route intentionally blocks non-browser probes, set this to "1"
+  _ALLOW_FILE_403: "1"
+
+options:
+  substitutionOption: ALLOW_LOOSE
+  logging: CLOUD_LOGGING_ONLY
+
+steps:
+  # 1) Build image
+  - name: "gcr.io/cloud-builders/docker"
+    id: "Build image"
+    args: ["build","-f","Dockerfile","-t","${_TAG}","."]
+
+  # 2) Push image
+  - name: "gcr.io/cloud-builders/docker"
+    id: "Push image"
+    args: ["push","${_TAG}"]
+
+  - name: "gcr.io/cloud-builders/docker"
+    id: "Preflight: verify artifacts in image"
+    entrypoint: bash
+    args:
+      - -lc
+      - |
+        set -euo pipefail
+        # Pull the image we just pushed
+        docker pull "${_TAG}"
+        # Check required files
+        docker run --rm "${_TAG}" bash -lc '
+          set -e
+          echo "Node version inside image:" $(node -v)
+          if [ "$(node -v)" != "${_NODE_EXPECTED}" ]; then
+            echo "ERROR: Node version mismatch. Expected ${_NODE_EXPECTED}"; exit 1;
+          fi
+
+          if command -v tsx >/dev/null 2>&1; then
+            echo "ERROR: tsx present in runtime image (should not be)"; exit 1;
+          fi
+          # cache dir must be writable as "node"
+          touch /app/.cache/.probe || { echo "ERROR: /app/.cache not writable"; id; ls -ld /app /app/.cache; exit 1; }
+          for p in \
+            /app/public \
+            /app/lib \
+            /app/dist/lib/gcs.mjs \
+            /app/dist/lib/csv.mjs \
+            /app/dist/scripts/scratchers/fetch_ga_scratchers.js \
+            /app/dist/scripts/update_csvs.js \
+          ; do
+            if [ ! -e "$p" ]; then echo "MISSING: $p" && exit 1; fi
+            echo "OK: $p"
+          done
+        '
+
+  # 3) Update Cloud Run service and assert env
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    id: "Update Cloud Run service"
+    entrypoint: bash
+    args:
+      - -lc
+      - |
+        set -euo pipefail
+        gcloud config set run/region ${_REGION}
+        gcloud run services update ${_SERVICE} \
+          --image="${_TAG}" \
+          --set-env-vars="PUBLIC_BASE_URL=${_PUBLIC_BASE_URL},NEXT_PUBLIC_DATA_BASE=${_APP_URL}/api/file,NEXT_PUBLIC_DATA_BASE_URL=${_APP_URL}/api/file,NEXT_PUBLIC_APP_ORIGIN=${_APP_URL}"
+
+  # 4) Smoke test /api/ping with retry/backoff
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    id: "Smoke test /api/ping + /api/file"
+    entrypoint: bash
+    args:
+      - -lc
+      - |
+        set -euo pipefail
+        if [ "${_RUN_SMOKE_TEST}" != "1" ]; then
+          echo "Smoke test disabled via _RUN_SMOKE_TEST"; exit 0;
+        fi
+
+        APP="${_APP_URL}"
+        if [ -z "$$APP" ]; then APP="https://app.lottosmartpicker.com"; fi
+
+        echo "Probing $$APP/api/ping ..."
+        for i in 0 1 2 3 4 5 6; do
+          code=$(curl -sS -o /dev/null -w "%{http_code}" "$$APP/api/ping" || true)
+          echo "Attempt $((i+1)): HTTP ${code}"
+          if [ "${code}" = "200" ]; then
+            echo "Smoke test passed."
+            break
+          fi
+          sleep $((2**i))
+        done
+
+        if [ "${code}" != "200" ]; then echo "Smoke test failed to get HTTP 200 from $$APP/api/ping"; exit 1; fi
+
+        # Verify Fantasy 5 proxy is reachable (HTTP 200). Size gate is optional.
+        echo "Probing $$APP/api/file/ga/fantasy5.csv (GET) with browser-like headers ..."
+        code=$(curl -sS -o /tmp/f5.csv -w "%{http_code}" \
+                 -H "Origin: ${_APP_URL}" \
+                 -H "Referer: ${_APP_URL}/" \
+                 -H "Accept: text/csv,*/*;q=0.1" \
+                 -A "curl-probe/1.0" \
+                 "$$APP/api/file/ga/fantasy5.csv" || true)
+        echo "Fantasy 5 proxy HTTP ${code}"
+        if [ "${code}" != "200" ]; then
+          if [ "${_ALLOW_FILE_403}" = "1" ] && [ "${code}" = "403" ]; then
+            echo "NOTE: /api/file returned 403 but _ALLOW_FILE_403=1; continuing."
+          else
+            echo "Smoke test failed: /api/file/ga/fantasy5.csv HTTP ${code}"; exit 1;
+          fi
+        fi
+        if [ "${_STRICT_DATA_SMOKE}" = "1" ]; then
+          size=$(wc -c </tmp/f5.csv | tr -d ' ')
+          echo "Fantasy 5 size: ${size} bytes"
+          if [ "${size}" -lt 200 ]; then
+            echo "Fantasy 5 CSV suspiciously small (<200 bytes). Failing build due to _STRICT_DATA_SMOKE=1."; exit 1;
+          fi
+        fi
+        echo "Smoke tests passed."
+
+  # 5a) Retarget scratchers
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    id: "Update job: scratchers"
+    entrypoint: bash
+    args:
+      - -lc
+      - |
+        set -euo pipefail
+        gcloud config set run/region ${_REGION}
+        gcloud run jobs update scratchers \
+          --image "${_TAG}" \
+          --update-labels "gcb-build=${BUILD_ID}" \
+          --command "/usr/local/bin/node" \
+          --args "dist/scripts/scratchers/fetch_ga_scratchers.js,--seed,--concurrency=4" \
+          --cpu 2 --memory 8Gi --tasks 1 --parallelism 1 --task-timeout 7200s --max-retries 1 \
+          --set-env-vars "NODE_OPTIONS=--trace-uncaught --trace-warnings --unhandled-rejections=strict,PUBLIC_BASE_URL=${_PUBLIC_BASE_URL},GCS_BUCKET=lottosmartpicker-data,SCRATCHERS_PREFIX=ga/scratchers,OUTPUT_PREFIX=ga/scratchers,PLAYWRIGHT_BROWSERS_PATH=/ms-playwright,CHROMIUM_ARGS=--no-sandbox --disable-dev-shm-usage --disk-cache-dir=/tmp/chrome-cache --renderer-process-limit=2 --disable-gpu --disable-software-rasterizer,XDG_CACHE_HOME=/app/.cache"
+
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    id: "Update job: update-csvs"
+    entrypoint: bash
+    args:
+      - -lc
+      - |
+        set -euo pipefail
+        gcloud config set run/region ${_REGION}
+        gcloud run jobs update update-csvs \
+          --image "${_TAG}" \
+          --update-labels "gcb-build=${BUILD_ID}" \
+          --command "/usr/local/bin/node" \
+          --args "dist/scripts/update_csvs.js" \
+          --cpu 1 --memory 4Gi --tasks 1 --parallelism 1 --task-timeout 1200s --max-retries 1 \
+          --set-env-vars "NODE_OPTIONS=--trace-uncaught --trace-warnings --unhandled-rejections=strict,PUBLIC_BASE_URL=${_PUBLIC_BASE_URL},GCS_BUCKET=lottosmartpicker-data,SKIP_SOCRATA=0,SKIP_FANTASY5=0,SKIP_SCRATCHERS=1,XDG_CACHE_HOME=/app/.cache" \
+          --set-secrets "NY_SOCRATA_APP_TOKEN=SOCRATA_APP_TOKEN:latest"
+
+  # 5c) (optional) seed-socrata variant, uses same compiled entrypoint with flags
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    id: "Update job: seed-socrata"
+    entrypoint: bash
+    args:
+      - -lc
+      - |
+        set -euo pipefail
+        gcloud config set run/region ${_REGION}
+        gcloud run jobs update seed-socrata \
+          --image "${_TAG}" \
+          --update-labels "gcb-build=${BUILD_ID}" \
+          --command "/usr/local/bin/node" \
+          --args "dist/scripts/update_csvs.js" \
+          --cpu 1 --memory 2Gi --tasks 1 --parallelism 1 --task-timeout 1200s --max-retries 1 \
+          --set-env-vars "NODE_OPTIONS=--trace-uncaught --trace-warnings --unhandled-rejections=strict,SKIP_FANTASY5=1,SKIP_SCRATCHERS=1,SKIP_SOCRATA=0,PUBLIC_BASE_URL=${_PUBLIC_BASE_URL},GCS_BUCKET=lottosmartpicker-data,XDG_CACHE_HOME=/app/.cache" \
+          --set-secrets "NY_SOCRATA_APP_TOKEN=SOCRATA_APP_TOKEN:latest"
+
+images:
+  - "${_TAG}"

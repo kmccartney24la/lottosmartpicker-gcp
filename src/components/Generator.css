@@ -1,0 +1,172 @@
+/* ===========================
+   src/components/Generator.css
+   =========================== */
+
+.generator-card {
+  /* printed slip backdrop */
+  background-image:
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+  background-size: 100% 28px, 36px 100%;
+  background-position: 0 0, 0 0;
+  border-radius: var(--radius-card);
+  box-shadow: 0 1px 0 rgba(0,0,0,.04) inset;
+}
+
+.generator-section {
+  margin-top: var(--space-2);
+}
+
+.generator-section:first-of-type {
+  margin-top: var(--space-1);
+}
+
+/* Ensure extra space before the Special section, independent of siblings */
+.generator-section--special {
+  margin-top: var(--space-6);
+}
+
+.generator-section .controls {
+  margin-bottom: calc(var(--space-1) * 0.5); /* slightly tighter below the title */
+  font-variant-numeric: tabular-nums;
+}
+
+.generator-range {
+  width: 100%;
+  margin: calc(var(--space-1) * 0.5) 0; /* slightly tighter above/below the bar */
+  min-height: var(--touch-target-min);
+  cursor: pointer;
+  padding: var(--space-1) 0;
+  box-sizing: border-box;
+  transition: all 0.15s ease;
+}
+
+.generator-range:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.generator-range:hover {
+  opacity: 0.8;
+}
+
+.generator-options {
+  display: flex;
+  justify-content: flex-start;
+  align-items: center;
+  gap: var(--space-4);
+  margin-top: var(--space-4);
+  flex-wrap: wrap;
+}
+
+.generator-checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  flex-direction: row; /* Ensure checkbox is to the left of text */
+}
+
+.generator-checkbox-input {
+  min-width: var(--space-5);
+  min-height: var(--space-5);
+  cursor: pointer;
+}
+
+.generator-tickets-control {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.generator-number-input {
+  width: 84px;
+  min-width: 84px;
+}
+
+.generator-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.generator-evaluate {
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--card-bd);
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.generator-results {
+  margin-top: var(--space-4);
+  display: grid;
+  grid-template-columns: 1fr; /* Default to single column */
+  gap: var(--space-3);
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+/* Ensure two-column layout on desktop screens */
+@media (min-width: 1024px) { /* Use desktop breakpoint from globals.css */
+  .generator-results {
+    grid-template-columns: repeat(2, 1fr);
+    gap: var(--space-4);
+  }
+}
+
+/* Mobile optimizations for Generator */
+@media (max-width: var(--breakpoint-mobile)) {
+  .generator-card {
+    max-width: none;
+  }
+  
+  .generator-options {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-4);
+  }
+  
+  .generator-checkbox-label {
+    flex-direction: row; /* Ensure row direction for mobile */
+    align-items: center;
+  }
+  
+  .generator-tickets-control {
+    justify-content: space-between;
+    align-items: center;
+  }
+  
+  .generator-number-input {
+    width: 100px;
+    min-width: 100px;
+  }
+  
+  .generator-actions {
+    gap: var(--touch-spacing-mobile);
+  }
+  
+  .generator-results {
+    grid-template-columns: 1fr;
+    gap: var(--space-3);
+  }
+  
+  /* Enhanced range input for mobile */
+  .generator-range {
+    min-height: var(--touch-target-comfortable);
+    padding: var(--space-3) var(--space-2);
+    /* Larger touch area on mobile */
+    margin: var(--space-3) 0;
+  }
+  
+  /* Larger checkbox for mobile */
+  .generator-checkbox-label input[type="checkbox"] {
+    min-width: var(--space-6);
+    min-height: var(--space-6);
+    transform: scale(1.2);
+  }
+}

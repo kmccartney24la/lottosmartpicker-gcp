@@ -1,0 +1,31 @@
+/* Tooltip popover rendered via portal (escapes ancestor opacity/overflow) */
+.tooltip-pop {
+  z-index: 1000;
+  max-width: min(320px, 80vw);
+  pointer-events: none; /* follows hover/focus on the trigger */
+}
+.tooltip-pop__inner {
+  background: var(--card);
+  color: var(--fg);
+  border: 1px solid var(--card-bd);
+  border-radius: 8px;
+  padding: 8px 10px;
+ box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
+}
+.tooltip-pop__line {
+  margin: 0;
+  font-size: var(--text-xs);
+  line-height: 1.35;
+  white-space: pre-wrap;
+}
+.tooltip-pop__arrow {
+  position: absolute;
+  width: 10px; height: 10px;
+  background: var(--card);
+  border-left: 1px solid var(--card-bd);
+  border-top: 1px solid var(--card-bd);
+  transform: rotate(45deg);
+}
+/* Arrow placement based on popover side */
+.tooltip-pop[data-placement="top"]   .tooltip-pop__arrow { left: 50%; bottom: -6px; transform: translateX(-50%) rotate(45deg); }
+.tooltip-pop[data-placement="bottom"] .tooltip-pop__arrow { left: 50%; top: -6px;    transform: translateX(-50%) rotate(45deg); }

@@ -1,0 +1,180 @@
+/* ===========================
+   src/components/AnalyzeSidebar.css
+   =========================== */
+
+/* AnalyzeSidebar */
+.analyze-sidebar {
+  margin-bottom: var(--space-2);
+}
+
+.analyze-error {
+  color: var(--danger);
+  font-size: var(--text-sm);
+  margin-bottom: var(--space-2);
+}
+
+.analyze-loading,
+.analyze-status {
+  font-size: var(--text-sm);
+  color: var(--muted);
+  margin-bottom: var(--space-2);
+}
+
+.analyze-games {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.analyze-game {
+  /* Turn each game's section into a clearly separated block */
+  padding: var(--space-3) var(--space-2);
+  border: 1px solid var(--card-bd);
+  border-radius: var(--radius-card);
+  background: color-mix(in oklab, var(--card) 60%, transparent);
+  margin: 0;
+}
+
+/* Tighter, clearer break between title and details inside each block */
+.analyze-game-title {
+  font-weight: 700;
+  margin-bottom: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--ink-strong);
+  padding-bottom: var(--space-1);
+  border-bottom: 1px dashed color-mix(in oklab, var(--card-bd) 80%, transparent);
+}
+
+/* (Old first/last child spacing now handled by gap + borders) */
+.analyze-game:first-child { }
+.analyze-game:last-child { }
+
+.analyze-game-details {
+  font-size: 12px;      /* Match .hint */
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.4;
+}
+
+.analyze-detail {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin-bottom: var(--space-1);
+}
+
+.analyze-detail:last-child {
+  margin-bottom: 0;
+}
+
+.analyze-label {
+  color: var(--muted-strong);
+  flex-shrink: 0;
+  min-width: 80px;
+  font-weight: 500;
+}
+
+.analyze-value {
+  text-align: right;
+  flex: 1;
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+.analyze-recommendation {
+  margin-top: var(--space-1);
+  padding-top: var(--space-1);
+  border-top: 1px solid rgba(203,213,225,.1);
+}
+
+.analyze-recommendation .analyze-label {
+  min-width: 90px;
+}
+
+.analyze-unavailable {
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+
+/* Mobile optimizations for sidebars */
+@media (max-width: var(--breakpoint-mobile)) {
+  .sidebar-header {
+    padding: var(--space-3);
+    flex-wrap: wrap;
+  }
+  
+  .sidebar-title {
+    font-size: var(--text-base);
+  }
+  
+  .sidebar-controls {
+    gap: var(--space-1);
+  }
+  
+  /* Show icons, hide text on mobile for space */
+  .sidebar-sort-btn .sidebar-sort-text,
+  .sidebar-close-text,
+  .sidebar-nav-text {
+    display: none;
+  }
+  
+  .sidebar-sort-btn .sidebar-sort-short,
+  .sidebar-close-icon,
+  .sidebar-nav-icon {
+    display: inline;
+  }
+  
+  .sidebar-compact-label {
+    font-size: var(--text-xs);
+  }
+  
+  .sidebar-compact-label input[type="checkbox"] {
+    min-width: var(--space-5);
+    min-height: var(--space-5);
+    transform: scale(1.1);
+  }
+  
+  .sidebar-pagination {
+    flex-direction: column;
+    gap: var(--space-2);
+    align-items: stretch;
+  }
+  
+  .sidebar-pagination-info {
+    text-align: center;
+  }
+  
+  .sidebar-pagination-controls {
+    justify-content: center;
+  }
+  
+  /* AnalyzeSidebar mobile optimizations */
+  .analyze-detail {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-1);
+  }
+  
+  .analyze-label {
+    min-width: auto;
+    font-weight: 500;
+  }
+  
+  .analyze-value {
+    text-align: left;
+    padding-left: var(--space-2);
+  }
+  
+  .analyze-recommendation .analyze-label {
+    min-width: auto;
+  }
+}
+
+/* Bottom sheet specific styles */
+.sidebar.bottom .sidebar-header {
+  border-bottom: 1px solid var(--card-bd);
+}
+
+.sidebar.bottom .sidebar-content {
+  height: calc(100% - 60px);
+}

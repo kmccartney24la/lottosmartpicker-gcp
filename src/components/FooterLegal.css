@@ -1,0 +1,79 @@
+/* ===========================
+   src/components/FooterLegal.css
+   =========================== */
+
+/* FooterLegal Component */
+.footer-legal {
+  margin-top: var(--space-6);
+  padding: var(--space-4) var(--space-3);
+  font-size: var(--text-xs);
+  opacity: 0.8;
+  border-top: 1px dashed var(--card-bd);
+  font-variant-numeric: tabular-nums;
+}
+
+.footer-legal-text {
+  margin: 0;
+  line-height: 1.4;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Provide breathing room between stacked legal paragraphs */
+.footer-legal-subtext {
+  margin-top: var(--space-2);
+}
+
+/* Inline list of links with auto separators (SR-safe) */
+.footer-legal-nav {
+  margin-top: var(--space-2);
+}
+.footer-legal-list {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.footer-legal-item {
+  display: inline-flex;
+  align-items: center;
+}
+/* Separator before every item except the first (pseudo-element is not read by SRs) */
+.footer-legal-item + .footer-legal-item::before {
+  content: "|";
+  opacity: .6;
+  margin: 0 var(--space-1);
+}
+.footer-legal-link {
+  color: var(--link);
+  text-decoration: none;
+  padding: 2px 4px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+}
+.footer-legal-link:hover {
+  text-decoration: underline;
+  color: var(--link-hover);
+}
+.footer-legal-link:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* Make visited links clearly distinct but readable per theme */
+.footer-legal-link:visited {
+  color: var(--link-visited);
+}
+
+@media (forced-colors: active){
+  .footer-legal-link:focus-visible { outline: 2px solid Highlight; }
+}
+
+@media (max-width: var(--breakpoint-mobile)) {
+  .footer-legal {
+    padding: var(--space-3) var(--space-2);
+  }
+}
