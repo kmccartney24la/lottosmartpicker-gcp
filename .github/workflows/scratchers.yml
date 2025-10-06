@@ -1,0 +1,169 @@
+name: Update GA Scratchers
+
+on:
+  schedule:
+    # 09:30 America/New_York ~= 13:30 UTC (DST). Mondays.
+    - cron: '30 13 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scrape-and-upload:
+    runs-on: ubuntu-24.04
+    environment:
+      name: r2-prod
+    timeout-minutes: 60
+    concurrency:
+      group: ga-scratchers
+      cancel-in-progress: false
+
+    env:
+      NODE_VERSION: '20'
+      R2_BUCKET: ${{ secrets.R2_BUCKET }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      R2_PUBLIC_BASE_URL: ${{ secrets.R2_PUBLIC_BASE_URL }}
+      TRACE: '1'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      # Cache Playwright browsers; tie to lockfile to avoid stale versions
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ms-playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Install Playwright (Chromium only)
+        run: npx playwright install --with-deps chromium
+
+      - name: Validate required secrets
+        run: |
+          [[ -n "${R2_BUCKET}" ]] || { echo "::error title=Missing secret::R2_BUCKET is not set"; exit 1; }
+          [[ -n "${CLOUDFLARE_ACCOUNT_ID}" ]] || { echo "::error title=Missing secret::CLOUDFLARE_ACCOUNT_ID is not set"; exit 1; }
+          [[ -n "${CLOUDFLARE_API_TOKEN}" ]] || { echo "::error title=Missing secret::CLOUDFLARE_API_TOKEN is not set"; exit 1; }
+          [[ -n "${R2_ACCESS_KEY_ID}" ]] || { echo "::error title=Missing secret::R2_ACCESS_KEY_ID is not set"; exit 1; }
+          [[ -n "${R2_SECRET_ACCESS_KEY}" ]] || { echo "::error title=Missing secret::R2_SECRET_ACCESS_KEY is not set"; exit 1; }
+          [[ -n "${R2_PUBLIC_BASE_URL}" ]] || { echo "::error title=Missing secret::R2_PUBLIC_BASE_URL is not set"; exit 1; }
+          echo "R2 bucket: ${R2_BUCKET}"
+          npx -y wrangler@4.36.0 --version
+
+      # Fetch previous index for carry-forward (best effort)
+      - name: Fetch previous index/manifest from R2 (best-effort)
+        continue-on-error: true
+        run: |
+          mkdir -p public/data/ga/scratchers
+          npx -y wrangler@4.36.0 r2 object get \
+            "${R2_BUCKET}/ga/scratchers/index.latest.json" \
+            --file public/data/ga/scratchers/index.latest.json \
+            --remote
+          npx -y wrangler@4.36.0 r2 object get \
+            "${R2_BUCKET}/ga/scratchers/_image_manifest.json" \
+            --file public/data/ga/scratchers/_image_manifest.json \
+            --remote || true
+
+      # Seed pass: open ALL modals so we capture ticket + odds.
+      # IMPORTANT: DRY RUN to avoid uploading in this step (keeps runtime short).
+      - name: Scrape GA scratchers (seed all, DRY RUN)
+        run: >
+          npx --yes tsx scripts/scratchers/fetch_ga_scratchers.ts
+          --seed --dry-run --concurrency=4
+
+      # Assert: no localhost/non-GA sources
+      - name: Assert GA-only URLs (post first scrape)
+        run: |
+          node -e "const fs=require('fs'); \
+          const p='public/data/ga/scratchers/index.latest.json'; \
+          const j=JSON.parse(fs.readFileSync(p,'utf8')); \
+          const bad=[]; \
+          for (const g of j.games){ \
+            for (const f of ['ticketImageUrl','oddsImageUrl']){ \
+              const u=g[f]; \
+              if(!u) continue; \
+              try{ const h=new URL(u).hostname.toLowerCase(); \
+                if(!(h==='www.galottery.com' || h.endsWith('.galottery.com') || h===new URL(process.env.R2_PUBLIC_BASE_URL).hostname.toLowerCase())) \
+                  bad.push({num:g.gameNumber,f,u}); \
+              } catch(e){ bad.push({num:g.gameNumber,f,u}); } \
+            } \
+          } \
+          if(bad.length){ console.error('Non-GA/non-CDN URLs found:', bad.slice(0,10)); process.exit(1);} \
+          else { console.log('OK: URLs are GA or CDN'); }"
+
+      # Optional: fail fast if scraper yielded zero images (helps catch regressions)
+      - name: Fail if zero images parsed (post first scrape)
+        run: |
+          node -e "const fs=require('fs'); \
+          const s=JSON.parse(fs.readFileSync('public/data/ga/scratchers/_debug_images.summary.json','utf8')); \
+          if((s.counts?.withTicket||0)===0 && (s.counts?.withOdds||0)===0){ \
+            console.error('No images parsed; failing early to surface scrape issues.'); \
+            process.exit(1); \
+          } else { console.log('Images parsed: ', s.counts); }"
+
+      - name: Scrape + rehost (only missing; 4-way)
+        run: >
+          npx --yes tsx scripts/scratchers/fetch_ga_scratchers.ts
+          --only-missing --concurrency=8
+
+      - name: Upload image manifest
+        if: success() && hashFiles('public/data/ga/scratchers/_image_manifest.json') != ''
+        run: |
+          npx -y wrangler@4.36.0 r2 object put \
+            "${R2_BUCKET}/ga/scratchers/_image_manifest.json" \
+            --file public/data/ga/scratchers/_image_manifest.json \
+            --content-type application/json \
+            --remote
+
+      - name: Upload Playwright trace on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-trace
+          path: public/data/ga/scratchers/_debug_trace.zip
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Upload JSON artifacts (always)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ga-scratchers-artifacts
+          path: |
+            public/data/ga/scratchers/index.latest.json
+            public/data/ga/scratchers/index.json
+            public/data/ga/scratchers/_debug_*.json
+            public/data/ga/scratchers/_debug_*.html
+            public/data/ga/scratchers/_debug_*.png
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Guarded R2 upload (index.latest.json)
+        if: success() && hashFiles('public/data/ga/scratchers/index.latest.json') != ''
+        run: |
+          npx -y wrangler@4.36.0 r2 object put \
+            "${R2_BUCKET}/ga/scratchers/index.latest.json" \
+            --file public/data/ga/scratchers/index.latest.json \
+            --content-type application/json \
+            --remote
+
+      - name: Guarded R2 upload (index.json)
+        if: success() && hashFiles('public/data/ga/scratchers/index.json') != ''
+        run: |
+          npx -y wrangler@4.36.0 r2 object put \
+            "${R2_BUCKET}/ga/scratchers/index.json" \
+            --file public/data/ga/scratchers/index.json \
+            --content-type application/json \
+            --remote

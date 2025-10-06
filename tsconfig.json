@@ -1,0 +1,12 @@
+// tsconfig.json
+{
+  "extends": "./tsconfig.app.json",
+  "compilerOptions": {
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ],
+    "isolatedModules": true
+  }
+}

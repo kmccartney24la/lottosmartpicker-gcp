@@ -1,0 +1,94 @@
+name: Build & Deploy
+on:
+  push:
+    branches: ["main", "staging"]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      REGION: us-central1
+      # Set to "true" to use Cloud Build's default bucket (avoids custom GCS perms while debugging)
+      USE_DEFAULT_CB_BUCKET: "false"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select environment
+        id: envsel
+        run: |
+          if [[ "${GITHUB_REF_NAME}" == "main" ]]; then
+            {
+              echo "PROJECT_ID=lottosmartpicker-prod"
+              echo "AR_REPO=app"
+              echo "CI_SA=${{ secrets.GCP_CI_SERVICE_ACCOUNT }}"
+              echo "WIF=${{ secrets.GCP_WORKLOAD_IDP }}"
+              echo "SERVICE=lottosmartpicker-app"
+              echo "SUF="
+              echo "DATA_BASE=https://storage.googleapis.com/lottosmartpicker-data"
+              echo "SRC_BKT=lsp-source-staging-prod"
+            } >> "$GITHUB_OUTPUT"
+          else
+            {
+              echo "PROJECT_ID=lottosmartpicker-staging"
+              echo "AR_REPO=app"
+              echo "CI_SA=${{ secrets.GCP_CI_SERVICE_ACCOUNT_STG }}"
+              echo "WIF=${{ secrets.GCP_WORKLOAD_IDP_STG }}"
+              echo "SERVICE=lottosmartpicker-app-stg"
+              echo "SUF=-stg"
+              echo "DATA_BASE=https://storage.googleapis.com/lottosmartpicker-data-stg"
+              echo "SRC_BKT=lsp-source-staging-stg"
+            } >> "$GITHUB_OUTPUT"
+          fi
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ steps.envsel.outputs.WIF }}
+          service_account: ${{ steps.envsel.outputs.CI_SA }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Debug identity
+        run: |
+          set -x
+          gcloud config set project "${{ steps.envsel.outputs.PROJECT_ID }}"
+          gcloud auth list
+          gcloud config list
+          # Print short tokens to confirm an identity exists (avoid leaking full tokens)
+          gcloud auth print-identity-token --audiences="https://cloudbuild.googleapis.com/" | cut -c -10; echo "…"
+          gcloud auth print-access-token | cut -c -10; echo "…"
+
+      - name: Build & push
+        run: |
+          set -euxo pipefail
+          gcloud config set project "${{ steps.envsel.outputs.PROJECT_ID }}"
+          if [[ "${USE_DEFAULT_CB_BUCKET}" == "true" ]]; then
+            # Use default Cloud Build bucket (no custom GCS permissions required)
+            gcloud builds submit \
+              --tag "$REGION-docker.pkg.dev/${{ steps.envsel.outputs.PROJECT_ID }}/${{ steps.envsel.outputs.AR_REPO }}/lottosmartpicker"
+          else
+            # Use custom source/log buckets
+            gcloud builds submit \
+              --gcs-source-staging-dir="gs://${{ steps.envsel.outputs.SRC_BKT }}/source" \
+              --gcs-log-dir="gs://${{ steps.envsel.outputs.SRC_BKT }}/logs" \
+              --tag "$REGION-docker.pkg.dev/${{ steps.envsel.outputs.PROJECT_ID }}/${{ steps.envsel.outputs.AR_REPO }}/lottosmartpicker"
+          fi
+
+      - name: Deploy Cloud Run
+        run: |
+          set -euxo pipefail
+          gcloud run deploy "${{ steps.envsel.outputs.SERVICE }}" \
+            --image "$REGION-docker.pkg.dev/${{ steps.envsel.outputs.PROJECT_ID }}/${{ steps.envsel.outputs.AR_REPO }}/lottosmartpicker" \
+            --region "$REGION" --platform managed --allow-unauthenticated \
+            --min-instances 0 --max-instances 50 --concurrency 80 \
+            --cpu 1 --memory 512Mi \
+            --service-account "lsp-run${{ steps.envsel.outputs.SUF }}@${{ steps.envsel.outputs.PROJECT_ID }}.iam.gserviceaccount.com" \
+            --set-env-vars "GA_SCRATCHERS_INDEX_URL=${{ steps.envsel.outputs.DATA_BASE }}/ga/scratchers/index.json" \
+            --set-env-vars "LOTTO_REMOTE_CSV_URL_POWERBALL=${{ steps.envsel.outputs.DATA_BASE }}/multi/powerball.csv" \
+            --set-env-vars "LOTTO_REMOTE_CSV_URL_MEGAMILLIONS=${{ steps.envsel.outputs.DATA_BASE }}/multi/megamillions.csv" \
+            --set-env-vars "LOTTO_REMOTE_CSV_URL_CASH4LIFE=${{ steps.envsel.outputs.DATA_BASE }}/multi/cash4life.csv" \
+            --set-env-vars "LOTTO_REMOTE_CSV_URL_GA_FANTASY5=${{ steps.envsel.outputs.DATA_BASE }}/ga/fantasy5.csv"

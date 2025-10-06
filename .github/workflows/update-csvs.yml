@@ -1,0 +1,353 @@
+name: Update CSVs and upload to R2
+
+on:
+  schedule:
+    # 04:45 UTC = 12:45 AM ET (daylight); safe window after GA's 11:34 PM ET draw
+    - cron: '45 4 * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    environment:
+      name: r2-prod
+    env:
+      # Your inputs (as before)
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN:  ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      R2_BUCKET:     ${{ secrets.R2_BUCKET || vars.R2_BUCKET }}
+      # Wrangler v4 reads these envs; we export them from CLOUDFLARE_ in a step below
+      
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify required secrets/vars are present
+        run: |
+          [ -z "$CLOUDFLARE_ACCOUNT_ID" ] && echo "CLOUDFLARE_ACCOUNT_ID is MISSING" && exit 1 || echo "CLOUDFLARE_ACCOUNT_ID is set"
+          [ -z "$CLOUDFLARE_API_TOKEN" ]  && echo "CLOUDFLARE_API_TOKEN is MISSING"  && exit 1 || echo "CLOUDFLARE_API_TOKEN is set"
+          [ -z "$R2_BUCKET" ]     && echo "R2_BUCKET is MISSING"     && exit 1 || echo "R2_BUCKET is set"
+
+      - name: Use Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Cache scraper state (.cache)
+        uses: actions/cache@v4
+        with:
+          path: .cache
+          key: fantasy5-cache-${{ runner.os }}-${{ hashFiles('scripts/sources/fantasy5.mjs') }}
+          restore-keys: |
+            fantasy5-cache-${{ runner.os }}-
+
+      - name: Install project dependencies
+        run: npm ci
+
+      - name: Install Playwright (Chromium only)
+        run: npx playwright install --with-deps chromium
+
+      - name: Install Wrangler v4 (pin)
+        run: |
+          npm i -D wrangler@4
+          npx wrangler --version
+
+      - name: Export Cloudflare env for Wrangler
+        run: |
+          echo "CLOUDFLARE_ACCOUNT_ID=$CLOUDFLARE_ACCOUNT_ID" >> $GITHUB_ENV
+          echo "CLOUDFLARE_API_TOKEN=$CLOUDFLARE_API_TOKEN"   >> $GITHUB_ENV
+
+      - name: Run updater
+        run: node scripts/update_csvs.mjs
+        env:
+          SOCRATA_APP_TOKEN: ${{ secrets.SOCRATA_APP_TOKEN }}
+          SKIP_SOCRATA: '0'
+
+      # =========== MERGE & GUARD ===========
+
+      - name: Merge local CSV with existing R2 object (append-only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          export LC_ALL=C LANG=C
+
+          canon="draw_date,num1,num2,num3,num4,num5,special"
+
+          # Fetch remote object to a file, auto-decompress if it's gzip
+          fetch_plain () {
+            local rel="$1"     # e.g. multi/cash4life.csv
+            local out="$2"     # destination plain CSV
+            local tmp_raw
+            tmp_raw="$(mktemp)"
+            if ! npx --yes wrangler r2 object get "$R2_BUCKET/$rel" --file="$tmp_raw" --remote 1>/dev/null; then
+              return 1
+            fi
+            if gzip -t "$tmp_raw" 2>/dev/null || head -c2 "$tmp_raw" | od -An -t x1 | tr -d ' ' | grep -qi '^1f8b'; then
+              gunzip -c "$tmp_raw" > "$out"
+            else
+              cp "$tmp_raw" "$out"
+            fi
+          }
+
+          merge_csv() {
+            local rel="$1"              # e.g. multi/cash4life.csv or multi/powerball.csv
+            local local_file="public/data/$rel"
+            local latest_file="${local_file%.csv}.latest.csv"
+            local local_src="$local_file"
+
+            count_rows() {
+              # count data rows (skip header), handles missing file
+              [ -f "$1" ] && tail -n +2 "$1" | sed '/^[[:space:]]*$/d' | wc -l | tr -d ' ' || echo 0
+            }
+
+            full_rows=$(count_rows "$local_file")
+            latest_rows=$(count_rows "$latest_file")
+
+            # Prefer the local source with MORE rows
+            if [ "$latest_rows" -gt "$full_rows" ]; then
+              local_src="$latest_file"
+            fi
+
+            echo "merge_csv $rel → local_src=$local_src (full_rows=$full_rows latest_rows=$latest_rows)"
+
+
+            # Normalize CRLF on the chosen local source
+            [ -f "$local_src" ] && sed -i 's/\r$//' "$local_src" 2>/dev/null || true
+
+            local tmpdir r2_plain r2_fixed local_fixed merged had_remote=0
+            tmpdir="$(mktemp -d)"
+            r2_plain="$tmpdir/r2.plain.csv"
+            r2_fixed="$tmpdir/r2.fixed.csv"
+            local_fixed="$tmpdir/local.fixed.csv"
+            merged="$tmpdir/merged.csv"
+
+            if fetch_plain "$rel" "$r2_plain"; then
+              had_remote=1
+              echo "Fetched existing $rel from R2"
+            else
+              echo "ERROR: could not read $rel from R2 (network/permission/object mismatch)."
+              echo "Refusing to 'start fresh' to avoid clobbering history. Please run the seed workflow or fix credentials."
+              exit 1    # <-- hard fail; prevents accidental overwrite
+            fi
+
+            # Canonicalize both sides
+            npx tsx scripts/repair-lotto-csv.ts "$r2_plain" "$r2_fixed"
+            if [ -f "$local_src" ]; then
+              npx tsx scripts/repair-lotto-csv.ts "$local_src" "$local_fixed"
+            else
+              : > "$local_fixed"
+            fi
+
+            # If local has no new rows, keep R2 as-is
+            if [ ! -s "$local_fixed" ] || [ "$(tail -n +2 "$local_fixed" | sed '/^[[:space:]]*$/d' | wc -l)" -eq 0 ]; then
+              echo "No new local rows for $rel; keeping R2 version."
+              cp "$r2_fixed" "$local_file"
+              return 0
+            fi
+
+            # Headers must be canonical
+            local canon="draw_date,num1,num2,num3,num4,num5,special"
+            head -n1 "$r2_fixed"    | tr -d '\r' | grep -qx "$canon" || { echo "R2 header not canonical after repair"; exit 1; }
+            head -n1 "$local_fixed" | tr -d '\r' | grep -qx "$canon" || { echo "Local header not canonical after repair"; exit 1; }
+
+            # Baselines
+            prev_rows=$(tail -n +2 "$r2_fixed" | sed '/^[[:space:]]*$/d' | wc -l || true)
+            local_rows=$(tail -n +2 "$local_fixed" | sed '/^[[:space:]]*$/d' | wc -l || true)
+
+            # Merge append-only, unique by draw_date, sorted
+            {
+              echo "$canon"
+              (tail -n +2 "$r2_fixed"; tail -n +2 "$local_fixed") \
+                | sed '/^[[:space:]]*$/d' \
+                | awk -F, '!seen[$1]++' \
+                | sort
+            } > "$merged"
+
+            merged_rows=$(tail -n +2 "$merged" | sed '/^[[:space:]]*$/d' | wc -l || true)
+
+            # If the merged result is smaller than the existing full local CSV, keep the full local instead
+            if [ "$merged_rows" -lt "$full_rows" ]; then
+              echo "Guard: merged ($merged_rows) < full_local ($full_rows). Preserving full local for $rel."
+              cp "$local_file" "$merged"
+              merged_rows="$full_rows"
+            fi
+
+            # Extra guard: if we *did* fetch remote but the merge shrank, abort upload.
+            if [ "$merged_rows" -lt "$prev_rows" ] && [ "$had_remote" -eq 1 ]; then
+              echo "ERROR: Anti-truncation: merged $merged_rows < previous $prev_rows for $rel. Not uploading."
+              cp "$r2_fixed" "$local_file"
+              exit 1
+            fi
+
+            mv "$merged" "$local_file"
+            echo "Post-merge $rel rows: prev=$prev_rows + local=$local_rows → now=$merged_rows"
+
+            npx wrangler r2 object put "$R2_BUCKET/$rel" \
+              --file="$local_file" \
+              --content-type=text/csv \
+              --cache-control=public,max-age=3600,must-revalidate \
+              --remote
+            echo "Uploaded $rel"
+          }
+
+
+          merge_csv multi/powerball.csv
+          merge_csv multi/megamillions.csv
+          merge_csv multi/cash4life.csv
+          merge_csv ga/fantasy5.csv
+
+      - name: Show local CSVs (after merge, before upload)
+        shell: bash
+        run: |
+          set -euo pipefail
+          for f in \
+            public/data/ga/fantasy5.csv \
+            public/data/multi/cash4life.csv \
+            public/data/multi/powerball.csv \
+            public/data/multi/megamillions.csv
+          do
+            echo "---- $f ----"
+            wc -l "$f" || true
+            sed -n '1,5p' "$f" || true
+            echo
+          done
+
+      - name: Verify R2 objects (safe fetch + auto-decompress)
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Write remote object to a file, then auto-decompress if it's gzip.
+          fetch_plain () {
+            local rel="$1"           # e.g. ga/fantasy5.csv
+            local out_plain="$2"     # path to write plain-text CSV
+
+            local tmp_raw
+            tmp_raw="$(mktemp)"
+
+            # Fetch to file (avoid --pipe so we get only bytes)
+            if ! npx --yes wrangler r2 object get "$R2_BUCKET/$rel" --file="$tmp_raw" --remote 1>/dev/null; then
+              return 1
+            fi
+
+            # If gzipped, decompress; otherwise just copy.
+            if gzip -t "$tmp_raw" 2>/dev/null; then
+              gunzip -c "$tmp_raw" > "$out_plain"
+            else
+              # Some environments might not recognize gzip -t; also handle magic bytes.
+              if head -c2 "$tmp_raw" | od -An -t x1 | tr -d ' ' | grep -qi '^1f8b'; then
+                gunzip -c "$tmp_raw" > "$out_plain"
+              else
+                cp "$tmp_raw" "$out_plain"
+              fi
+            fi
+          }
+
+          verify_or_put () {
+            local rel="$1"                      # e.g. ga/fantasy5.csv
+            local local_file="public/data/$rel"
+
+            # local must exist
+            test -s "$local_file" || { echo "ERROR: local $rel missing or empty"; exit 1; }
+
+            # Compute local md5 (small CSVs are single-part, so ETag==MD5)
+            local local_md5
+            local_md5="$(md5sum "$local_file" | awk '{print $1}')"
+
+            # Helper: get remote ETag via HEAD (bypasses cached body)
+            head_etag () {
+              # Print the first etag-looking token found
+              npx --yes wrangler r2 object head "$R2_BUCKET/$rel" --remote 2>/dev/null \
+                | tr -d '\r' \
+                | awk -F: '
+                    tolower($1) ~ /etag/ {
+                      gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2);
+                      gsub(/"/, "", $2);
+                      print $2; exit
+                    }'
+            }
+
+            local tries=0
+            local max=5
+            local sleep_s=2
+
+            while : ; do
+              local remote_etag
+              remote_etag="$(head_etag || true)"
+              echo "$rel etag: local=$local_md5 remote=${remote_etag:-<none>}"
+
+              # Success if remote etag matches our local md5
+              if [ -n "$remote_etag" ] && [ "$remote_etag" = "$local_md5" ]; then
+                echo "$rel: verified by ETag."
+                break
+              fi
+
+              echo "$rel: remote ETag differs/missing; uploading superset…"
+              npx --yes wrangler r2 object put "$R2_BUCKET/$rel" \
+                --file="$local_file" \
+                --content-type=text/csv \
+                --cache-control=public,max-age=3600,must-revalidate \
+                --remote
+
+              tries=$((tries+1))
+              if [ "$tries" -ge "$max" ]; then
+                echo "WARNING: remote ETag still not matching after $max attempts (likely edge body cache). Continuing."
+                break
+              fi
+              sleep "$sleep_s"
+            done
+          }
+
+
+          verify_or_put ga/fantasy5.csv
+          verify_or_put multi/cash4life.csv
+          verify_or_put multi/powerball.csv
+          verify_or_put multi/megamillions.csv
+
+      - name: Post-upload sanity (counts from R2)
+        shell: bash
+        run: |
+          set -euo pipefail
+          check() {
+            local key="$1"
+            local tmp
+            tmp="$(mktemp)"
+            if npx --yes wrangler r2 object get "$R2_BUCKET/$key" --pipe --remote > "$tmp" 2>/dev/null; then
+              echo "R2: $key -> total lines: $(wc -l < "$tmp")"
+              echo "Head:"
+              sed -n '1,5p' "$tmp"
+            else
+              echo "R2: $key (missing)"
+            fi
+            echo
+          }
+          check ga/fantasy5.csv
+          check multi/cash4life.csv
+          check multi/powerball.csv
+          check multi/megamillions.csv
+
+
+      # -------- Commit at the end (CSV-only, safe) --------
+      - name: Commit CSV changes only (safe)
+        run: |
+          set -e
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git restore --worktree --staged package.json package-lock.json 2>/dev/null || true
+          git add public/data/ga public/data/multi
+
+          if git diff --cached --quiet; then
+            echo "No CSV changes to commit."
+            exit 0
+          fi
+
+          echo "Changes to commit:"
+          git diff --cached --name-status
+
+          git commit -m "chore: update CSVs"
+          git push
