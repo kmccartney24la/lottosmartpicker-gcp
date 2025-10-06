@@ -8,7 +8,11 @@ import {
 import Pill from 'src/components/Pill';
 import { HINT_EXPLAIN, classifyHint } from 'src/components/hints';
 
-export default function SelectedLatest({ game }: { game: GameKey }) {
+export default function SelectedLatest({
+  game,
+  onOpenPastDraws,
+  showPast,
+}: { game: GameKey; onOpenPastDraws?: () => void; showPast?: boolean }) {
   const [row, setRow] = useState<LottoRow | null>(null);
   const [latestTags, setLatestTags] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
@@ -41,6 +45,19 @@ export default function SelectedLatest({ game }: { game: GameKey }) {
 
   return (
     <div className="card selected-latest">
+      {/* Past Draws action lives inside the card; pinned via CSS */}
+      {onOpenPastDraws && (
+        <button
+          type="button"
+          className="btn btn-primary past-draws-btn"
+          onClick={onOpenPastDraws}
+          aria-controls="past-draws"
+          aria-expanded={!!showPast}
+          title="Open past draws"
+        >
+          Past Draws
+        </button>
+      )}
       <div className="card-title selected-latest-title">Latest Draw</div>
       {busy && <div className="selected-latest-loading">Loading…</div>}
       {!busy && row && (

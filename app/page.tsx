@@ -123,20 +123,13 @@ export default function Page() {
                   ))}
                 </select>
               </div>
-              {/* Latest draw + Past Draws action grouped together */}
+              {/* Latest draw; the Past Draws button renders inside this card */}
               <div className="latest-and-actions">
-                <SelectedLatest game={game} />
-                {/* Pin to top-right of the entire header panel */}
-              <button
-                type="button"
-                className="btn btn-primary past-draws-btn"
-                onClick={openPastDraws}
-                aria-controls="past-draws"
-                aria-expanded={showPast}
-                title="Open past draws"
-              >
-                Past Draws
-              </button>
+                <SelectedLatest
+                  game={game}
+                  onOpenPastDraws={openPastDraws}
+                  showPast={showPast}
+                />
               </div>
             </div>
           </section>

@@ -1,15 +1,38 @@
 /* app/page.css */
-/* Position relative to the entire header panel (the controls card) */
-.header-controls {
-  position: relative;
+
+/* Defensive: if any legacy header-level rule targets the button, reassert top-right on desktop */
+@media (--bp-desktop) {
+  .header-controls .latest-and-actions .past-draws-btn {
+    position: absolute;
+    top: var(--space-2);
+    right: var(--space-2) !important;
+    left: auto !important;
+    z-index: 3;
+  }
 }
 
-.header-controls .past-draws-btn {
-  position: absolute;
-  top: var(--space-2);
-  right: var(--space-2);
-  z-index: 2;
+/* Header row: equal columns, top-aligned, wrap when Game select hits its comfy min width */
+.header-controls { align-items: flex-start; }
+.header-controls .game-select-card,
+.header-controls .latest-and-actions {
+  flex: 1 1 360px;           /* split row; wraps below ~720px */
+  min-width: 280px;          /* enough to avoid select truncation */
+  min-height: 100%;
 }
+/* Latest card fills its column */
+.header-controls .latest-and-actions > .selected-latest { width: 100%; }
+
+/* On very narrow screens, let each block take full width (the flex-wrap on .controls handles stacking) */
+@media (--bp-mobile) {
+  .header-controls .game-select-card,
+  .header-controls .latest-and-actions {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+}
+
+/* (Cleanup) Old header-level positioning no longer used; the button now lives inside .selected-latest */
+/* .header-controls .past-draws-btn { … }  — removed */
 
 /* For ≤1023px: move Past Draws button into Latest Draw card (SelectedLatest) */
 @media (max-width: 1023px) {
