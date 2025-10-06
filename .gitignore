@@ -1,0 +1,11 @@
+node_modules/
+.next/
+.out/
+.env*
+.vercel/
+.DS_Store
+infra/.terraform/
+.cache/
+public/data/**/*.latest.csv
+public/data/**/*.partial
+public/data/ga/scratchers/_debug_trace.zip
