@@ -95,7 +95,7 @@
   font-variant-numeric: tabular-nums;
 }
 
-#past-draws sidebar-nav-text {
+#past-draws .sidebar-nav-text {
   display: inline;
 }
 

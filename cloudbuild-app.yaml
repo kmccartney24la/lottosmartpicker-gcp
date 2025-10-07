@@ -132,7 +132,7 @@ steps:
         fi
         echo "Smoke tests passed."
 
-  # 5a) Retarget scratchers
+  # 5a) Retarget jobs
   - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
     id: "Update job: scratchers"
     entrypoint: bash

@@ -12,6 +12,8 @@
   /* unify control sizing across tabs & Theme */
   --header-ctrl-h: var(--touch-target-min);
   --header-ctrl-radius: 8px;
+  /* populated by ResizeObserver in Header.tsx */
+  --header-total-h: auto;
 }
 
 /* Make wrapper full-bleed; we'll align the INNER rows instead (matches .rails-center) */
@@ -39,34 +41,88 @@
 
 /* Title row — left-align with content (badge still anchors to title’s right) */
 .header-row--title { justify-items: start; position: relative; }
-.brand__link{ display:inline-flex; align-items:center; gap: var(--space-3); color:inherit; text-decoration:none; }
+.brand__link{
+  display:inline-flex;
+  /* Align to the title’s cap height rather than full row height */
+  align-items: center;
+  gap: var(--space-3);
+  color:inherit;
+  text-decoration:none;
+  /* Ensure currentColor matches the title ink (theme-aware) */
+  color: var(--ink-strong);
+}
 .brand__title{ margin:0; font-weight:800; letter-spacing:.01em; color: var(--ink-strong); text-align:center; }
 .brand__title--xl{ font-size: clamp(var(--text-2xl), 1.2rem + 1.2vw, 60px); }
 /* Wrap to anchor the badge to the title’s right edge */
 .brand__title-wrap{ position: relative; display:inline-block; }
-/* Twin rounded rectangles (POWERPLAY-like), right-aligned with title */
 
-/* THEME-AWARE LOGO USING MASK (works with external SVG file) */
+/* ---------------- Brand logo (mask-first) ---------------- */
+/* Local sizing tokens so we don't touch globals */
+.site-header{
+  /* size tokens (required) */
+  --brand-cap: clamp(20px, 0.9rem + 0.6vw, 28px);
+  --brand-cap-max: 96px; /* allow taller cap if desired */
+  /* mask asset (your new compact mark) */
+  --brand-mask: url("/brand/logo-mark.svg");
+  /* dedicated color for the logo only (can be themed) */
+  --brand-logo-color: var(--ink-strong);
+}
+
+/* Masked logo uses currentColor so it adapts to any theme */
 .brand__logo{
-  /* Size tuned to fit header without changing its height */
-  inline-size: 24px;
-  block-size: 24px;
   flex: 0 0 auto;
-  display: inline-block;
-  background-color: currentColor;             /* color follows --fg */
-  /* Use external SVG as a mask so we can color via currentColor */
-  -webkit-mask-image: url("/brand/logo-full.svg");
+ display: inline-block;
+  /* Make the logo as tall as the full header (if known), else fall back. */
+  block-size: min(var(--header-total-h, var(--brand-cap)), var(--brand-cap-max));
+  aspect-ratio: 1 / 1;          /* keep square */
+  inline-size: auto;
+  background-color: var(--brand-logo-color);
+  /* Use your compact mark; tight viewBox = crisp at small sizes */
+  -webkit-mask-image: var(--brand-mask);
   -webkit-mask-repeat: no-repeat;
   -webkit-mask-position: center;
   -webkit-mask-size: contain;
-          mask-image: url("/brand/logo-full.svg");
+          mask-image: var(--brand-mask);
           mask-repeat: no-repeat;
           mask-position: center;
           mask-size: contain;
 }
-@media (min-width: 1024px){
-  .brand__logo{ inline-size: 26px; block-size: 26px; }
+@media (min-width: 1280px){
+  .brand__logo{ max-block-size: var(--brand-cap-max); }
 }
+
+/* Visibility outline for contrast themes where solid fills may blend */
+:root[data-theme="contrast"] .brand__logo{
+  box-shadow: 0 0 0 1px currentColor inset;
+}
+
+/* Top-align the logo box with the title cap line */
+.brand__link{ 
+  position: relative;
+  align-items: flex-start;        /* top-align children */
+}
+.brand__logo,
+.brand__logo--img{
+  /* remove vertical centering; no negative margins */
+  margin-block: 0;
+  align-self: flex-start;
+}
+/* Keep the decorative image fallback in lockstep */
+
+/* Fallback image is VISIBLE by default to avoid invisible-logo edge cases */
+.brand__logo--img{
+  display: inline-block;
+  flex: 0 0 auto;
+  block-size: min(var(--header-total-h, var(--brand-cap)), var(--brand-cap-max));
+  aspect-ratio: 1 / 1;
+  inline-size: auto;
+  object-fit: contain;
+}
+
+/* Colored logo mode: keep the image, ignore the mask span */
+.site-header .brand__logo { display: none !important; }
+html[data-mask-ok="1"] .brand__logo--img { display: inline-block; } /* ensure it stays visible */
+
 
 .title-badge{
   position:absolute;
@@ -634,4 +690,24 @@
   font-weight: 600;
   letter-spacing: .01em;
   color: var(--fg);
+}
+
+/* Only the logo color changes; title stays on --ink-strong */
+:root[data-theme="light"] .site-header { --brand-logo-color: var(--accent); }
+:root[data-theme="dark"]  .site-header { --brand-logo-color: var(--accent); }
+/* Example contrast choice—white for max legibility */
+:root[data-theme="contrast"] .site-header { --brand-logo-color: var(--accent); }
+
+/* System theme (no data-theme attr) */
+:root:not([data-theme]) .site-header { --brand-logo-color: var(--accent); } /* default */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) .site-header { --brand-logo-color: var(--accent); }
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) .site-header { --brand-logo-color: var(--accent); }
+}
+
+/* OS High-Contrast mode safeguard (Windows/others) */
+@media (forced-colors: active) {
+  .site-header { --brand-logo-color: CanvasText; } /* uses system text color */
 }

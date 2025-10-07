@@ -1,16 +1,5 @@
 /* app/page.css */
 
-/* Defensive: if any legacy header-level rule targets the button, reassert top-right on desktop */
-@media (--bp-desktop) {
-  .header-controls .latest-and-actions .past-draws-btn {
-    position: absolute;
-    top: var(--space-2);
-    right: var(--space-2) !important;
-    left: auto !important;
-    z-index: 3;
-  }
-}
-
 /* Header row: equal columns, top-aligned, wrap when Game select hits its comfy min width */
 .header-controls { align-items: flex-start; }
 .header-controls .game-select-card,

@@ -1,5 +1,6 @@
 // src/components/SelectedLatest.tsx
 'use client';
+import './SelectedLatest.css';
 import { useEffect, useState } from 'react';
 import {
   GameKey, LottoRow, fetchRowsWithCache, getCurrentEraConfig,
@@ -47,16 +48,29 @@ export default function SelectedLatest({
     <div className="card selected-latest">
       {/* Past Draws action lives inside the card; pinned via CSS */}
       {onOpenPastDraws && (
-        <button
-          type="button"
-          className="btn btn-primary past-draws-btn"
-          onClick={onOpenPastDraws}
-          aria-controls="past-draws"
-          aria-expanded={!!showPast}
-          title="Open past draws"
+        <div
+          className="past-draws-anchor"
+          style={{
+            position: 'absolute',
+            insetBlockStart: 'var(--space-4)',
+            insetInlineEnd: 'var(--space-4)',
+            left: 'auto',
+            right: 'var(--space-4)',
+            zIndex: 3,
+          }}
         >
-          Past Draws
-        </button>
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={onOpenPastDraws}
+            aria-controls="past-draws"
+            aria-expanded={!!showPast}
+            title="Open past draws"
+            data-role="past-draws"
+          >
+            Past Draws
+          </button>
+        </div>
       )}
       <div className="card-title selected-latest-title">Latest Draw</div>
       {busy && <div className="selected-latest-loading">Loading…</div>}

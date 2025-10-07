@@ -162,8 +162,7 @@ export default function Page() {
           </div>
         </div>
         {/* Panels (mutually exclusive). Drawer opens from the right. */} 
-        <div id="past-draws">
-          <PastDrawsSidebar
+        <PastDrawsSidebar
             open={showPast}
             onClose={() => setShowPast(false)}
             compact={compact}
@@ -178,7 +177,6 @@ export default function Page() {
             sortDir={sortDir}
             onToggleSort={() => setSortDir(d => d === 'desc' ? 'asc' : 'desc')}
           />
-          </div>
         </div>
       </div>
 

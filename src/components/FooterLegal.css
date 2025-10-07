@@ -4,12 +4,85 @@
 
 /* FooterLegal Component */
 .footer-legal {
+  /* Fluid logo sizing tokens (row layout) — SMALLER overall */
+  /* min → ideal (vw) → max; tune to taste */
+  /* Make mascot meaningfully larger on desktop/tablet */
+  --footer-brand-min: 56px;
+  --footer-brand-ideal: 7vw;     /* fluid growth */
+  --footer-brand-max: 160px;     /* allow a tall, visible mascot */
+
+  /* When stacked on mobile, drive size by width instead of height */
+  --footer-brand-w-min: 72px;
+  --footer-brand-w-ideal: 28vw;
+  --footer-brand-w-max: 120px;
+
+  /* Visual cap for logo = computed links list height */
+  --footer-legal-lines: 5;                         /* number of items in the list */
+  --footer-legal-lh: 1.35;                         /* keep in sync with list line-height */
+  --footer-legal-list-h: calc(
+    var(--footer-legal-lines) * var(--footer-legal-lh) * var(--text-xs)
+  );
+
+  /* Align with globals: footer already clamps to max-width & padding (globals.css) */
+  /* Right edge alignment is handled by margin-left:auto in the links row */
+ 
+
   margin-top: var(--space-6);
   padding: var(--space-4) var(--space-3);
   font-size: var(--text-xs);
   opacity: 0.8;
   border-top: 1px dashed var(--card-bd);
   font-variant-numeric: tabular-nums;
+}
+
+/* Layout: content then links row; brand sits in the links row on the right */
+.footer-legal__inner{
+  display: grid;
+  grid-template-columns: 1fr;
+  row-gap: var(--space-4);
+}
+.footer-legal__content{ min-width: 0; }
+
+/* Links row forms a horizontal strip; brand stretches to match its height */
+.footer-legal__links-row{
+  display: flex;
+  align-items: stretch;       /* let the mascot set the row height if larger */
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+.footer-legal-nav{
+  flex: 0 1 auto;
+  min-width: 0;
+  padding-block: 0;
+  margin-left: 0;             /* align left edge with disclaimer text */
+}
+.footer-legal-list{
+  margin: 0;                  /* remove default <ul> outer margin */
+  padding: 0;                 /* remove default left padding */
+  list-style: none;           /* we style links as text, no bullets */
+  line-height: var(--footer-legal-lh); /* a bit taller for better click targets */
+  display: flex;
+  flex-direction: column;     /* vertical list on desktop/tablet */
+  align-items: flex-start;
+  gap: 0;                     /* no extra gaps between items */
+}
+.footer-legal-item{ margin: 0; display: block; }
+
+.footer-legal__brand{
+  margin-left: auto;          /* push brand to the far right */
+  display: flex;
+  justify-content: flex-end;  /* right-edge alignment */
+  align-items: flex-start;      /* settle against bottom of list block */
+}
+.footer-legal__brand-img{
+  display: block;
+  /* Mascot governs the row height; square; responsive clamp */
+  block-size: clamp(var(--footer-brand-min), var(--footer-brand-ideal), var(--footer-brand-max));
+  aspect-ratio: 1 / 1;        /* square logo */
+  inline-size: auto;          /* width flows from aspect ratio */
+  object-fit: contain;
+  opacity: .98;
+  max-inline-size: none;
 }
 
 .footer-legal-text {
@@ -24,36 +97,10 @@
   margin-top: var(--space-2);
 }
 
-/* Inline list of links with auto separators (SR-safe) */
-.footer-legal-nav {
-  margin-top: var(--space-2);
-}
-.footer-legal-list {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.footer-legal-item {
-  display: inline-flex;
-  align-items: center;
-}
-/* Separator before every item except the first (pseudo-element is not read by SRs) */
-.footer-legal-item + .footer-legal-item::before {
-  content: "|";
-  opacity: .6;
-  margin: 0 var(--space-1);
-}
-.footer-legal-link {
-  color: var(--link);
-  text-decoration: none;
-  padding: 2px 4px;
-  border-radius: 6px;
-  border: 1px solid transparent;
-}
+/* Links styling */
+.footer-legal-nav { margin-top: 0; } /* let the list define the row height from the very top */
+/* No separators in vertical mode */
+.footer-legal-item + .footer-legal-item::before { content: none; margin: 0; }
 .footer-legal-link:hover {
   text-decoration: underline;
   color: var(--link-hover);
@@ -72,8 +119,55 @@
   .footer-legal-link:focus-visible { outline: 2px solid Highlight; }
 }
 
-@media (max-width: var(--breakpoint-mobile)) {
-  .footer-legal {
-    padding: var(--space-3) var(--space-2);
+/* Tablet: slightly smaller ideal */
+@media (--bp-tablet){
+  .footer-legal{
+    --footer-brand-ideal: 3.4vw;
+    --footer-brand-max: 52px;
   }
 }
+
+/* Large desktop: keep tasteful upper bound */
+@media (--bp-desktop){
+  .footer-legal{
+   --footer-brand-ideal: 2vw;
+    --footer-brand-max: 38px;
+  }
+}
+
+/* Mobile/stacked layout: switch to WIDTH-driven sizing so it shrinks with page */
+@media (--bp-mobile) {
+  .footer-legal {
+    padding: var(--space-3) var(--space-2);
+    /* make the logo even more compact by default on mobile */
+    --footer-brand-w-min: 80px;
+    --footer-brand-w-ideal: 34vw;
+    --footer-brand-w-max: 160px;
+  }
+  .footer-legal__links-row{
+    flex-direction: column;    /* stack links then brand on mobile */
+    gap: var(--space-3);
+  }
+  /* Keep links readable in a single column on mobile too */
+  .footer-legal-list{ flex-direction: column; align-items: flex-start; }
+  .footer-legal-item + .footer-legal-item::before { content: none; }
+  .footer-legal__brand{ align-self: auto; justify-content: flex-end; align-items: center; }
+  /* Keep links vertical on mobile too */
+  .footer-legal-list{ flex-direction: column; align-items: flex-start; gap: 0; }
+  .footer-legal-item + .footer-legal-item::before { content: none; }
+
+  .footer-legal__brand-img{
+    /* STACKED: mascot size by width; remain square */
+    block-size: auto; /* height follows width from aspect-ratio */
+    inline-size: clamp(var(--footer-brand-w-min), var(--footer-brand-w-ideal), var(--footer-brand-w-max));
+    aspect-ratio: 1 / 1;
+  }
+}
+
+/* Very narrow phones: make it extra compact */
+@media (max-width: 360px){
+  .footer-legal__brand-img{
+    inline-size: clamp(56px, 34vw, 100px);
+   }
+ }
+ 

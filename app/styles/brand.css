@@ -1,0 +1,24 @@
+/* ==== Brand Logo Utility (global) ===================================== */
+/* Defaults (override per component or theme via CSS vars) */
+:root{
+  --brand-size-min: 56px;
+  --brand-size-ideal: 7vw;
+  --brand-size-max: 160px;
+}
+
+/* Square, responsive, object-fit containment */
+.brand-logo{
+  display: inline-block;
+  block-size: clamp(var(--brand-size-min), var(--brand-size-ideal), var(--brand-size-max));
+  inline-size: auto;
+  aspect-ratio: 1 / 1;
+  object-fit: contain;
+}
+
+/* Optional: width-driven variant for stacked/mobile contexts */
+.brand-logo--by-width{
+  block-size: auto;
+  inline-size: clamp(var(--brand-w-min, 80px), var(--brand-w-ideal, 34vw), var(--brand-w-max, 160px));
+  aspect-ratio: 1 / 1;
+  object-fit: contain;
+}

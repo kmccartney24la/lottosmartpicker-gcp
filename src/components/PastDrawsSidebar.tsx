@@ -1,5 +1,6 @@
 // src/components/PastDrawsSidebar.tsx
 'use client';
+import './PastDrawsSidebar.css';
 import { LottoRow, GameKey } from '@lib/lotto';
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';

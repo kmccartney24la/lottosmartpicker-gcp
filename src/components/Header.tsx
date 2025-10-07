@@ -7,6 +7,7 @@ import * as React from 'react';
 import './Header.css';
 
 export default function Header() {
+  const headerRef = React.useRef<HTMLElement>(null);
   const pathname = usePathname();
   const isDraw = pathname === '/' || pathname.startsWith('/draws');
   const isScratchers = pathname.startsWith('/scratchers');
@@ -15,6 +16,30 @@ export default function Header() {
   const tabScratchRef = React.useRef<HTMLAnchorElement>(null);
   const themeWrapRef = React.useRef<HTMLDivElement>(null);
   const [navItemW, setNavItemW] = React.useState<number | null>(null);
+
+  // Flag mask support early on the client (no layout change; only a visibility toggle)
+  React.useEffect(() => {
+    try {
+      const ok =
+        CSS && (CSS.supports('mask-image: url("")') || CSS.supports('-webkit-mask-image: url("")'));
+      if (ok) document.documentElement.setAttribute('data-mask-ok', '1');
+    } catch {}
+  }, []);
+
+  // Measure total header height → expose as --header-total-h (px)
+  React.useLayoutEffect(() => {
+    const el = headerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => {
+      const h = Math.round(el.offsetHeight || 0);
+      el.style.setProperty('--header-total-h', `${h}px`);
+    });
+    ro.observe(el);
+    // initial set
+    const h = Math.round(el.offsetHeight || 0);
+    el.style.setProperty('--header-total-h', `${h}px`);
+    return () => ro.disconnect();
+  }, []);
 
   // Close the hamburger when clicking anywhere outside it
   React.useEffect(() => {
@@ -50,11 +75,19 @@ export default function Header() {
   }, []);
 
   return (
-    <header className="site-header site-header--static" role="banner">
+    <header ref={headerRef} className="site-header site-header--static" role="banner">
       {/* Title row — large & centered */}
       <div className="site-header__inner header-row header-row--title">
         <Link href="/" aria-label="LottoSmartPicker home" className="brand__link">
-          <span className="brand__logo" aria-hidden="true" />
+          {/* Colored logo (decorative) */}
+          <img
+            className="brand__logo--img"
+            src="/brand/logo-full.svg"
+            alt=""
+            aria-hidden="true"
+            decoding="async"
+            loading="eager"
+          />
           <span className="brand__title-wrap">
             <h1 className="brand__title brand__title--xl">LottoSmartPicker 9000</h1>
             {/* playslip-style twin badge, right-aligned to title */}

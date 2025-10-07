@@ -2,13 +2,15 @@
    src/components/SelectedLatest.css
    =========================== */
 
-/* SelectedLatest Component */
-.selected-latest {
-  position: relative; /* anchor the Past Draws button */
-  padding: var(--space-2);
-  /* width is controlled by header flex; no intrinsic min-width */
+/* SelectedLatest card is the containing block for the absolutely-positioned anchor */
+.selected-latest,
+.card.selected-latest {
+  position: relative !important;
+  isolation: isolate; /* create a stacking context to keep z-index local */
+  padding: var(--space-4);
+  /* Reserve horizontal space ≈ button width + a gap */
+  padding-inline-end: calc(var(--space-4) + var(--touch-target-min) + var(--space-2));
   min-height: 64px;
-  /* allow it to fill its grid/flex area without imposing min-widths */
 }
 
 /* Use the shared .card-title typography. Only keep spacing tweaks if needed. */
@@ -16,20 +18,14 @@
   margin-bottom: var(--space-1);
 }
 
-/* Pin the button in the top-right of the card across all breakpoints.
-   Use explicit left:auto to defeat any legacy header-level rules. */
-.selected-latest .past-draws-btn {
-  position: absolute;
-  top: var(--space-2);
-  right: var(--space-2) !important;
-  left: auto !important;
-  z-index: 2;
-}
+/* The anchor is positioned inline; keep CSS hands off the button */
+.past-draws-anchor { pointer-events: auto; }
+
 @media (--bp-mobile) {
-  .selected-latest .past-draws-btn {
-    top: var(--space-1);
-    right: var(--space-1) !important;
-    left: auto !important;
+  .selected-latest,
+  .card.selected-latest {
+    padding: var(--space-3);
+    padding-inline-end: calc(var(--space-3) + var(--touch-target-comfortable) + var(--space-1));
   }
 }
 
