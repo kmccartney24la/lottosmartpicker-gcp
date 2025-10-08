@@ -96,8 +96,12 @@ export default function PastDrawsSidebar({
         aria-hidden={!open}
       >
         <div className="sidebar-header">
-          <div id="past-draws-title" className="sidebar-title">Past Draws</div>
-          <div className="sidebar-controls">
+          {/* Title wraps as needed */}
+          <div className="sidebar-title-wrap">
+            <div id="past-draws-title" className="sidebar-title">Past Draws</div>
+          </div>
+          {/* Primary control (never wraps): Sort */}
+          <div className="sidebar-primary">
             {typeof sortDir !== 'undefined' && onToggleSort && (
               <button
                 className="btn btn-ghost sidebar-sort-btn"
@@ -109,13 +113,21 @@ export default function PastDrawsSidebar({
                 <span className="sidebar-sort-short" aria-hidden="true">{sortDir === 'desc' ? '↓' : '↑'}</span>
               </button>
             )}
+          </div>
+          {/* Secondary row under Sort: Compact + Close (X) */}
+          <div className="sidebar-secondary">
             <label className="sidebar-compact-label" title="Compact reduces padding and font size to show more rows per page.">
               <input type="checkbox" checked={compact} onChange={(e)=>setCompact(e.target.checked)} />
               <span>Compact</span>
             </label>
-            <button ref={closeRef} className="btn btn-ghost" onClick={onClose} aria-label="Close Past Draws">
-              <span className="sidebar-close-text">Close</span>
-              <span className="sidebar-close-icon" aria-hidden="true">✕</span>
+            <button
+              ref={closeRef}
+              className="sidebar-close-btn"
+              onClick={onClose}
+              aria-label="Close Past Draws"
+              title="Close"
+            >
+              <span aria-hidden="true">✕</span>
             </button>
           </div>
         </div>
@@ -132,53 +144,52 @@ export default function PastDrawsSidebar({
           }
         >
           <div id="results-panel" role="region" aria-label="Fetched draw results" className="sidebar-table-container">
-            <table className="sidebar-table">
+            <table className="sidebar-table" key="tbl-no-special-col">
+              <colgroup>
+                <col className="col-date" />
+                <col className="col-numbers" />
+              </colgroup>
               <thead>
                 <tr>
                   <th scope="col">Date</th>
                   <th scope="col">Numbers</th>
-                  {hasSpecial && <th scope="col">Special</th>}
                 </tr>
               </thead>
               <tbody>
                 {pageRows.map((r, idx) => (
                   <tr key={idx}>
-                    <td className="mono">{r.date}</td>
+                    <td className="mono date-cell">{r.date}</td>
                     <td className="numbers-cell" aria-label="Numbers">
                       <span className="num-bubble">{r.n1}</span>
                       <span className="num-bubble">{r.n2}</span>
                       <span className="num-bubble">{r.n3}</span>
                       <span className="num-bubble">{r.n4}</span>
                       <span className="num-bubble">{r.n5}</span>
-                    </td>
                     {hasSpecial && (
-                      <td className="special-cell">
-                        {typeof r.special === 'number' ? (
+                        <>
+                          <span className="numbers-sep" aria-hidden="true">|</span>
                           <span
                             className="num-bubble num-bubble--special"
-                            aria-label={
-                              game === 'multi_powerball'    ? `Powerball ${r.special}` :
-                              game === 'multi_megamillions' ? `Mega Ball ${r.special}` :
-                              game === 'multi_cash4life'    ? `Cash Ball ${r.special}` :
-                                                              `Special ${r.special}`
-                            }
                             title={
                               game === 'multi_powerball'    ? 'Powerball' :
                               game === 'multi_megamillions' ? 'Mega Ball' :
                               game === 'multi_cash4life'    ? 'Cash Ball' : 'Special'
                             }
                           >
-                            {r.special}
+                            <span className="sr-only">
+                              {game === 'multi_powerball'    ? 'Powerball ' :
+                               game === 'multi_megamillions' ? 'Mega Ball ' :
+                               game === 'multi_cash4life'    ? 'Cash Ball ' : 'Special '}
+                            </span>
+                            {typeof r.special === 'number' ? r.special : '—'}
                           </span>
-                        ) : (
-                          <span className="hint" aria-label="No special ball">—</span>
-                        )}
-                      </td>
-                    )}
+                        </>
+                      )}
+                    </td>
                   </tr>
                 ))}
                 {pageRows.length === 0 && (
-                  <tr><td colSpan={hasSpecial ? 3 : 2} className="hint">No rows.</td></tr>
+                  <tr><td colSpan={2} className="hint">No rows.</td></tr>
                 )}
               </tbody>
             </table>

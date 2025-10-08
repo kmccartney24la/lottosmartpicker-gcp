@@ -69,10 +69,12 @@
   --ink-strong: #0f172a;
   --grid-line: rgba(2, 6, 23, .08);
 
-  --bubble-red:   #e11d48;
-  --bubble-blue:  #2563eb;
-  --bubble-green: #10b981;
-  --bubble-amber: #d97706;
+  /* Bubble text colors: base (root) is DARK-optimized so AA on #0a0a0a */
+  /* AA on dark (#121212–#0a0a0a): red/blue slightly lighter, green/amber keep vibrancy */
+  --bubble-red:   #f43f5e; /* ≈5.1:1 on #121212 */
+  --bubble-blue:  #3b82f6; /* ≈5.1:1 on #121212 */
+  --bubble-green: #10b981; /* ≈7.4:1 on #121212 */
+  --bubble-amber: #eab308; /* ≈9.8:1 on #121212 */
 
   --ticket-radius: 18px;
   --ticket-hole:   8px;
@@ -81,8 +83,8 @@
   /* ---------- Z-index scale (centralized) ---------- */
   --z-base: 0;
   --z-header: 300;
-  --z-overlay: 900;  /* backdrops, scrims */
-  --z-drawer: 1000;  /* side drawers, modals */
+  --z-overlay: 9990;   /* backdrops, scrims (above header/nav sheets) */
+  --z-drawer: 10010;   /* side drawers (below Filters drawer at 10020) */
 
   /* ---------- Layout / Rails ---------- */
   --center-max: 1120px;

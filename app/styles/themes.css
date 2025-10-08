@@ -41,6 +41,12 @@
     --ink-ghost: #f1f5f9;
     --ink-strong: #0f172a;
     --grid-line: rgba(2, 6, 23, .08);
+
+    /* Bubble text colors — LIGHT (AA on white) */
+    --bubble-red:   #e11d48; /* ≈4.7:1 on #fff */
+    --bubble-blue:  #2563eb; /* ≈5.2:1 on #fff */
+    --bubble-green: #047857; /* ≈5.5:1 on #fff (darker than #10b981) */
+    --bubble-amber: #a16207; /* ≈4.9:1 on #fff (deeper than #eab308) */
   }
 }
 
@@ -74,6 +80,12 @@
     --ink-ghost: #111827;
     --ink-strong: var(--fg);
     --grid-line: rgba(148,163,184,.15);
+
+    /* Bubble text colors — DARK (AA on near-black) */
+    --bubble-red:   #f43f5e; /* ≈5.1:1 on #121212 */
+    --bubble-blue:  #3b82f6; /* ≈5.1:1 on #121212 */
+    --bubble-green: #10b981; /* ≈7.4:1 on #121212 */
+    --bubble-amber: #eab308; /* ≈9.8:1 on #121212 */
   }
 }
 
@@ -106,6 +118,12 @@
   --ink-ghost: #f1f5f9;
   --ink-strong: #0f172a;
   --grid-line: rgba(2, 6, 23, .08);
+
+  /* Bubble text colors — LIGHT (explicit) */
+  --bubble-red:   #e11d48;
+  --bubble-blue:  #2563eb;
+  --bubble-green: #047857;
+  --bubble-amber: #a16207;
 }
 
 [data-theme="dark"] {
@@ -135,6 +153,12 @@
   --ink-ghost: #111827;
   --ink-strong: var(--fg);
   --grid-line: rgba(148,163,184,.15);
+
+  /* Bubble text colors — DARK (explicit) */
+  --bubble-red:   #f43f5e;
+  --bubble-blue:  #3b82f6;
+  --bubble-green: #10b981;
+  --bubble-amber: #eab308;
 }
 
 [data-theme="contrast"] {
@@ -164,6 +188,13 @@
   --ink-ghost: #0a0a0a;
   --ink-strong: var(--fg);
   --grid-line: rgba(255,255,255,.25);
+
+  /* Bubble text colors — High Contrast
+     (very bright on black; targets ≥ AA and nudges toward AAA where practical) */
+  --bubble-red:   #ff8090; /* bright warm red, strong on black */
+  --bubble-blue:  #60a5fa; /* sky 400 ≈7.3:1 on #121212/#000 */
+  --bubble-green: #34d399; /* mint/emerald tint, very legible on black */
+  --bubble-amber: #facc15; /* yellow 400, extremely legible on black */
 }
 
 /* End of themes.css */

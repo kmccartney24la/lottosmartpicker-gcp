@@ -1,7 +1,7 @@
 # LottoSmartPicker – Google Cloud Migration (Keyless, Best Practices)
 
 This repo deploys a Next.js app to Cloud Run, serves data via GCS + Cloud CDN on
-`data.lottosmartpicker9000.com`, and runs two Cloud Run Jobs (CSV updater + GA scratchers scraper).
+`data.lottosmartpicker.com`, and runs two Cloud Run Jobs (CSV updater + GA scratchers scraper).
 Prod and staging are separate GCP projects (mirror setup).
 
 ## Environments
@@ -10,11 +10,11 @@ Prod and staging are separate GCP projects (mirror setup).
 - **Staging Project:** `lottosmartpicker-staging`
 - **Region:** `us-central1`
 - **App domains:**  
-  - Prod: `app.lottosmartpicker9000.com`  
-  - Staging: `app-staging.lottosmartpicker9000.com`
+  - Prod: `app.lottosmartpicker.com`  
+  - Staging: `app-staging.lottosmartpicker.com`
 - **Data domains (Cloud CDN over GCS):**  
-  - Prod: `data.lottosmartpicker9000.com`  
-  - Staging: `data-staging.lottosmartpicker9000.com`
+  - Prod: `data.lottosmartpicker.com`  
+  - Staging: `data-staging.lottosmartpicker.com`
 
 ## Keyless Auth
 
@@ -46,7 +46,7 @@ megamillions.csv
 
 Equivalent HTTPS via CDN:
 
-https(s)://data[-staging].lottosmartpicker9000.com/<same-path>
+https(s)://data[-staging].lottosmartpicker.com/<same-path>
 
 
 ## App Container (Next.js standalone)

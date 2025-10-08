@@ -305,6 +305,7 @@ export default function FiltersPanel(props: FiltersPanelProps) {
   // Drawer plumbing (SSR-safe)
   // ────────────────────────────────────────────────────────────────────────────
   const [portalEl, setPortalEl] = useState<HTMLElement | null>(null);
+  const drawerId = 'filters-drawer'; // unique aside id for aria-controls targeting
 
   // Create or reuse a stable portal node in <body>
   useEffect(() => {
@@ -331,6 +332,26 @@ export default function FiltersPanel(props: FiltersPanelProps) {
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
   }, [drawerMode, open, onClose]);
+
+  // Simple focus trap while the drawer is open (match PastDrawsSidebar)
+  useEffect(() => {
+    if (!drawerMode || !open) return;
+    const trap = (e: KeyboardEvent) => {
+      if (e.key !== 'Tab') return;
+      const dlg = document.getElementById(drawerId);
+      if (!dlg) return;
+      const els = dlg.querySelectorAll<HTMLElement>(
+        'button,[href],input,select,textarea,[tabindex]:not([tabindex="-1"])'
+      );
+      if (!els.length) return;
+      const first = els[0], last = els[els.length - 1];
+      const active = document.activeElement as HTMLElement | null;
+      if (e.shiftKey && active === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && active === last) { e.preventDefault(); first.focus(); }
+    };
+    document.addEventListener('keydown', trap);
+    return () => document.removeEventListener('keydown', trap);
+  }, [drawerMode, open]);
 
   // Background scroll lock (html)
   useEffect(() => {
@@ -360,10 +381,10 @@ export default function FiltersPanel(props: FiltersPanelProps) {
   // Shared inner markup
   const inner = (
     <>
-      {/* Header */}
+      {/* Header — mirror inline layout, plus X close on the right */}
       <div className="filters-header">
-        <div className="filters-title-section">
-          <strong id={ids.title}>Filters &amp; Sort</strong>
+        <div className="filters-title-wrap">
+          <div id={ids.title} className="filters-title">Filters &amp; Sort</div>
           {updatedAt && (
             <div className="filters-updated" aria-live="polite">
               Updated {new Date(updatedAt).toLocaleDateString()}
@@ -372,18 +393,8 @@ export default function FiltersPanel(props: FiltersPanelProps) {
           {/* polite area for commit adjustments */}
           <div className="hint-inline" aria-live="polite">{announce}</div>
         </div>
-        <div className="controls header-controls filters-actions">
-          {drawerMode && onClose && (
-            <button
-              type="button"
-              className="btn plain icon-only"
-              onClick={onClose}
-              aria-label="Close filters"
-              title="Close"
-            >
-              <span aria-hidden>✕</span>
-            </button>
-          )}
+        {/* Inline-like controls: Reset (text) and Close (X) */}
+        <div className="controls filters-controls">
           <button
             type="button"
             className="btn btn-primary filters-reset-btn"
@@ -394,6 +405,17 @@ export default function FiltersPanel(props: FiltersPanelProps) {
             <span className="filters-reset-text">Reset</span>
             <span className="filters-reset-icon" aria-hidden="true">↺</span>
           </button>
+          {drawerMode && onClose && (
+            <button
+              type="button"
+              className="filters-close-btn"
+              onClick={onClose}
+              aria-label="Close Filters"
+              title="Close"
+            >
+              <span aria-hidden>✕</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -417,7 +439,7 @@ export default function FiltersPanel(props: FiltersPanelProps) {
         </div>
       )}
 
-      {/* Sections */}
+      {/* Sections (shared markup for inline & drawer) */}
       <div className="filters-sections">
         {/* Sort */}
         <section aria-labelledby="sec-sort" className="filters-section">
@@ -447,7 +469,7 @@ export default function FiltersPanel(props: FiltersPanelProps) {
             </select>
             <button
               type="button"
-              className="btn ghost icon-only sort-reverse-btn"
+              className="btn btn-ghost icon-only sort-reverse-btn"
               aria-pressed={!!isSortReversed}
               aria-label={isSortReversed ? 'Reverse sort: on (descending relative to current key)' : 'Reverse sort: off (ascending/standard for key)'}
               title="Reverse sort"
@@ -626,6 +648,7 @@ export default function FiltersPanel(props: FiltersPanelProps) {
       )}
       <aside
         className={drawerClasses}
+        id={drawerId}
         role="dialog"
         aria-modal="true"
         aria-labelledby={ids.title}

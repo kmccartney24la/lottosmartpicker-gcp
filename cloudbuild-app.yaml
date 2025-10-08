@@ -145,7 +145,9 @@ steps:
           --image "${_TAG}" \
           --update-labels "gcb-build=${BUILD_ID}" \
           --command "/usr/local/bin/node" \
-          --args "dist/scripts/scratchers/fetch_ga_scratchers.js,--seed,--concurrency=4" \
+          --args "dist/scripts/scratchers/fetch_ga_scratchers.js" \
+          --args "--seed" \
+          --args "--concurrency=4"
           --cpu 2 --memory 8Gi --tasks 1 --parallelism 1 --task-timeout 7200s --max-retries 1 \
           --set-env-vars "NODE_OPTIONS=--trace-uncaught --trace-warnings --unhandled-rejections=strict,PUBLIC_BASE_URL=${_PUBLIC_BASE_URL},GCS_BUCKET=lottosmartpicker-data,SCRATCHERS_PREFIX=ga/scratchers,OUTPUT_PREFIX=ga/scratchers,PLAYWRIGHT_BROWSERS_PATH=/ms-playwright,CHROMIUM_ARGS=--no-sandbox --disable-dev-shm-usage --disk-cache-dir=/tmp/chrome-cache --renderer-process-limit=2 --disable-gpu --disable-software-rasterizer,XDG_CACHE_HOME=/app/.cache"
 

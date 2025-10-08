@@ -31,6 +31,13 @@
   --stbar-gap: var(--space-2, 8px);
   /* NEW: consistent visual separation below the thin toolbar */
   --stbar-sep: var(--space-1, 4px);
+  /* ↓ Align toolbar buttons with Filters Reset (32px tall) */
+  --stbar-pad-top: 9px;                 /* raises/lower controls block */
+  /* Maintain original below:above ratio (~3:1), but clamp to avoid an over-tall bar */
+  --stbar-space-ratio: 3;                /* original design: ~12px bottom vs 4px top */
+  --stbar-pad-bottom: clamp(8px, calc(var(--stbar-pad-top) * var(--stbar-space-ratio)), 18px);
+  /* Lock final bar height to controls + padding so sticky math stays true */
+  --stbar-h: calc(32px + var(--stbar-pad-top) + var(--stbar-pad-bottom));
 }
 
 .desktop-only { display: block; }
@@ -249,7 +256,7 @@ skeleton .meter { background: color-mix(in oklab, var(--muted) 18%, transparent)
     linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
   background-size: 100% 28px, 36px 100%;
   background-position: 0 0, 0 0;
-  box-shadow: 0 1px 0 color-mix(in oklab, var(--fg) 4%, transparent) inset;
+  box-shadow: 0 1px 0 color-mix(in oklab, var(--bubble-amber) 4%, transparent) inset;
 }
 .scratchers-table .mobile-card .line1 {
   display: flex; align-items: center; justify-content: space-between; gap:8px;
@@ -485,9 +492,8 @@ table.compact th, table.compact td { font-variant-numeric: tabular-nums; }
   min-height: var(--stbar-h);
   height: var(--stbar-h);   /* fixed height */
   box-sizing: border-box;   /* center items reliably with fixed height */
-  /* add a touch more room BELOW the controls without changing height */
-  /* default: 4px top, 12px bottom (previously 6/6) */
-  padding: var(--stbar-pad-top, 0px) 4px var(--stbar-pad-bottom, 12px);
+  /* Controls vertical position + separator spacing are token-driven */
+  padding: var(--stbar-pad-top) 4px var(--stbar-pad-bottom);
   background: var(--card);
   border-bottom: var(--stbar-border) solid var(--card-bd);
   /* Let native <select> dropdowns escape the toolbar’s box */
