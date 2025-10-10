@@ -25,6 +25,11 @@ resource "google_service_account_iam_member" "ci_wi_user" {
   service_account_id = "projects/${var.project_id}/serviceAccounts/${var.ci_service_account}"
   role               = "roles/iam.workloadIdentityUser"
   member             = "principalSet://iam.googleapis.com/${google_iam_workload_identity_pool.pool.name}/attribute.repository/${var.github_repo}"
+  condition {
+    title       = "Require branch protection"
+    description = "Only allow deployments from protected branches"
+    expression  = "attribute.ref == 'refs/heads/main' || attribute.ref == 'refs/heads/staging'" # Corrected to match GCP configuration
+  }
 }
 
 # CI needs to actAs runtime/job SAs

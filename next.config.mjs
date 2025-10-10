@@ -12,11 +12,21 @@ export default {
   },
   async headers() {
     return [
+      // Cacheable data proxy (same-origin). CDN will honor these.
+      {
+        source: '/api/file/:path*',
+        headers: [
+          { key: 'Cache-Control', value: 'public, max-age=300, stale-while-revalidate=31536000' },
+          // Keep robots off raw data endpoints (optional)
+          { key: 'X-Robots-Tag', value: 'noindex, noimageindex, nofollow' },
+        ],
+      },
       // Keep API endpoints out of search and out of caches
       {
         source: '/api/:path*',
         headers: [
           { key: 'X-Robots-Tag', value: 'noindex, noimageindex, nofollow' },
+          // NOTE: `/api/data/*` overrides this via the specific block above.
           { key: 'Cache-Control', value: 'no-store, no-cache, must-revalidate, proxy-revalidate' },
           { key: 'Pragma', value: 'no-cache' },
         ],
@@ -57,8 +67,8 @@ export default {
               "script-src 'self' 'unsafe-inline' https://pagead2.googlesyndication.com https://www.googletagmanager.com",
               "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
               "font-src 'self' https://fonts.gstatic.com",
-              "img-src 'self' data: https://data.lottosmartpicker.com https://data-staging.lottosmartpicker.com https://storage.googleapis.com https://pagead2.googlesyndication.com https://www.google.com",
-              "connect-src 'self' https://data.lottosmartpicker.com https://data-staging.lottosmartpicker.com https://storage.googleapis.com",
+              "img-src 'self' data: https://pagead2.googlesyndication.com https://www.google.com https://storage.googleapis.com",
+              "connect-src 'self'",
               "frame-src 'none'",
               "object-src 'none'",
               "base-uri 'self'",

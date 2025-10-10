@@ -4,12 +4,12 @@
 resource "google_monitoring_dashboard" "security_overview" {
   dashboard_json = jsonencode({
     displayName = "LottoSmartPicker Security Overview - ${title(var.environment)}"
-    
+
     mosaicLayout = {
       tiles = [
         # Security Events Timeline
         {
-          width = 12
+          width  = 12
           height = 4
           widget = {
             title = "Security Events Timeline (Last 24h)"
@@ -20,14 +20,14 @@ resource "google_monitoring_dashboard" "security_overview" {
                     timeSeriesFilter = {
                       filter = "metric.type=\"logging.googleapis.com/user/${local.security_metrics.rate_limit_violations}\""
                       aggregation = {
-                        alignmentPeriod = "60s"
-                        perSeriesAligner = "ALIGN_RATE"
+                        alignmentPeriod    = "60s"
+                        perSeriesAligner   = "ALIGN_RATE"
                         crossSeriesReducer = "REDUCE_SUM"
                       }
                     }
                   }
-                  plotType = "LINE"
-                  targetAxis = "Y1"
+                  plotType       = "LINE"
+                  targetAxis     = "Y1"
                   legendTemplate = "Rate Limit Violations"
                 },
                 {
@@ -35,14 +35,14 @@ resource "google_monitoring_dashboard" "security_overview" {
                     timeSeriesFilter = {
                       filter = "metric.type=\"logging.googleapis.com/user/${local.security_metrics.csrf_failures}\""
                       aggregation = {
-                        alignmentPeriod = "60s"
-                        perSeriesAligner = "ALIGN_RATE"
+                        alignmentPeriod    = "60s"
+                        perSeriesAligner   = "ALIGN_RATE"
                         crossSeriesReducer = "REDUCE_SUM"
                       }
                     }
                   }
-                  plotType = "LINE"
-                  targetAxis = "Y1"
+                  plotType       = "LINE"
+                  targetAxis     = "Y1"
                   legendTemplate = "CSRF Failures"
                 },
                 {
@@ -50,14 +50,14 @@ resource "google_monitoring_dashboard" "security_overview" {
                     timeSeriesFilter = {
                       filter = "metric.type=\"logging.googleapis.com/user/${local.security_metrics.access_violations}\""
                       aggregation = {
-                        alignmentPeriod = "60s"
-                        perSeriesAligner = "ALIGN_RATE"
+                        alignmentPeriod    = "60s"
+                        perSeriesAligner   = "ALIGN_RATE"
                         crossSeriesReducer = "REDUCE_SUM"
                       }
                     }
                   }
-                  plotType = "LINE"
-                  targetAxis = "Y1"
+                  plotType       = "LINE"
+                  targetAxis     = "Y1"
                   legendTemplate = "Access Violations"
                 },
                 {
@@ -65,14 +65,14 @@ resource "google_monitoring_dashboard" "security_overview" {
                     timeSeriesFilter = {
                       filter = "metric.type=\"logging.googleapis.com/user/${local.security_metrics.session_anomalies}\""
                       aggregation = {
-                        alignmentPeriod = "60s"
-                        perSeriesAligner = "ALIGN_RATE"
+                        alignmentPeriod    = "60s"
+                        perSeriesAligner   = "ALIGN_RATE"
                         crossSeriesReducer = "REDUCE_SUM"
                       }
                     }
                   }
-                  plotType = "LINE"
-                  targetAxis = "Y1"
+                  plotType       = "LINE"
+                  targetAxis     = "Y1"
                   legendTemplate = "Session Anomalies"
                 }
               ]
@@ -90,10 +90,10 @@ resource "google_monitoring_dashboard" "security_overview" {
             }
           }
         },
-        
+
         # Rate Limiting Status
         {
-          width = 6
+          width  = 6
           height = 4
           widget = {
             title = "Rate Limiting Violations (Current Hour)"
@@ -102,8 +102,8 @@ resource "google_monitoring_dashboard" "security_overview" {
                 timeSeriesFilter = {
                   filter = "metric.type=\"logging.googleapis.com/user/${local.security_metrics.rate_limit_violations}\""
                   aggregation = {
-                    alignmentPeriod = "3600s"
-                    perSeriesAligner = "ALIGN_SUM"
+                    alignmentPeriod    = "3600s"
+                    perSeriesAligner   = "ALIGN_SUM"
                     crossSeriesReducer = "REDUCE_SUM"
                   }
                 }
@@ -113,13 +113,13 @@ resource "google_monitoring_dashboard" "security_overview" {
               }
               thresholds = [
                 {
-                  value = local.alert_thresholds.rate_limit_violations / 2
-                  color = "YELLOW"
+                  value     = local.alert_thresholds.rate_limit_violations / 2
+                  color     = "YELLOW"
                   direction = "ABOVE"
                 },
                 {
-                  value = local.alert_thresholds.rate_limit_violations
-                  color = "RED"
+                  value     = local.alert_thresholds.rate_limit_violations
+                  color     = "RED"
                   direction = "ABOVE"
                 }
               ]
@@ -130,10 +130,10 @@ resource "google_monitoring_dashboard" "security_overview" {
             }
           }
         },
-        
+
         # CSRF Protection Status
         {
-          width = 6
+          width  = 6
           height = 4
           widget = {
             title = "CSRF Protection Status (Current Hour)"
@@ -142,8 +142,8 @@ resource "google_monitoring_dashboard" "security_overview" {
                 timeSeriesFilter = {
                   filter = "metric.type=\"logging.googleapis.com/user/${local.security_metrics.csrf_failures}\""
                   aggregation = {
-                    alignmentPeriod = "3600s"
-                    perSeriesAligner = "ALIGN_SUM"
+                    alignmentPeriod    = "3600s"
+                    perSeriesAligner   = "ALIGN_SUM"
                     crossSeriesReducer = "REDUCE_SUM"
                   }
                 }
@@ -153,23 +153,23 @@ resource "google_monitoring_dashboard" "security_overview" {
               }
               thresholds = [
                 {
-                  value = local.alert_thresholds.csrf_failures / 2
-                  color = "YELLOW"
+                  value     = local.alert_thresholds.csrf_failures / 2
+                  color     = "YELLOW"
                   direction = "ABOVE"
                 },
                 {
-                  value = local.alert_thresholds.csrf_failures
-                  color = "RED"
+                  value     = local.alert_thresholds.csrf_failures
+                  color     = "RED"
                   direction = "ABOVE"
                 }
               ]
             }
           }
         },
-        
+
         # Security Events by Type (Pie Chart)
         {
-          width = 6
+          width  = 6
           height = 4
           widget = {
             title = "Security Events by Type (Last 24h)"
@@ -180,10 +180,10 @@ resource "google_monitoring_dashboard" "security_overview" {
                     timeSeriesFilter = {
                       filter = "metric.type=\"logging.googleapis.com/user/${local.security_metrics.all_events}\""
                       aggregation = {
-                        alignmentPeriod = "86400s"
-                        perSeriesAligner = "ALIGN_SUM"
+                        alignmentPeriod    = "86400s"
+                        perSeriesAligner   = "ALIGN_SUM"
                         crossSeriesReducer = "REDUCE_SUM"
-                        groupByFields = ["metric.label.event_type"]
+                        groupByFields      = ["metric.label.event_type"]
                       }
                     }
                   }
@@ -193,10 +193,10 @@ resource "google_monitoring_dashboard" "security_overview" {
             }
           }
         },
-        
+
         # Session Security Metrics
         {
-          width = 6
+          width  = 6
           height = 4
           widget = {
             title = "Session Security Metrics"
@@ -207,14 +207,14 @@ resource "google_monitoring_dashboard" "security_overview" {
                     timeSeriesFilter = {
                       filter = "metric.type=\"logging.googleapis.com/user/${local.security_metrics.session_anomalies}\" AND metric.label.event_type=\"SESSION_CREATED\""
                       aggregation = {
-                        alignmentPeriod = "300s"
-                        perSeriesAligner = "ALIGN_RATE"
+                        alignmentPeriod    = "300s"
+                        perSeriesAligner   = "ALIGN_RATE"
                         crossSeriesReducer = "REDUCE_SUM"
                       }
                     }
                   }
-                  plotType = "LINE"
-                  targetAxis = "Y1"
+                  plotType       = "LINE"
+                  targetAxis     = "Y1"
                   legendTemplate = "Sessions Created"
                 },
                 {
@@ -222,14 +222,14 @@ resource "google_monitoring_dashboard" "security_overview" {
                     timeSeriesFilter = {
                       filter = "metric.type=\"logging.googleapis.com/user/${local.security_metrics.session_anomalies}\" AND metric.label.event_type=\"MISSING_SESSION\""
                       aggregation = {
-                        alignmentPeriod = "300s"
-                        perSeriesAligner = "ALIGN_RATE"
+                        alignmentPeriod    = "300s"
+                        perSeriesAligner   = "ALIGN_RATE"
                         crossSeriesReducer = "REDUCE_SUM"
                       }
                     }
                   }
-                  plotType = "LINE"
-                  targetAxis = "Y1"
+                  plotType       = "LINE"
+                  targetAxis     = "Y1"
                   legendTemplate = "Missing Sessions"
                 }
               ]
@@ -240,10 +240,10 @@ resource "google_monitoring_dashboard" "security_overview" {
             }
           }
         },
-        
+
         # Access Control Violations Breakdown
         {
-          width = 12
+          width  = 12
           height = 4
           widget = {
             title = "Access Control Violations by Type"
@@ -254,14 +254,14 @@ resource "google_monitoring_dashboard" "security_overview" {
                     timeSeriesFilter = {
                       filter = "metric.type=\"logging.googleapis.com/user/${local.security_metrics.access_violations}\" AND metric.label.event_type=\"UA_BLOCK\""
                       aggregation = {
-                        alignmentPeriod = "300s"
-                        perSeriesAligner = "ALIGN_RATE"
+                        alignmentPeriod    = "300s"
+                        perSeriesAligner   = "ALIGN_RATE"
                         crossSeriesReducer = "REDUCE_SUM"
                       }
                     }
                   }
-                  plotType = "STACKED_BAR"
-                  targetAxis = "Y1"
+                  plotType       = "STACKED_BAR"
+                  targetAxis     = "Y1"
                   legendTemplate = "User Agent Blocks"
                 },
                 {
@@ -269,14 +269,14 @@ resource "google_monitoring_dashboard" "security_overview" {
                     timeSeriesFilter = {
                       filter = "metric.type=\"logging.googleapis.com/user/${local.security_metrics.access_violations}\" AND metric.label.event_type=\"CROSS_SITE_REQUEST\""
                       aggregation = {
-                        alignmentPeriod = "300s"
-                        perSeriesAligner = "ALIGN_RATE"
+                        alignmentPeriod    = "300s"
+                        perSeriesAligner   = "ALIGN_RATE"
                         crossSeriesReducer = "REDUCE_SUM"
                       }
                     }
                   }
-                  plotType = "STACKED_BAR"
-                  targetAxis = "Y1"
+                  plotType       = "STACKED_BAR"
+                  targetAxis     = "Y1"
                   legendTemplate = "Cross-Site Requests"
                 },
                 {
@@ -284,14 +284,14 @@ resource "google_monitoring_dashboard" "security_overview" {
                     timeSeriesFilter = {
                       filter = "metric.type=\"logging.googleapis.com/user/${local.security_metrics.access_violations}\" AND metric.label.event_type=\"INVALID_HOST\""
                       aggregation = {
-                        alignmentPeriod = "300s"
-                        perSeriesAligner = "ALIGN_RATE"
+                        alignmentPeriod    = "300s"
+                        perSeriesAligner   = "ALIGN_RATE"
                         crossSeriesReducer = "REDUCE_SUM"
                       }
                     }
                   }
-                  plotType = "STACKED_BAR"
-                  targetAxis = "Y1"
+                  plotType       = "STACKED_BAR"
+                  targetAxis     = "Y1"
                   legendTemplate = "Invalid Host"
                 }
               ]
@@ -302,10 +302,10 @@ resource "google_monitoring_dashboard" "security_overview" {
             }
           }
         },
-        
+
         # Top Violating IPs
         {
-          width = 6
+          width  = 6
           height = 4
           widget = {
             title = "Top Violating IP Addresses (Last 6h)"
@@ -314,10 +314,10 @@ resource "google_monitoring_dashboard" "security_overview" {
                 timeSeriesFilter = {
                   filter = "metric.type=\"logging.googleapis.com/user/${local.security_metrics.all_events}\" AND metric.label.outcome=\"failure\""
                   aggregation = {
-                    alignmentPeriod = "21600s"
-                    perSeriesAligner = "ALIGN_SUM"
+                    alignmentPeriod    = "21600s"
+                    perSeriesAligner   = "ALIGN_SUM"
                     crossSeriesReducer = "REDUCE_SUM"
-                    groupByFields = ["metric.label.ip_address"]
+                    groupByFields      = ["metric.label.ip_address"]
                   }
                 }
               }
@@ -327,10 +327,10 @@ resource "google_monitoring_dashboard" "security_overview" {
             }
           }
         },
-        
+
         # Security Success Rate
         {
-          width = 6
+          width  = 6
           height = 4
           widget = {
             title = "Security Success Rate (Last 6h)"
@@ -339,8 +339,8 @@ resource "google_monitoring_dashboard" "security_overview" {
                 timeSeriesFilter = {
                   filter = "metric.type=\"logging.googleapis.com/user/${local.security_metrics.successful_events}\""
                   aggregation = {
-                    alignmentPeriod = "21600s"
-                    perSeriesAligner = "ALIGN_SUM"
+                    alignmentPeriod    = "21600s"
+                    perSeriesAligner   = "ALIGN_SUM"
                     crossSeriesReducer = "REDUCE_SUM"
                   }
                 }
@@ -355,10 +355,10 @@ resource "google_monitoring_dashboard" "security_overview" {
             }
           }
         },
-        
+
         # Request Violations Timeline
         {
-          width = 12
+          width  = 12
           height = 4
           widget = {
             title = "Request Security Violations"
@@ -369,14 +369,14 @@ resource "google_monitoring_dashboard" "security_overview" {
                     timeSeriesFilter = {
                       filter = "metric.type=\"logging.googleapis.com/user/${local.security_metrics.request_violations}\" AND metric.label.event_type=\"REQUEST_SIZE_EXCEEDED\""
                       aggregation = {
-                        alignmentPeriod = "300s"
-                        perSeriesAligner = "ALIGN_RATE"
+                        alignmentPeriod    = "300s"
+                        perSeriesAligner   = "ALIGN_RATE"
                         crossSeriesReducer = "REDUCE_SUM"
                       }
                     }
                   }
-                  plotType = "LINE"
-                  targetAxis = "Y1"
+                  plotType       = "LINE"
+                  targetAxis     = "Y1"
                   legendTemplate = "Size Exceeded"
                 },
                 {
@@ -384,14 +384,14 @@ resource "google_monitoring_dashboard" "security_overview" {
                     timeSeriesFilter = {
                       filter = "metric.type=\"logging.googleapis.com/user/${local.security_metrics.request_violations}\" AND metric.label.event_type=\"METHOD_NOT_ALLOWED\""
                       aggregation = {
-                        alignmentPeriod = "300s"
-                        perSeriesAligner = "ALIGN_RATE"
+                        alignmentPeriod    = "300s"
+                        perSeriesAligner   = "ALIGN_RATE"
                         crossSeriesReducer = "REDUCE_SUM"
                       }
                     }
                   }
-                  plotType = "LINE"
-                  targetAxis = "Y1"
+                  plotType       = "LINE"
+                  targetAxis     = "Y1"
                   legendTemplate = "Method Not Allowed"
                 }
               ]
@@ -402,10 +402,10 @@ resource "google_monitoring_dashboard" "security_overview" {
             }
           }
         },
-        
+
         # Alert Status Summary
         {
-          width = 12
+          width  = 12
           height = 2
           widget = {
             title = "Active Security Alerts"
@@ -414,7 +414,7 @@ resource "google_monitoring_dashboard" "security_overview" {
                 timeSeriesFilter = {
                   filter = "metric.type=\"monitoring.googleapis.com/uptime_check/check_passed\""
                   aggregation = {
-                    alignmentPeriod = "300s"
+                    alignmentPeriod  = "300s"
                     perSeriesAligner = "ALIGN_FRACTION_TRUE"
                   }
                 }
@@ -427,10 +427,10 @@ resource "google_monitoring_dashboard" "security_overview" {
         }
       ]
     }
-    
+
     # Dashboard-level labels
     labels = merge(local.common_labels, {
-      dashboard_type = "security"
+      dashboard_type   = "security"
       refresh_interval = tostring(var.dashboard_refresh_interval)
     })
   })
@@ -440,12 +440,12 @@ resource "google_monitoring_dashboard" "security_overview" {
 resource "google_monitoring_dashboard" "security_mobile" {
   dashboard_json = jsonencode({
     displayName = "Security Mobile - ${title(var.environment)}"
-    
+
     mosaicLayout = {
       tiles = [
         # Critical Metrics Summary
         {
-          width = 12
+          width  = 12
           height = 3
           widget = {
             title = "Critical Security Metrics (Last Hour)"
@@ -454,31 +454,31 @@ resource "google_monitoring_dashboard" "security_mobile" {
                 timeSeriesFilter = {
                   filter = "metric.type=\"logging.googleapis.com/user/${local.security_metrics.all_events}\" AND metric.label.outcome=\"failure\""
                   aggregation = {
-                    alignmentPeriod = "3600s"
-                    perSeriesAligner = "ALIGN_SUM"
+                    alignmentPeriod    = "3600s"
+                    perSeriesAligner   = "ALIGN_SUM"
                     crossSeriesReducer = "REDUCE_SUM"
                   }
                 }
               }
               thresholds = [
                 {
-                  value = 50
-                  color = "YELLOW"
+                  value     = 50
+                  color     = "YELLOW"
                   direction = "ABOVE"
                 },
                 {
-                  value = 100
-                  color = "RED"
+                  value     = 100
+                  color     = "RED"
                   direction = "ABOVE"
                 }
               ]
             }
           }
         },
-        
+
         # Recent Events
         {
-          width = 12
+          width  = 12
           height = 4
           widget = {
             title = "Security Events (Last 4 Hours)"
@@ -489,14 +489,14 @@ resource "google_monitoring_dashboard" "security_mobile" {
                     timeSeriesFilter = {
                       filter = "metric.type=\"logging.googleapis.com/user/${local.security_metrics.all_events}\""
                       aggregation = {
-                        alignmentPeriod = "900s"
-                        perSeriesAligner = "ALIGN_RATE"
+                        alignmentPeriod    = "900s"
+                        perSeriesAligner   = "ALIGN_RATE"
                         crossSeriesReducer = "REDUCE_SUM"
-                        groupByFields = ["metric.label.event_type"]
+                        groupByFields      = ["metric.label.event_type"]
                       }
                     }
                   }
-                  plotType = "STACKED_AREA"
+                  plotType   = "STACKED_AREA"
                   targetAxis = "Y1"
                 }
               ]
@@ -509,10 +509,10 @@ resource "google_monitoring_dashboard" "security_mobile" {
         }
       ]
     }
-    
+
     labels = merge(local.common_labels, {
       dashboard_type = "security-mobile"
-      form_factor = "mobile"
+      form_factor    = "mobile"
     })
   })
 }

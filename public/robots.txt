@@ -2,4 +2,4 @@ User-agent: *
 Allow: /
 Disallow: /api/
 
-Sitemap: https://app.lottosmartpicker.com/sitemap.xml
+Sitemap: https://lottosmartpicker.com/sitemap.xml

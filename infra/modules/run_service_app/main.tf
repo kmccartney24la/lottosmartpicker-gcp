@@ -1,15 +1,32 @@
 # infra/modules/run_service_app/main.tf
 resource "google_cloud_run_v2_service" "app" {
+  count    = var.manage_run_service_app ? 1 : 0
   name     = var.service_name
   location = var.region
   ingress  = "INGRESS_TRAFFIC_ALL"
   template {
     service_account = var.service_account_email
     scaling {
-      min_instance_count = 0
-      max_instance_count = 50
+      # Critical Priority Action: Update min_instance_count from 0 to 1
+      min_instance_count = 1
+      # Critical Priority Action: Update max_instance_count from 50 to 10
+      max_instance_count = 10
+    }
+    max_instance_request_concurrency = 80 # Critical Priority Action: Add container concurrency setting of 80
+    annotations = {
+      "run.googleapis.com/startup-cpu-boost" = "true" # Recommended for faster cold starts
     }
     containers {
+      liveness_probe {
+        http_get {
+          path = "/_health"
+          port = 8080
+        }
+        initial_delay_seconds = 0
+        timeout_seconds       = 1
+        period_seconds        = 30
+        failure_threshold     = 1
+      }
       image = "${var.region}-docker.pkg.dev/${var.project_id}/app/lottosmartpicker:latest"
       ports { container_port = 8080 }
       resources {
@@ -34,10 +51,10 @@ resource "google_cloud_run_v2_service" "app" {
 
 # Public access (optional toggle)
 resource "google_cloud_run_v2_service_iam_member" "invoker" {
-  count    = var.allow_unauthenticated ? 1 : 0
+  count    = var.allow_unauthenticated ? length(google_cloud_run_v2_service.app) : 0
   project  = var.project_id
   location = var.region
-  name     = google_cloud_run_v2_service.app.name
+  name     = google_cloud_run_v2_service.app[count.index].name
   role     = "roles/run.invoker"
   member   = "allUsers"
 }
@@ -47,11 +64,11 @@ resource "google_cloud_run_v2_service_iam_member" "invoker" {
 
 # Optional: Domain mapping for app (uses CR v1 API)
 resource "google_cloud_run_domain_mapping" "mapping" {
-  count    = length(var.domain) > 0 ? 1 : 0
+  count    = length(var.domain) > 0 ? length(google_cloud_run_v2_service.app) : 0
   location = var.region
   name     = var.domain
   metadata { namespace = var.project_id }
   spec {
-    route_name = google_cloud_run_v2_service.app.name
+    route_name = google_cloud_run_v2_service.app[count.index].name
   }
 }

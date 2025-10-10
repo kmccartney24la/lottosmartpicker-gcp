@@ -687,9 +687,31 @@ html[data-mask-ok="1"] .brand__logo--img { display: inline-block; } /* ensure it
 /* Tabs should look like app UI, not default links */
 .tab{
   font-size: var(--text-sm);
-  font-weight: 600;
+  font-weight: 700; /* bolder, closer to title/button style */
   letter-spacing: .01em;
   color: var(--fg);
+}
+
+/* Make header tabs use UI colors, not global link :hover/:visited */
+.site-header :is(.nav-inline a, .tabbar a, .tab) {
+  color: var(--fg) !important;
+  text-decoration: none !important;
+}
+.site-header :is(.nav-inline a, .tabbar a, .tab):visited {
+  color: var(--fg) !important;       /* beat a:visited purple */
+  text-decoration: none !important;
+}
+.site-header :is(.nav-inline a, .tabbar a, .tab):hover {
+  color: var(--fg) !important;        /* keep chip look; no link blue */
+  text-decoration: none !important;
+}
+
+/* Mobile sheet menu items should also ignore global link underline/colors */
+.nav-sheet .sheet-link,
+.nav-sheet .sheet-link:visited,
+.nav-sheet .sheet-link:hover {
+  color: var(--fg) !important;
+  text-decoration: none !important;
 }
 
 /* Only the logo color changes; title stays on --ink-strong */

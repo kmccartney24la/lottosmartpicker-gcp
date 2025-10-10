@@ -1,10 +1,32 @@
 // app/contact/page.tsx
 import React from 'react';
+import type { Metadata } from 'next';
 import Link from 'next/link';
+
+export const metadata: Metadata = {
+  title: 'Contact Lotto Smart Picker',
+  description:
+    'Contact support for questions, feedback, or issues related to Lotto Smart Picker.',
+  alternates: { canonical: 'https://lottosmartpicker.com/contact' },
+};
 
 const ContactPage = () => {
   return (
     <main className="container mx-auto max-w-3xl px-6 py-10 leading-relaxed">
+      <script
+        type="application/ld+json"
+        // eslint-disable-next-line react/no-danger
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify({
+            '@context': 'https://schema.org',
+            '@type': 'ContactPage',
+            name: 'Contact Lotto Smart Picker',
+            url: 'https://lottosmartpicker.com/contact',
+            description: 'How to reach Lotto Smart Picker support.',
+            isPartOf: { '@type': 'WebSite', name: 'Lotto Smart Picker', url: 'https://lottosmartpicker.com' },
+          }),
+        }}
+      />
       <h1 className="text-4xl font-bold mb-8 text-center">Contact Us</h1>
 
       <section className="mb-6">
@@ -44,10 +66,10 @@ const ContactPage = () => {
         <h2 className="text-2xl font-semibold mb-2">Responsible Gambling</h2>
         <p className="text-lg">
           If you have concerns about responsible gambling or need help resources, please visit our{' '}
-          <Link href="/legal/responsible-gaming">Responsible Gaming page</Link>{' '}
+          <Link href="/responsible-gaming">Responsible Gaming page</Link>{' '}
           or see the links on our{' '}
           <Link href="/about">About Us page</Link>. You can also review our{' '}
-          <Link href="/legal/terms">Terms of Use</Link> for more details about responsible play and compliance.
+          <Link href="/terms">Terms of Use</Link> for more details about responsible play and compliance.
         </p>
       </section>
     </main>

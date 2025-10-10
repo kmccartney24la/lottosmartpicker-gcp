@@ -173,19 +173,19 @@ resource "google_monitoring_dashboard" "exec" {
 resource "google_monitoring_uptime_check_config" "security_endpoint" {
   display_name = "Security Endpoint Health"
   timeout      = "10s"
-  period       = "300s"  # 5 minutes
-  
+  period       = "300s" # 5 minutes
+
   http_check {
     path         = "/api/diag/remotes"
     port         = 443
     use_ssl      = true
     validate_ssl = true
-    
+
     headers = {
       "User-Agent" = "Google-Cloud-Monitoring"
     }
   }
-  
+
   monitored_resource {
     type = "uptime_url"
     labels = {
@@ -193,7 +193,7 @@ resource "google_monitoring_uptime_check_config" "security_endpoint" {
       host       = var.app_domain
     }
   }
-  
+
   content_matchers {
     content = "\"status\":\"ok\""
     matcher = "CONTAINS_STRING"
@@ -204,11 +204,11 @@ resource "google_monitoring_uptime_check_config" "security_endpoint" {
 resource "google_monitoring_alert_policy" "security_endpoint_down" {
   display_name = "Security Endpoint Down"
   combiner     = "OR"
-  
+
   conditions {
     display_name = "Security endpoint check failed"
     condition_monitoring_query_language {
-      query = <<-EOT
+      query    = <<-EOT
         fetch uptime_url
         | filter (resource.host == "${var.app_domain}")
         | metric 'monitoring.googleapis.com/uptime_check/check_passed'
@@ -219,12 +219,12 @@ resource "google_monitoring_alert_policy" "security_endpoint_down" {
       trigger { count = 1 }
     }
   }
-  
+
   # Will be connected to security notification channels when security module is integrated
   notification_channels = []
-  
+
   documentation {
-    content = <<-EOT
+    content   = <<-EOT
 # Security Endpoint Health Check Failed
 
 The security diagnostics endpoint is not responding properly. This may indicate:

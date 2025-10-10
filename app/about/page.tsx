@@ -1,10 +1,33 @@
 // app/about/page.tsx
 import React from 'react';
+import type { Metadata } from 'next';
 import Link from 'next/link';
+
+export const metadata: Metadata = {
+  title: 'About Lotto Smart Picker',
+  description:
+    'Our mission: transparent, data-driven lottery analysis. Learn what we provide and how we source and analyze data.',
+  alternates: { canonical: 'https://lottosmartpicker.com/about' },
+};
 
 const AboutPage = () => {
   return (
     <main className="about-page container mx-auto max-w-3xl px-6 py-10 leading-relaxed">
+      <script
+        type="application/ld+json"
+        // eslint-disable-next-line react/no-danger
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify({
+            '@context': 'https://schema.org',
+            '@type': 'AboutPage',
+            name: 'About Lotto Smart Picker',
+            url: 'https://lottosmartpicker.com/about',
+            description:
+              'Mission, methods, and data sources for Lotto Smart Picker.',
+            isPartOf: { '@type': 'WebSite', name: 'Lotto Smart Picker', url: 'https://lottosmartpicker.com' },
+          }),
+        }}
+      />
       <h1 className="text-4xl font-bold mb-8 text-center">About LottoSmartPicker 9000</h1>
 
       <section className="mb-6">
@@ -65,7 +88,7 @@ const AboutPage = () => {
         </p>
         <p className="text-lg">
           or more information about your rights and data protection, please review our{' '}
-          <Link href="/legal/terms">Terms of Use</Link> and{' '}
+          <Link href="/terms">Terms of Use</Link> and{' '}
           <Link href="/privacy">Privacy Policy</Link>.
         </p>
       </section>

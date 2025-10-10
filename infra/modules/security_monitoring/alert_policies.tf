@@ -6,10 +6,10 @@ resource "google_monitoring_alert_policy" "security_high_rate_limit_violations" 
   display_name = "Security: High Rate Limit Violations - ${title(var.environment)}"
   combiner     = "OR"
   enabled      = true
-  
+
   conditions {
     display_name = "Rate limit violations > ${local.alert_thresholds.rate_limit_violations} in 5 minutes"
-    
+
     condition_monitoring_query_language {
       query = <<-EOT
         fetch logging.googleapis.com/user/${local.security_metrics.rate_limit_violations}
@@ -18,27 +18,27 @@ resource "google_monitoring_alert_policy" "security_high_rate_limit_violations" 
         | window 5m
         | condition gt(${local.alert_thresholds.rate_limit_violations})
       EOT
-      
-      duration = "300s"  # 5 minutes
-      
+
+      duration = "300s" # 5 minutes
+
       trigger {
         count = 1
       }
     }
   }
-  
+
   notification_channels = [local.notification_channels.critical]
-  
+
   alert_strategy {
     auto_close = var.alert_auto_close_duration
-    
+
     notification_rate_limit {
-      period = "300s"  # 5 minutes between notifications
+      period = "300s" # 5 minutes between notifications
     }
   }
-  
+
   documentation {
-    content = <<-EOT
+    content   = <<-EOT
 # High Rate Limit Violations Detected
 
 **Severity**: Critical
@@ -67,7 +67,7 @@ jsonPayload.eventType="RATE_LIMIT_EXCEEDED"
     EOT
     mime_type = "text/markdown"
   }
-  
+
   user_labels = merge(local.common_labels, {
     severity = "critical"
     category = "rate-limiting"
@@ -79,10 +79,10 @@ resource "google_monitoring_alert_policy" "security_csrf_attack_pattern" {
   display_name = "Security: CSRF Attack Pattern Detected - ${title(var.environment)}"
   combiner     = "OR"
   enabled      = true
-  
+
   conditions {
     display_name = "CSRF failures > ${local.alert_thresholds.csrf_failures} in 5 minutes"
-    
+
     condition_monitoring_query_language {
       query = <<-EOT
         fetch logging.googleapis.com/user/${local.security_metrics.csrf_failures}
@@ -91,27 +91,27 @@ resource "google_monitoring_alert_policy" "security_csrf_attack_pattern" {
         | window 5m
         | condition gt(${local.alert_thresholds.csrf_failures})
       EOT
-      
+
       duration = "300s"
-      
+
       trigger {
         count = 1
       }
     }
   }
-  
+
   notification_channels = [local.notification_channels.critical]
-  
+
   alert_strategy {
     auto_close = var.alert_auto_close_duration
-    
+
     notification_rate_limit {
       period = "300s"
     }
   }
-  
+
   documentation {
-    content = <<-EOT
+    content   = <<-EOT
 # CSRF Attack Pattern Detected
 
 **Severity**: Critical
@@ -140,7 +140,7 @@ jsonPayload.eventType="CSRF_TOKEN_MISMATCH"
     EOT
     mime_type = "text/markdown"
   }
-  
+
   user_labels = merge(local.common_labels, {
     severity = "critical"
     category = "csrf-protection"
@@ -152,10 +152,10 @@ resource "google_monitoring_alert_policy" "security_session_hijacking" {
   display_name = "Security: Session Hijacking Indicators - ${title(var.environment)}"
   combiner     = "OR"
   enabled      = true
-  
+
   conditions {
     display_name = "Session anomalies > 5 in 10 minutes"
-    
+
     condition_monitoring_query_language {
       query = <<-EOT
         fetch logging.googleapis.com/user/${local.security_metrics.session_anomalies}
@@ -164,27 +164,27 @@ resource "google_monitoring_alert_policy" "security_session_hijacking" {
         | window 10m
         | condition gt(5)
       EOT
-      
-      duration = "600s"  # 10 minutes
-      
+
+      duration = "600s" # 10 minutes
+
       trigger {
         count = 1
       }
     }
   }
-  
+
   notification_channels = [local.notification_channels.critical]
-  
+
   alert_strategy {
     auto_close = var.alert_auto_close_duration
-    
+
     notification_rate_limit {
-      period = "600s"  # 10 minutes
+      period = "600s" # 10 minutes
     }
   }
-  
+
   documentation {
-    content = <<-EOT
+    content   = <<-EOT
 # Session Hijacking Indicators Detected
 
 **Severity**: Critical
@@ -213,7 +213,7 @@ jsonPayload.eventType="SESSION_CREATED" OR jsonPayload.eventType="MISSING_SESSIO
     EOT
     mime_type = "text/markdown"
   }
-  
+
   user_labels = merge(local.common_labels, {
     severity = "critical"
     category = "session-security"
@@ -225,10 +225,10 @@ resource "google_monitoring_alert_policy" "security_elevated_events" {
   display_name = "Security: Elevated Security Events - ${title(var.environment)}"
   combiner     = "OR"
   enabled      = true
-  
+
   conditions {
     display_name = "Security events > ${local.alert_thresholds.security_events} in 1 hour"
-    
+
     condition_monitoring_query_language {
       query = <<-EOT
         fetch logging.googleapis.com/user/${local.security_metrics.all_events}
@@ -238,27 +238,27 @@ resource "google_monitoring_alert_policy" "security_elevated_events" {
         | window 1h
         | condition gt(${local.alert_thresholds.security_events})
       EOT
-      
+
       duration = var.warning_alert_delay
-      
+
       trigger {
         count = 1
       }
     }
   }
-  
+
   notification_channels = [local.notification_channels.warning]
-  
+
   alert_strategy {
     auto_close = var.alert_auto_close_duration
-    
+
     notification_rate_limit {
-      period = "1800s"  # 30 minutes
+      period = "1800s" # 30 minutes
     }
   }
-  
+
   documentation {
-    content = <<-EOT
+    content   = <<-EOT
 # Elevated Security Events Detected
 
 **Severity**: Warning
@@ -279,7 +279,7 @@ Elevated number of security events detected. Review for patterns and trends.
     EOT
     mime_type = "text/markdown"
   }
-  
+
   user_labels = merge(local.common_labels, {
     severity = "warning"
     category = "general-security"
@@ -291,10 +291,10 @@ resource "google_monitoring_alert_policy" "security_request_size_violations" {
   display_name = "Security: Request Size Violations - ${title(var.environment)}"
   combiner     = "OR"
   enabled      = true
-  
+
   conditions {
     display_name = "Request size violations > ${var.request_size_alert_threshold} in 30 minutes"
-    
+
     condition_monitoring_query_language {
       query = <<-EOT
         fetch logging.googleapis.com/user/${local.security_metrics.request_violations}
@@ -304,27 +304,27 @@ resource "google_monitoring_alert_policy" "security_request_size_violations" {
         | window 30m
         | condition gt(${var.request_size_alert_threshold})
       EOT
-      
+
       duration = var.warning_alert_delay
-      
+
       trigger {
         count = 1
       }
     }
   }
-  
+
   notification_channels = [local.notification_channels.warning]
-  
+
   alert_strategy {
     auto_close = var.alert_auto_close_duration
-    
+
     notification_rate_limit {
       period = "1800s"
     }
   }
-  
+
   documentation {
-    content = <<-EOT
+    content   = <<-EOT
 # Request Size Violations Detected
 
 **Severity**: Warning
@@ -348,7 +348,7 @@ Multiple oversized requests detected. This may indicate:
     EOT
     mime_type = "text/markdown"
   }
-  
+
   user_labels = merge(local.common_labels, {
     severity = "warning"
     category = "request-security"
@@ -360,10 +360,10 @@ resource "google_monitoring_alert_policy" "security_ua_block_pattern" {
   display_name = "Security: Blocked User Agent Pattern - ${title(var.environment)}"
   combiner     = "OR"
   enabled      = true
-  
+
   conditions {
     display_name = "UA blocks > ${var.ua_block_alert_threshold} in 1 hour"
-    
+
     condition_monitoring_query_language {
       query = <<-EOT
         fetch logging.googleapis.com/user/${local.security_metrics.access_violations}
@@ -373,27 +373,27 @@ resource "google_monitoring_alert_policy" "security_ua_block_pattern" {
         | window 1h
         | condition gt(${var.ua_block_alert_threshold})
       EOT
-      
+
       duration = var.warning_alert_delay
-      
+
       trigger {
         count = 1
       }
     }
   }
-  
+
   notification_channels = [local.notification_channels.warning]
-  
+
   alert_strategy {
     auto_close = var.alert_auto_close_duration
-    
+
     notification_rate_limit {
-      period = "3600s"  # 1 hour
+      period = "3600s" # 1 hour
     }
   }
-  
+
   documentation {
-    content = <<-EOT
+    content   = <<-EOT
 # Blocked User Agent Pattern Detected
 
 **Severity**: Warning
@@ -417,7 +417,7 @@ High number of blocked user agents detected. This may indicate:
     EOT
     mime_type = "text/markdown"
   }
-  
+
   user_labels = merge(local.common_labels, {
     severity = "warning"
     category = "access-control"
@@ -427,14 +427,14 @@ High number of blocked user agents detected. This may indicate:
 # Container Vulnerabilities Alert
 resource "google_monitoring_alert_policy" "security_container_vulnerabilities" {
   count = var.enable_container_analysis ? 1 : 0
-  
+
   display_name = "Security: Container Vulnerabilities Detected - ${title(var.environment)}"
   combiner     = "OR"
   enabled      = true
-  
+
   conditions {
     display_name = "High/Critical vulnerabilities found"
-    
+
     condition_monitoring_query_language {
       query = <<-EOT
         fetch gce_instance
@@ -444,27 +444,27 @@ resource "google_monitoring_alert_policy" "security_container_vulnerabilities" {
         | group_by 1m, sum(value.count)
         | condition gt(0)
       EOT
-      
+
       duration = "60s"
-      
+
       trigger {
         count = 1
       }
     }
   }
-  
+
   notification_channels = [local.notification_channels.warning]
-  
+
   alert_strategy {
-    auto_close = "86400s"  # 24 hours (manual resolution required)
-    
+    auto_close = "86400s" # 24 hours (manual resolution required)
+
     notification_rate_limit {
-      period = "3600s"  # 1 hour
+      period = "3600s" # 1 hour
     }
   }
-  
+
   documentation {
-    content = <<-EOT
+    content   = <<-EOT
 # Container Vulnerabilities Detected
 
 **Severity**: Warning
@@ -488,7 +488,7 @@ High or Critical severity vulnerabilities detected in container images.
     EOT
     mime_type = "text/markdown"
   }
-  
+
   user_labels = merge(local.common_labels, {
     severity = "warning"
     category = "vulnerability-management"

@@ -11,7 +11,8 @@ data "google_project" "this" {}
 
 # lotto-updater (CSVs)
 resource "google_cloud_run_v2_job" "lotto_updater" {
-  name     = "lotto-updater"
+  count    = var.manage_run_jobs ? 1 : 0
+  name     = "update-csvs"
   location = var.region
 
   template {
@@ -40,11 +41,13 @@ resource "google_cloud_run_v2_job" "lotto_updater" {
 
         resources {
           limits = {
-            memory = "1Gi"
+            # Critical Priority Action: Update memory from 1Gi to 4Gi for 'update-csvs' job
+            memory = "4Gi"
             cpu    = "1"
           }
         }
       }
+      timeout = "1200s"
     }
   }
 
@@ -53,6 +56,7 @@ resource "google_cloud_run_v2_job" "lotto_updater" {
 
 # scratchers (Playwright heavy)
 resource "google_cloud_run_v2_job" "scratchers" {
+  count    = var.manage_run_jobs ? 1 : 0
   name     = "scratchers"
   location = var.region
 
@@ -61,7 +65,7 @@ resource "google_cloud_run_v2_job" "scratchers" {
       service_account = var.jobs_service_account
 
       containers {
-        image = "${var.region}-docker.pkg.dev/${var.project_id}/jobs/scratchers:latest"
+        image = "${var.region}-docker.pkg.dev/${var.project_id}/app/lottosmartpicker:latest" # Critical Priority Action: Fix image path for scratchers job
 
         env {
           name  = "GCS_BUCKET"
@@ -87,11 +91,13 @@ resource "google_cloud_run_v2_job" "scratchers" {
 
         resources {
           limits = {
-            memory = "4Gi"
+            # Critical Priority Action: Update memory from 4Gi to 8Gi for 'scratchers' job
+            memory = "8Gi"
             cpu    = "2"
           }
         }
       }
+      timeout = "7200s"
     }
   }
 
@@ -117,14 +123,17 @@ resource "google_project_iam_member" "scheduler_can_run_jobs" {
 
 # Nightly CSVs
 resource "google_cloud_scheduler_job" "lotto_updater" {
-  name      = "cron-lotto-updater"
-  schedule  = var.cron_csvs
+  count = var.manage_run_jobs ? 1 : 0
+  # High Priority Action: Update scheduler job name to match actual GCP
+  name = "update-csvs-nightly"
+  # High Priority Action: Update schedule to match actual GCP (2:30 AM daily)
+  schedule  = "30 2 * * *"
   time_zone = "America/New_York"
   region    = var.region
 
   http_target {
     http_method = "POST"
-    uri         = "https://${var.region}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${var.project_id}/jobs/${google_cloud_run_v2_job.lotto_updater.name}:run"
+    uri         = "https://${var.region}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${var.project_id}/jobs/${google_cloud_run_v2_job.lotto_updater[0].name}:run"
 
     oidc_token {
       audience              = "https://${var.region}-run.googleapis.com/"
@@ -140,14 +149,17 @@ resource "google_cloud_scheduler_job" "lotto_updater" {
 
 # Weekly scratchers
 resource "google_cloud_scheduler_job" "scratchers" {
-  name      = "cron-scratchers"
-  schedule  = var.cron_scratchers
+  count = var.manage_run_jobs ? 1 : 0
+  # High Priority Action: Update scheduler job name to match actual GCP
+  name = "scratchers-weekly"
+  # High Priority Action: Update schedule to match actual GCP (12:05 PM Mondays)
+  schedule  = "5 12 * * 1"
   time_zone = "America/New_York"
   region    = var.region
 
   http_target {
     http_method = "POST"
-    uri         = "https://${var.region}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${var.project_id}/jobs/${google_cloud_run_v2_job.scratchers.name}:run"
+    uri         = "https://${var.region}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${var.project_id}/jobs/${google_cloud_run_v2_job.scratchers[0].name}:run"
 
     oidc_token {
       audience              = "https://${var.region}-run.googleapis.com/"

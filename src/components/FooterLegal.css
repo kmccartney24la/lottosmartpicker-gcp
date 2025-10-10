@@ -35,6 +35,59 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* --- Donation block --- */
+.footer-donate{
+  display: grid;
+  place-items: center;
+  text-align: center;
+  margin-top: var(--space-5);
+  gap: var(--space-3);
+}
+.footer-donate-text{
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+
+/* Themed Ko-fi button — uses site tokens and existing .btn base */
+.btn-support{
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  background: color-mix(in oklab, var(--bubble-amber) 80%, transparent);
+  color: var(--accent-contrast);
+  border: 1px solid transparent;
+  padding: var(--space-2) var(--space-4);
+  border-radius: 999px;
+  text-decoration: none;
+  font-weight: 700; /* stronger, button-like */
+  line-height: 1;
+  box-shadow: 0 1px 0 rgba(0,0,0,.1) inset;
+}
+
+.footer-legal .btn-support,
+.footer-legal .btn-support:visited {
+  color: var(--accent-contrast) !important;  /* defeat global a:visited */
+  text-decoration: none !important;
+}
+.footer-legal .btn-support:hover {
+  color: var(--accent-contrast) !important;  /* keep legible on hover */
+  text-decoration: none !important;          /* no link underline */
+}
+
+.btn-support:hover{ transform: translateY(-1px); box-shadow: 0 2px 4px rgba(0,0,0,.15); }
+.btn-support:active{ transform: translateY(0); }
+.btn-support:focus-visible{
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.btn-support__icon{ flex: 0 0 auto; display: inline-block; }
+.btn-support__text{ display: inline-block; }
+
+@media (forced-colors: active){
+  .btn-support{ border: 1px solid ButtonText; }
+}
+
 /* Layout: content then links row; brand sits in the links row on the right */
 .footer-legal__inner{
   display: grid;

@@ -1,5 +1,7 @@
 // lib/scratchers.ts
 // Aligns with scripts/scratchers/fetch_ga_scratchers.ts output
+// IMPORTANT: Only import browser-safe helpers here.
+import { getPublicBaseUrl, deriveBucketFromBaseUrl } from './gcs-public';
 
 // -----------------------------
 // Types (from scraper)
@@ -103,11 +105,11 @@ export function resolveIndexUrls(): string[] {
 
   // Highest-priority runtime base(s)
   const bases: string[] = [];
-  const publicBase = (env.PUBLIC_BASE_URL ?? "").trim();
-  const nextPublicBase = (env.NEXT_PUBLIC_DATA_BASE ?? "").trim();
-
-  if (publicBase) bases.push(publicBase);
-  if (nextPublicBase && nextPublicBase !== publicBase) bases.push(nextPublicBase);
+  const resolvedBase = (getPublicBaseUrl() || "").trim(); // PUBLIC_BASE_URL -> NEXT_* -> /api/file
+  if (resolvedBase) bases.push(resolvedBase);
+  // If a different NEXT_PUBLIC_* is set, consider it as a secondary base
+  const altNextBase = (env.NEXT_PUBLIC_DATA_BASE ?? env.NEXT_PUBLIC_DATA_BASE_URL ?? "").trim();
+  if (altNextBase && altNextBase !== resolvedBase) bases.push(altNextBase);
 
   // Legacy exact-file envs (if provided, we treat them as fully-qualified .json URLs)
   const legacyFileEnv =
@@ -187,11 +189,10 @@ export function resolveIndexUrls(): string[] {
   }
 
   // Final hardcoded canonical fallback (public GCS) as a safety net
-  // This matches: gs://lottosmartpicker-data/ga/scratchers/index.latest.json
-  const publicCanonical =
-    "https://storage.googleapis.com/lottosmartpicker-data/ga/scratchers/index.latest.json";
-  const publicCanonicalArchive =
-    "https://storage.googleapis.com/lottosmartpicker-data/ga/scratchers/index.json";
+  // This matches: gs://<bucket>/ga/scratchers/{index.latest.json,index.json}
+  const fallbackBase = `https://storage.googleapis.com/${deriveBucketFromBaseUrl()}`;
+  const publicCanonical = `${fallbackBase}/ga/scratchers/index.latest.json`;
+  const publicCanonicalArchive = `${fallbackBase}/ga/scratchers/index.json`;
   for (const u of [publicCanonical, publicCanonicalArchive]) {
     if (!out.includes(u)) out.push(u);
   }

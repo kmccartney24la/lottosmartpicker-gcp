@@ -5,7 +5,7 @@ terraform {
   required_providers {
     google = {
       source  = "hashicorp/google"
-      version = "~> 5.0"
+      version = ">= 6.0.0"
     }
   }
 }
@@ -39,14 +39,16 @@ resource "google_project_service" "logging" {
 # Local values for common configurations
 locals {
   common_labels = merge(var.labels, {
-    component = "security-monitoring"
+    component  = "security-monitoring"
     managed_by = "terraform"
   })
-  
+
   # Environment-specific alert thresholds
   alert_thresholds = {
-    rate_limit_violations = var.environment == "prod" ? var.rate_limit_alert_threshold : var.rate_limit_alert_threshold * 2
-    csrf_failures = var.environment == "prod" ? var.csrf_failure_alert_threshold : var.csrf_failure_alert_threshold * 2
-    security_events = var.environment == "prod" ? var.security_events_alert_threshold : var.security_events_alert_threshold * 2
+    rate_limit_violations   = var.rate_limit_alert_threshold
+    csrf_failures           = var.csrf_failure_alert_threshold
+    security_events         = var.security_events_alert_threshold
+    request_size_violations = var.request_size_alert_threshold
+    ua_block_violations     = var.ua_block_alert_threshold
   }
 }

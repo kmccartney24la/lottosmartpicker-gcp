@@ -51,6 +51,25 @@ export default function FooterLegal() {
             <img src="/brand/logo-full.svg" alt="" className="footer-legal__brand-img" />
           </div>
         </div>
+        {/* Support / Ko-fi */}
+      <div className="footer-donate" role="complementary" aria-label="Support this site">
+        <p className="footer-donate-text">
+          Buy me a coffee on <strong>Ko-fi</strong> when you win big! Good luck!
+        </p>
+        <a
+          href="https://ko-fi.com/kmccartney"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="btn btn-support"
+          aria-label="Support on Ko-fi (opens in a new tab)"
+        >
+          {/* simple heart mug icon (inline SVG so it inherits currentColor) */}
+          <svg className="btn-support__icon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+            <path d="M3 6.5A2.5 2.5 0 0 1 5.5 4h9A2.5 2.5 0 0 1 17 6.5v.75h1.25A2.75 2.75 0 0 1 21 10v.5A3.5 3.5 0 0 1 17.5 14H17v.5A3.5 3.5 0 0 1 13.5 18h-8A2.5 2.5 0 0 1 3 15.5v-9Zm2.5-.5a.5.5 0 0 0-.5.5v9a.5.5 0 0 0 .5.5h8A2 2 0 0 0 15.5 14v-7a.5.5 0 0 0-.5-.5h-9Zm13 3.75H17V12h.5A1.5 1.5 0 0 0 19 10.5v-.25ZM9.5 9.25c.7-.76 2.02-.76 2.72 0l.28.3.28-.3c.7-.76 2.02-.76 2.72 0 .73.79.71 2-.06 2.77l-2.94 2.94a.75.75 0 0 1-1.06 0L8.84 12.02c-.77-.77-.79-1.98-.06-2.77Z" />
+          </svg>
+          <span className="btn-support__text">Support on Ko-fi</span>
+        </a>
+      </div>
       </div>
     </footer>
   );

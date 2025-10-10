@@ -3,6 +3,11 @@ variable "project_id" { type = string }
 variable "data_bucket_name" { type = string }
 variable "cors_allowed_origins" { type = list(string) }
 
+variable "manage_gcs_buckets" {
+  type        = bool
+  description = "Whether to manage the GCS buckets resource."
+}
+
 variable "labels" {
   type    = map(string)
   default = {}

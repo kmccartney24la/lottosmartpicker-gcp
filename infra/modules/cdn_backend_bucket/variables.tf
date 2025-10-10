@@ -1,9 +1,15 @@
-# infra/modules/cdn_backend_bucket/variables.tf
-variable "project_id"       { type = string }
-variable "data_bucket_name" { type = string }
-variable "data_domain"      { type = string }
+﻿variable "enabled" {
+  description = "Create the data.* CDN/LB? Leave false (deprecated)."
+  type        = bool
+  default     = false
+}
 
-variable "labels" {
-  type    = map(string)
-  default = {}
+variable "data_bucket_name" {
+  description = "(Deprecated) GCS bucket used by the backend bucket."
+  type        = string
+}
+
+variable "data_domain" {
+  description = "(Deprecated) Domain for managed cert (e.g. data.lottosmartpicker.com)."
+  type        = string
 }

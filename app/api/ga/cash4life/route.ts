@@ -1,3 +1,4 @@
+// app/api/ga/cash4life/route.ts
 import { NextResponse } from 'next/server';
 import { fetchRowsWithCache } from 'lib/lotto';
 

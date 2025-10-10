@@ -5,18 +5,18 @@
 resource "google_logging_metric" "security_rate_limit_violations" {
   name   = "security_rate_limit_violations"
   filter = "resource.type=\"cloud_run_revision\" AND jsonPayload.level=\"SECURITY\" AND jsonPayload.eventType=\"RATE_LIMIT_EXCEEDED\""
-  
+
   label_extractors = {
     session_id = "EXTRACT(jsonPayload.sessionId)"
     ip_address = "EXTRACT(jsonPayload.ipAddress)"
     user_agent = "EXTRACT(jsonPayload.userAgent)"
   }
-  
+
   metric_descriptor {
     metric_kind  = "DELTA"
     value_type   = "INT64"
     display_name = "Security: Rate Limit Violations"
-    
+
     labels {
       key         = "session_id"
       value_type  = "STRING"
@@ -33,7 +33,7 @@ resource "google_logging_metric" "security_rate_limit_violations" {
       description = "User agent that exceeded rate limit"
     }
   }
-  
+
   bucket_options {
     exponential_buckets {
       num_finite_buckets = 64
@@ -47,19 +47,19 @@ resource "google_logging_metric" "security_rate_limit_violations" {
 resource "google_logging_metric" "security_csrf_failures" {
   name   = "security_csrf_failures"
   filter = "resource.type=\"cloud_run_revision\" AND jsonPayload.level=\"SECURITY\" AND jsonPayload.eventType=\"CSRF_TOKEN_MISMATCH\""
-  
+
   label_extractors = {
     session_id = "EXTRACT(jsonPayload.sessionId)"
     ip_address = "EXTRACT(jsonPayload.ipAddress)"
     path       = "EXTRACT(jsonPayload.path)"
     method     = "EXTRACT(jsonPayload.method)"
   }
-  
+
   metric_descriptor {
     metric_kind  = "DELTA"
     value_type   = "INT64"
     display_name = "Security: CSRF Token Failures"
-    
+
     labels {
       key         = "session_id"
       value_type  = "STRING"
@@ -87,17 +87,17 @@ resource "google_logging_metric" "security_csrf_failures" {
 resource "google_logging_metric" "security_csrf_rotations" {
   name   = "security_csrf_rotations"
   filter = "resource.type=\"cloud_run_revision\" AND jsonPayload.level=\"SECURITY\" AND jsonPayload.eventType=\"CSRF_TOKEN_ROTATED\""
-  
+
   label_extractors = {
     session_id = "EXTRACT(jsonPayload.sessionId)"
     path       = "EXTRACT(jsonPayload.path)"
   }
-  
+
   metric_descriptor {
     metric_kind  = "DELTA"
     value_type   = "INT64"
     display_name = "Security: CSRF Token Rotations"
-    
+
     labels {
       key         = "session_id"
       value_type  = "STRING"
@@ -115,18 +115,18 @@ resource "google_logging_metric" "security_csrf_rotations" {
 resource "google_logging_metric" "security_session_anomalies" {
   name   = "security_session_anomalies"
   filter = "resource.type=\"cloud_run_revision\" AND jsonPayload.level=\"SECURITY\" AND (jsonPayload.eventType=\"SESSION_CREATED\" OR jsonPayload.eventType=\"MISSING_SESSION\")"
-  
+
   label_extractors = {
     event_type = "EXTRACT(jsonPayload.eventType)"
     ip_address = "EXTRACT(jsonPayload.ipAddress)"
     user_agent = "EXTRACT(jsonPayload.userAgent)"
   }
-  
+
   metric_descriptor {
     metric_kind  = "DELTA"
     value_type   = "INT64"
     display_name = "Security: Session Anomalies"
-    
+
     labels {
       key         = "event_type"
       value_type  = "STRING"
@@ -149,19 +149,19 @@ resource "google_logging_metric" "security_session_anomalies" {
 resource "google_logging_metric" "security_access_violations" {
   name   = "security_access_violations"
   filter = "resource.type=\"cloud_run_revision\" AND jsonPayload.level=\"SECURITY\" AND (jsonPayload.eventType=\"UA_BLOCK\" OR jsonPayload.eventType=\"CROSS_SITE_REQUEST\" OR jsonPayload.eventType=\"INVALID_HOST\")"
-  
+
   label_extractors = {
     event_type = "EXTRACT(jsonPayload.eventType)"
     user_agent = "EXTRACT(jsonPayload.userAgent)"
     ip_address = "EXTRACT(jsonPayload.ipAddress)"
     path       = "EXTRACT(jsonPayload.path)"
   }
-  
+
   metric_descriptor {
     metric_kind  = "DELTA"
     value_type   = "INT64"
     display_name = "Security: Access Control Violations"
-    
+
     labels {
       key         = "event_type"
       value_type  = "STRING"
@@ -189,19 +189,19 @@ resource "google_logging_metric" "security_access_violations" {
 resource "google_logging_metric" "security_request_violations" {
   name   = "security_request_violations"
   filter = "resource.type=\"cloud_run_revision\" AND jsonPayload.level=\"SECURITY\" AND (jsonPayload.eventType=\"REQUEST_SIZE_EXCEEDED\" OR jsonPayload.eventType=\"METHOD_NOT_ALLOWED\")"
-  
+
   label_extractors = {
     event_type = "EXTRACT(jsonPayload.eventType)"
     ip_address = "EXTRACT(jsonPayload.ipAddress)"
     path       = "EXTRACT(jsonPayload.path)"
     method     = "EXTRACT(jsonPayload.method)"
   }
-  
+
   metric_descriptor {
     metric_kind  = "DELTA"
     value_type   = "INT64"
     display_name = "Security: Request Violations"
-    
+
     labels {
       key         = "event_type"
       value_type  = "STRING"
@@ -229,16 +229,16 @@ resource "google_logging_metric" "security_request_violations" {
 resource "google_logging_metric" "security_successful_events" {
   name   = "security_successful_events"
   filter = "resource.type=\"cloud_run_revision\" AND jsonPayload.level=\"SECURITY\" AND jsonPayload.outcome=\"success\""
-  
+
   label_extractors = {
     event_type = "EXTRACT(jsonPayload.eventType)"
   }
-  
+
   metric_descriptor {
     metric_kind  = "DELTA"
     value_type   = "INT64"
     display_name = "Security: Successful Events"
-    
+
     labels {
       key         = "event_type"
       value_type  = "STRING"
@@ -251,17 +251,17 @@ resource "google_logging_metric" "security_successful_events" {
 resource "google_logging_metric" "security_all_events" {
   name   = "security_all_events"
   filter = "resource.type=\"cloud_run_revision\" AND jsonPayload.level=\"SECURITY\""
-  
+
   label_extractors = {
     event_type = "EXTRACT(jsonPayload.eventType)"
     outcome    = "EXTRACT(jsonPayload.outcome)"
   }
-  
+
   metric_descriptor {
     metric_kind  = "DELTA"
     value_type   = "INT64"
     display_name = "Security: All Events"
-    
+
     labels {
       key         = "event_type"
       value_type  = "STRING"
@@ -285,6 +285,6 @@ locals {
     access_violations     = google_logging_metric.security_access_violations.name
     request_violations    = google_logging_metric.security_request_violations.name
     successful_events     = google_logging_metric.security_successful_events.name
-    all_events           = google_logging_metric.security_all_events.name
+    all_events            = google_logging_metric.security_all_events.name
   }
 }

@@ -1,7 +1,7 @@
 # infra/dns-example.tf (optional, not wired by default)
 resource "google_dns_managed_zone" "public_zone" {
-  name     = "lsp-zone"
-  dns_name = "lottosmartpicker.com."
+  name       = "lsp-zone"
+  dns_name   = "lottosmartpicker.com."
   visibility = "public"
 }
 

@@ -1,3 +1,5 @@
+// app/api/ga/fantasy5/route.ts
+
 import { NextResponse } from 'next/server';
 import { fetchRowsWithCache } from 'lib/lotto';
 

@@ -73,8 +73,8 @@ variable "cron_csvs" {
 }
 
 variable "cron_scratchers" {
-  type    = string
-  default = "30 9 * * 1"
+  type    = list(string)
+  default = ["30 9 * * 1"]
 }
 
 # Budget email(s)
@@ -130,4 +130,109 @@ variable "audit_log_retention_days" {
   description = "Number of days to retain audit logs"
   type        = number
   default     = 365
+}
+
+# Critical Priority Action: Add missing variables for security monitoring
+variable "rate_limit_alert_threshold" {
+  description = "Threshold for rate limit alerts"
+  type        = number
+  default     = 50
+}
+
+variable "csrf_failure_alert_threshold" {
+  description = "Threshold for CSRF failure alerts"
+  type        = number
+  default     = 10
+}
+
+variable "security_events_alert_threshold" {
+  description = "Threshold for general security events alerts"
+  type        = number
+  default     = 100
+}
+
+variable "request_size_alert_threshold" {
+  description = "Threshold for request size alerts"
+  type        = number
+  default     = 20
+}
+
+variable "ua_block_alert_threshold" {
+  description = "Threshold for User-Agent block alerts"
+  type        = number
+  default     = 50
+}
+
+variable "project_number" {
+  description = "Google Cloud Project Number"
+  type        = string
+  default     = "79993353094"
+}
+
+# Medium Priority Action: Add manage_* variables for conditional resource management
+variable "manage_run_service_app" {
+  description = "Enable management of the main Cloud Run service application"
+  type        = bool
+  default     = true
+}
+
+variable "manage_run_jobs" {
+  description = "Enable management of Cloud Run jobs"
+  type        = bool
+  default     = true
+}
+
+variable "manage_gcs_buckets" {
+  description = "Enable management of GCS buckets"
+  type        = bool
+  default     = true
+}
+
+variable "manage_budget" {
+  description = "Enable management of the GCP budget"
+  type        = bool
+  default     = true
+}
+
+variable "manage_wif_github" {
+  description = "Enable management of Workload Identity Federation for GitHub"
+  type        = bool
+  default     = true
+}
+
+variable "manage_monitoring" {
+  description = "Enable management of general monitoring resources"
+  type        = bool
+  default     = true
+}
+
+variable "manage_security_monitoring" {
+  description = "Enable management of security monitoring resources"
+  type        = bool
+  default     = true
+}
+
+# High Priority Action: Add missing variables for new features
+variable "manage_scratchers_web" {
+  description = "Enable management of scratchers web features"
+  type        = bool
+  default     = false
+}
+
+variable "manage_security_policy" {
+  description = "Whether to manage the Cloud Armor security policy"
+  type        = bool
+  default     = true
+}
+
+variable "manage_dns" {
+  description = "Whether to manage the DNS zone"
+  type        = bool
+  default     = false
+}
+
+variable "manage_seed_socrata" {
+  description = "Enable management of Socrata seed data"
+  type        = bool
+  default     = false
 }

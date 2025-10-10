@@ -18,7 +18,7 @@ const UA_BLOCK = /(curl|wget|python-requests|scrapy|httpclient|postman|insomnia|
 // Public, unauthenticated API endpoints (read-only) - with basic security controls
 const PUBLIC_API = [
   /^\/api\/ping$/,            // health
-  /^\/api\/file(?:\/|$)/,     // GCS proxy (CSV/JSON)
+  /^\/api\/file(?:\/|$)/,   // ← existing route, now the true proxy
   /^\/api\/multi(?:\/|$)/,    // CSV→JSON converter
   /^\/api\/scratchers$/,      // scratchers data (enhanced but public)
 ];
@@ -64,6 +64,7 @@ if (host === APP_HOST && APP_HOST === "app.lottosmartpicker.com" && isHTML) {
   // Always pass OPTIONS
   if (method === "OPTIONS") {
     const res = new NextResponse(null, { status: 204 });
+    // Same-origin proxy doesn’t require CORS, but keeping this is harmless.
     res.headers.set("Access-Control-Allow-Origin", new URL(APP_ORIGIN).origin);
     res.headers.set("Access-Control-Allow-Methods", "GET,HEAD,OPTIONS");
     res.headers.set("Access-Control-Allow-Headers", "Content-Type,Authorization,X-CSRF-Token");
@@ -115,6 +116,7 @@ if (host === APP_HOST && APP_HOST === "app.lottosmartpicker.com" && isHTML) {
   // ✅ Allow public data endpoints (GET/HEAD) with no UA/cookie checks
   if (pathname.startsWith("/api/") && PUBLIC_API.some((re) => re.test(pathname))) {
     if (method === "GET" || method === "HEAD") {
+      // Same-origin: no special CORS needed; leaving these headers is OK.
       res.headers.set("Access-Control-Allow-Origin", new URL(APP_ORIGIN).origin);
       res.headers.set("Vary", "Origin");
       return res;

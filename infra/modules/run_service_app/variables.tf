@@ -5,6 +5,11 @@ variable "env" { type = string }
 variable "service_name" { type = string }
 variable "service_account_email" { type = string }
 
+variable "manage_run_service_app" {
+  type        = bool
+  description = "Whether to manage the Cloud Run service app resource."
+}
+
 variable "env_vars" {
   type    = map(string)
   default = {}

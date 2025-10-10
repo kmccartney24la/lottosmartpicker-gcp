@@ -108,7 +108,7 @@ variable "enable_binary_authorization" {
 variable "alert_auto_close_duration" {
   description = "Duration after which alerts auto-close (in seconds)"
   type        = string
-  default     = "1800s"  # 30 minutes
+  default     = "1800s" # 30 minutes
 }
 
 # Notification settings
@@ -121,5 +121,11 @@ variable "critical_alert_delay" {
 variable "warning_alert_delay" {
   description = "Delay for warning alerts (in seconds)"
   type        = string
-  default     = "900s"  # 15 minutes
+  default     = "900s" # 15 minutes
+}
+
+variable "manage_security_monitoring" {
+  description = "Whether to manage the security monitoring resources."
+  type        = bool
+  default     = true
 }
