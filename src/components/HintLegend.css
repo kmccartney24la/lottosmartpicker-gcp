@@ -20,22 +20,12 @@
   margin-bottom: 0; /* header handles spacing */
 }
 
+/* The list itself is a simple block; each item handles its own grid */
 .hint-legend-list {
   margin: 0;
-  padding-left: var(--space-4);
-  font-size: var(--text-sm);
-  line-height: 1.4;
-  color: var(--muted);
-  font-variant-numeric: tabular-nums lining-nums;
+  padding: 0; /* remove left indent to align with Common Patterns list */
+  list-style: none;
 }
-
-/* Center descriptions with their tag pills */
-.hint-legend-item {
-  display: flex;               /* overrides any previous grid settings */
-  align-items: center;         /* vertical centering */
-  gap: var(--space-2);
-}
-.hint-legend-description { align-self: center; }
 
 .hint-legend-list li {
   margin-bottom: var(--space-1);
@@ -71,3 +61,35 @@
     gap: var(--space-2);
   }
 }
+
+/* Static common-patterns toggle */
+.legend-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+.legend-toggle-label { font-weight: 600; }
+.legend-toggle-caret { margin-left: .25rem; transform: translateY(-1px); }
+
+/* Common Patterns list should align exactly with the top list */
+.hint-legend-list--indent {
+  margin: 0;            /* align with the main list */
+  padding: 0;
+  list-style: none;
+  margin-top: var(--space-2); /* just a bit of vertical separation */
+}
+
+/* Lower hierarchy for the Common Patterns header */
+.legend-toggle--sub { padding-top: var(--space-1); }
+.legend-toggle-label--sub {
+  font-weight: 350;
+  font-size: var(--text-sm);                 /* smaller than card title */
+  color: var(--bubble-amber);    /* similar tint to warn chips’ text */
+}
+

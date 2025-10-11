@@ -1,7 +1,7 @@
 // src/components/PastDrawsSidebar.tsx
 'use client';
 import './PastDrawsSidebar.css';
-import { LottoRow, GameKey } from '@lib/lotto';
+import { LottoRow, GameKey, LogicalGameKey, Period } from '@lib/lotto';
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
@@ -11,6 +11,8 @@ export default function PastDrawsSidebar({
   sortDir,
   onToggleSort,
   game,
+  logical,
+  period,
 }: {
   open: boolean;
   onClose: () => void;
@@ -26,18 +28,27 @@ export default function PastDrawsSidebar({
   /** Optional: if provided, shows a button to toggle sort direction */
   sortDir?: 'desc'|'asc';
   onToggleSort?: () => void;
-  /** Current game key for special-ball theming */
-  game: GameKey;
+  /** Canonical game key for theming (PB/MM/C4L/Fantasy5). Omit for NY logical games. */
+  game?: GameKey;
+  /** NY logical key + period when not canonical (for data attrs / a11y only). */
+  logical?: LogicalGameKey;
+  period?: Period;
 }) {
 
-  // Some games (e.g., GA Fantasy 5) have no special ball
-  const HAS_SPECIAL: Record<Exclude<GameKey,'ga_scratchers'>, boolean> = {
-    ga_fantasy5: false,
-    multi_powerball: true,
-    multi_megamillions: true,
-    multi_cash4life: true,
+  // Determine render mode: 'digits' (Numbers/Win4) vs 'five' (5-ball)
+  const isDigits = logical === 'ny_numbers' || logical === 'ny_win4';
+  const digitLen = logical === 'ny_win4' ? 4 : 3; // default 3 for Numbers
+
+  // Helper: does this canonical game have a special ball?
+  const hasSpecialFor = (g?: GameKey): boolean => {
+    if (!g) return pageRows.some(r => typeof r.special === 'number'); // infer for logical
+    if (g === 'multi_powerball' || g === 'multi_megamillions' || g === 'multi_cash4life') return true;
+    // Known 5-without-special:
+    if (g === 'ga_fantasy5' || g === 'ny_take5') return false;
+    // Default: infer from data (safe for future keys)
+    return pageRows.some(r => typeof r.special === 'number');
   };
-  const hasSpecial = HAS_SPECIAL[game] ?? false;
+  const hasSpecial = hasSpecialFor(game);
 
   const closeRef = useRef<HTMLButtonElement|null>(null);
   useEffect(()=>{ if (open) closeRef.current?.focus(); }, [open]);
@@ -89,7 +100,7 @@ export default function PastDrawsSidebar({
       <aside
         id="past-draws"
         className={`sidebar ${side==='left' ? 'left' : side==='right' ? 'right' : 'bottom'} ${open ? 'open' : ''}`}
-        data-game={game}
+        data-game={game ?? logical ?? 'logical'}
         role="dialog"
         aria-modal="true"
         aria-labelledby="past-draws-title"
@@ -144,7 +155,7 @@ export default function PastDrawsSidebar({
           }
         >
           <div id="results-panel" role="region" aria-label="Fetched draw results" className="sidebar-table-container">
-            <table className="sidebar-table" key="tbl-no-special-col">
+            <table className="sidebar-table" key={isDigits ? 'tbl-digits' : 'tbl-5ball'}>
               <colgroup>
                 <col className="col-date" />
                 <col className="col-numbers" />
@@ -152,42 +163,52 @@ export default function PastDrawsSidebar({
               <thead>
                 <tr>
                   <th scope="col">Date</th>
-                  <th scope="col">Numbers</th>
+                  <th scope="col">{isDigits ? 'Digits' : 'Numbers'}</th>
                 </tr>
               </thead>
               <tbody>
-                {pageRows.map((r, idx) => (
-                  <tr key={idx}>
-                    <td className="mono date-cell">{r.date}</td>
-                    <td className="numbers-cell" aria-label="Numbers">
-                      <span className="num-bubble">{r.n1}</span>
-                      <span className="num-bubble">{r.n2}</span>
-                      <span className="num-bubble">{r.n3}</span>
-                      <span className="num-bubble">{r.n4}</span>
-                      <span className="num-bubble">{r.n5}</span>
-                    {hasSpecial && (
-                        <>
-                          <span className="numbers-sep" aria-hidden="true">|</span>
-                          <span
-                            className="num-bubble num-bubble--special"
-                            title={
-                              game === 'multi_powerball'    ? 'Powerball' :
-                              game === 'multi_megamillions' ? 'Mega Ball' :
-                              game === 'multi_cash4life'    ? 'Cash Ball' : 'Special'
-                            }
-                          >
-                            <span className="sr-only">
-                              {game === 'multi_powerball'    ? 'Powerball ' :
-                               game === 'multi_megamillions' ? 'Mega Ball ' :
-                               game === 'multi_cash4life'    ? 'Cash Ball ' : 'Special '}
+                {pageRows.map((r, idx) => {
+                  // Build the displayed sequence per row
+                  let seq: number[] = [];
+                  if (isDigits) {
+                    // Use only valid digits 0–9; ignore zero padding, cap to digitLen
+                    const cand = [r.n1, r.n2, r.n3, r.n4, r.n5]
+                      .filter(n => Number.isFinite(n) && n >= 0 && n <= 9);
+                    seq = cand.slice(0, digitLen);
+                  } else {
+                    seq = [r.n1, r.n2, r.n3, r.n4, r.n5].filter(n => Number.isFinite(n));
+                  }
+                  return (
+                    <tr key={idx}>
+                      <td className="mono date-cell">{r.date}</td>
+                      <td className="numbers-cell" aria-label={isDigits ? 'Digits' : 'Numbers'}>
+                        {seq.map((n,i)=>(
+                          <span className="num-bubble" key={i}>{n}</span>
+                        ))}
+                        {!isDigits && hasSpecial && (
+                          <>
+                            <span className="numbers-sep" aria-hidden="true">|</span>
+                            <span
+                              className="num-bubble num-bubble--special"
+                              title={
+                                game === 'multi_powerball'    ? 'Powerball' :
+                                game === 'multi_megamillions' ? 'Mega Ball' :
+                                game === 'multi_cash4life'    ? 'Cash Ball' : 'Special'
+                              }
+                            >
+                              <span className="sr-only">
+                                {game === 'multi_powerball'    ? 'Powerball ' :
+                                 game === 'multi_megamillions' ? 'Mega Ball ' :
+                                 game === 'multi_cash4life'    ? 'Cash Ball ' : 'Special '}
+                              </span>
+                              {typeof r.special === 'number' ? r.special : '—'}
                             </span>
-                            {typeof r.special === 'number' ? r.special : '—'}
-                          </span>
-                        </>
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                          </>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
                 {pageRows.length === 0 && (
                   <tr><td colSpan={2} className="hint">No rows.</td></tr>
                 )}

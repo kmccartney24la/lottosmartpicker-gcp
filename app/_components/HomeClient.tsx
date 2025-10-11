@@ -20,7 +20,9 @@ import { useIsMobile } from '@lib/breakpoints';
 
 const AdsLot = dynamic(() => import('src/components/ads/AdsLot'), { ssr: false });
 
-const GAME_OPTIONS: { key: GameKey; label: string }[] = [
+// Canonical draw games only (no scratchers in this client)
+type CanonicalDrawGame = Exclude<GameKey, 'ga_scratchers'>;
+const GAME_OPTIONS: { key: CanonicalDrawGame; label: string }[] = [
   { key: 'multi_powerball',    label: 'Powerball (5/69 + 1/26)' },
   { key: 'multi_megamillions', label: 'Mega Millions (5/70 + 1/24)' },
   { key: 'multi_cash4life',    label: 'Cash4Life (5/60 + Cash Ball 1–4)' },
@@ -28,7 +30,8 @@ const GAME_OPTIONS: { key: GameKey; label: string }[] = [
 ];
 
 export default function HomeClient() {
-  const [game, setGame] = useState<GameKey>('multi_powerball');
+  // Narrow state so SelectedLatest/GameOverview accept it without cast
+  const [game, setGame] = useState<CanonicalDrawGame>('multi_powerball');
   const [rows, setRows] = useState<LottoRow[]>([]);
   const [sortDir, setSortDir] = useState<'desc'|'asc'>('desc');
   const [loading, setLoading] = useState(false);
@@ -39,7 +42,8 @@ export default function HomeClient() {
   const drawerMode = isMobile;
   const [page, setPage] = useState(1);
   const pageSize = 25;
-  const [analysisByGame, setAnalysisByGame] = useState<Partial<Record<GameKey, any>>>({});
+  const [analysisByGame, setAnalysisByGame] =
+    useState<Partial<Record<CanonicalDrawGame, any>>>({});
 
   const sortedRows = useMemo(() => {
     const arr = [...rows];
@@ -102,7 +106,7 @@ export default function HomeClient() {
                   <select
                     aria-label="Select game"
                     value={game}
-                    onChange={(e) => setGame(e.target.value as GameKey)}
+                    onChange={(e) => setGame(e.target.value as CanonicalDrawGame)}
                     className="compact-control"
                   >
                     {GAME_OPTIONS.map(opt => (
@@ -125,8 +129,12 @@ export default function HomeClient() {
                     game={game}
                     rowsForGenerator={rowsForGenerator}
                     analysisForGame={analysisByGame[game] ?? null}
-                    anLoading={false}
-                    onEnsureRecommended={ensureRecommendedForSelected}
+                    anLoading={loading}
+                    onEnsureRecommended={async () => {
+                      const sinceEra = getCurrentEraConfig(game).start;
+                      const rows = await fetchRowsWithCache({ game, since: sinceEra });
+                      return analyzeGame(rows, game);
+                    }}
                   />
                 </div>
                 <div className="ad-slot ad-slot--rect-280" aria-label="Advertisement">
@@ -134,8 +142,12 @@ export default function HomeClient() {
                 </div>
               </section>
               <section className="vstack vstack--4">
-                <div><HintLegend /></div>
-                <div><AnalyzeSidebar /></div>
+                <div><HintLegend game={game} /></div>
+                <div><AnalyzeSidebar
+                      title="Analysis (All Games)"
+                      canonical={['multi_powerball','multi_megamillions','multi_cash4life','ga_fantasy5']}
+                      logical={[]}
+                    /></div>
               </section>
             </div>
 

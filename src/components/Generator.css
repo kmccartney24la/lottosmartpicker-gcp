@@ -59,6 +59,34 @@
   flex-wrap: wrap;
 }
 
+/* Keep the checkbox tap target tight */
+.generator-checkbox-row {
+  display: inline-flex;           /* keep it tight like inline content */
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: nowrap;              /* prevent wrapping onto a new line */
+}
+.generator-checkbox-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  cursor: pointer;
+  white-space: nowrap;            /* keep checkbox + text together */
+}
+.generator-checkbox-label > input {
+  inline-size: 1.1rem;
+  block-size: 1.1rem;
+}
+.generator-info-inline {
+  display: inline-flex;
+  align-items: center;
+  line-height: 1;                 /* keep the icon vertically centered */
+}
+/* extra safety: don't let clicks bubble back to the label on some browsers */
+.generator-info-inline * {
+  pointer-events: auto;
+}
+
 .generator-checkbox-label {
   display: flex;
   align-items: center;

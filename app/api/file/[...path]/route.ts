@@ -7,7 +7,7 @@ export const runtime = "nodejs";          // needs metadata server
 export const dynamic = "force-dynamic";   // stream bytes, not statically optimized
 
 const BUCKET = process.env.DATA_BUCKET ?? "lottosmartpicker-data";
-const ALLOWLIST = (process.env.DATA_PREFIX_ALLOWLIST ?? "ga/,multi/,scratchers/")
+const ALLOWLIST = (process.env.DATA_PREFIX_ALLOWLIST ?? "ga/,ny/,multi/,scratchers/")
   .split(",").map(s => s.trim()).filter(Boolean);
 
 function allowed(key: string) {

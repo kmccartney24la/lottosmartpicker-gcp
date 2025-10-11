@@ -11,6 +11,27 @@ import { buildFantasy5CsvFromLocalSeed } from "./builders/fantasy5.js";
 import { buildSocrataCsv } from "./builders/socrata.js";
 import { buildGaScratchersIndex } from "./builders/scratchers_ga.js";
 
+// ---------- socrata job matrix ----------
+// Keys must exist in scripts/builders/socrata.ts DATASETS.
+// Each entry produces one CSV in GCS.
+const SOCRATA_JOBS: Array<{ key: string; objectPath: string }> = [
+  // Multi-state
+  { key: "multi_powerball",     objectPath: "multi/powerball.csv" },
+  { key: "multi_megamillions",  objectPath: "multi/megamillions.csv" },
+  { key: "multi_cash4life",     objectPath: "multi/cash4life.csv" },
+
+  // New York draw games
+  { key: "ny_nylotto",          objectPath: "ny/nylotto.csv" },
+  { key: "ny_numbers_midday",   objectPath: "ny/numbers_midday.csv" },
+  { key: "ny_numbers_evening",  objectPath: "ny/numbers_evening.csv" },
+  { key: "ny_win4_midday",      objectPath: "ny/win4_midday.csv" },
+  { key: "ny_win4_evening",     objectPath: "ny/win4_evening.csv" },
+  { key: "ny_pick10",           objectPath: "ny/pick10.csv" },
+  { key: "ny_take5_midday",     objectPath: "ny/take5_midday.csv" },
+  { key: "ny_take5_evening",    objectPath: "ny/take5_evening.csv" },
+  { key: "ny_quick_draw",       objectPath: "ny/quick_draw.csv" },
+];
+
 
 // ---------- utils ----------
 const BOOL = (v: unknown): boolean => {
@@ -53,41 +74,21 @@ export async function main(): Promise<void> {
     `[update-csvs] Flags: skipSocrata=${skipSocrata} skipF5=${skipF5} skipScratchers=${skipScratch}`
   );
 
-  // --- Draws: Socrata (PB/MM/C4L) ---
+  // --- Draws: Socrata (Multi-state + New York) ---
   if (!skipSocrata) {
     if (!socrataToken) {
       throw new Error(
         "[update-csvs] Missing NY_SOCRATA_APP_TOKEN/SOCRATA_APP_TOKEN while SKIP_SOCRATA=0"
       );
     }
-    await Promise.all([
-      (async () => {
-        const csv = await buildSocrataCsv("multi_powerball", socrataToken);
-        await maybeUploadCsv({
-          bucketName: bucket,
-          objectPath: "multi/powerball.csv",
-          fullCsv: csv,
-        });
-      })(),
-      (async () => {
-        const csv = await buildSocrataCsv("multi_megamillions", socrataToken);
-        await maybeUploadCsv({
-          bucketName: bucket,
-          objectPath: "multi/megamillions.csv",
-          fullCsv: csv,
-        });
-      })(),
-      (async () => {
-        const csv = await buildSocrataCsv("multi_cash4life", socrataToken);
-        await maybeUploadCsv({
-          bucketName: bucket,
-          objectPath: "multi/cash4life.csv",
-          fullCsv: csv,
-        });
-      })(),
-    ]);
+    await Promise.all(
+      SOCRATA_JOBS.map(async ({ key, objectPath }) => {
+        const csv = await buildSocrataCsv(key as any, socrataToken);
+        await maybeUploadCsv({ bucketName: bucket, objectPath, fullCsv: csv });
+      })
+    );
   } else {
-    console.log("[update-csvs] SKIP_SOCRATA=1 — skipping PB/MM/C4L");
+    console.log("[update-csvs] SKIP_SOCRATA=1 — skipping all Socrata-driven draws (multi + NY)");
   }
 
   // --- Draws: GA Fantasy 5 ---

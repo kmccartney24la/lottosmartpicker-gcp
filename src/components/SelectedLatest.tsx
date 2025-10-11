@@ -7,13 +7,16 @@ import {
   computeStats, filterRowsForCurrentEra, ticketHints
 } from '@lib/lotto';
 import Pill from 'src/components/Pill';
-import { HINT_EXPLAIN, classifyHint } from 'src/components/hints';
+import { HINT_EXPLAIN, classifyHint, displayHint } from 'src/components/hints';
+
+// Canonical-only; never used for scratchers
+type CanonicalDrawGame = Exclude<GameKey, 'ga_scratchers'>;
 
 export default function SelectedLatest({
   game,
   onOpenPastDraws,
   showPast,
-}: { game: GameKey; onOpenPastDraws?: () => void; showPast?: boolean }) {
+}: { game: CanonicalDrawGame; onOpenPastDraws?: () => void; showPast?: boolean }) {
   const [row, setRow] = useState<LottoRow | null>(null);
   const [latestTags, setLatestTags] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
@@ -23,14 +26,13 @@ export default function SelectedLatest({
       try {
         setBusy(true);
         const since = getCurrentEraConfig(game).start;
-        // Fetch current-era rows (not latestOnly) so we can compute stats like Generator.
-        const rows = await fetchRowsWithCache({ game, since });
+        // fetchRowsWithCache already returns current-era rows
+        const rows = await fetchRowsWithCache({ game, since: getCurrentEraConfig(game).start });
         if (!alive) return;
-        const filtered = filterRowsForCurrentEra(rows, game);
-        const latest = filtered.length ? filtered[filtered.length - 1] : null;
+        const latest = rows.length ? rows[rows.length - 1] : null;
         setRow(latest);
         if (latest) {
-          const s = computeStats(filtered, game, getCurrentEraConfig(game));
+          const s = computeStats(rows, game, getCurrentEraConfig(game));
           const mains = [latest.n1, latest.n2, latest.n3, latest.n4, latest.n5];
           const spec = typeof latest.special === 'number' ? latest.special : 0;
           setLatestTags(ticketHints(game, mains, spec, s));
@@ -87,7 +89,7 @@ export default function SelectedLatest({
                 const title = HINT_EXPLAIN?.[label];
                 return (
                   <Pill key={label} tone={tone as any} title={title} wrap>
-                    {label}
+                    {displayHint(label)}
                   </Pill>
                 );
               })}
