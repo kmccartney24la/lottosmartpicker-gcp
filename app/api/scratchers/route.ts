@@ -6,10 +6,12 @@ import { GoogleAuth } from 'google-auth-library';
 import { filters, sorters, ActiveGame, ScratchersIndexPayload, SortKey } from '@lib/scratchers';
 
 const BUCKET = process.env.DATA_BUCKET ?? 'lottosmartpicker-data';
-const INDEX_CANDIDATES = [
-  'ga/scratchers/index.latest.json',
-  'ga/scratchers/index.json',
-];
+function indexCandidatesFor(j: 'ga'|'ny') {
+  return [
+    `${j}/scratchers/index.latest.json`,
+    `${j}/scratchers/index.json`,
+  ];
+}
 function mediaUrl(bucket: string, key: string) {
   return `https://storage.googleapis.com/storage/v1/b/${encodeURIComponent(bucket)}/o/${encodeURIComponent(key)}?alt=media`;
 }
@@ -50,6 +52,9 @@ async function token() {
 
 export async function GET(request: NextRequest) {
   try {
+    const jParam = (request.nextUrl.searchParams.get('j') || 'ga').toLowerCase();
+    const j: 'ga'|'ny' = jParam === 'ny' ? 'ny' : 'ga';
+    const INDEX_CANDIDATES = indexCandidatesFor(j);
     // Same-origin: fetch index directly from private GCS
     let data: ScratchersIndexPayload | undefined;
     let source = '';
@@ -111,7 +116,7 @@ export async function GET(request: NextRequest) {
     }
 
     return NextResponse.json(
-      { ...data, games, count: games.length, source },
+      { ...data, games, count: games.length, source, jurisdiction: j },
       {
         headers: {
           // upstream fetch is no-store; allow brief caching of this response

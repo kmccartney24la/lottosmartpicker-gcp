@@ -3,6 +3,7 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as fssync from "node:fs";
+import { pathToFileURL } from "node:url";
 import mri from "mri";
 import pLimit from "p-limit";
 import { chromium } from "playwright";
@@ -18,6 +19,7 @@ import {
   loadManifest,
   saveManifest,
   setHostingOptions,
+  putJsonObject,
 } from "./image_hosting.js";
 
 // Boot banner
@@ -1407,49 +1409,39 @@ async function main() {
     await writeJson("index.json", payload);
     console.log(`Wrote ${gamesSorted.length} active games → ${latest}`);
 
+    // Unified storage publish (GCS/R2/FS discovered in image_hosting.ts)
     if (TASK_CNT === 1 || isCoordinator) {
       try {
-        const bucketName = process.env.GCS_BUCKET;
-        if (bucketName) {
-          const gcs = new GCSStorage();
-          const b = gcs.bucket(bucketName);
-          const body = JSON.stringify(payload);
-
-          await b.file("ga/scratchers/index.latest.json").save(body, {
-            resumable: false,
-            metadata: { contentType: "application/json", cacheControl: "no-cache" },
-          });
-          await b.file("ga/scratchers/index.json").save(body, {
-            resumable: false,
-            metadata: { contentType: "application/json", cacheControl: "public, max-age=300" },
-          });
-
-          console.log(`[publish] index → gs://${bucketName}/ga/scratchers/ (by shard ${TASK_IDX}/${TASK_CNT})`);
-        } else {
-          console.warn("[publish] GCS_BUCKET not set; skipping index upload");
-        }
+        await putJsonObject({
+          key: "ga/scratchers/index.json",
+          data: payload,
+          cacheControl: "public, max-age=300",
+          dryRun: !!argv["dry-run"],
+        });
+        await putJsonObject({
+          key: "ga/scratchers/index.latest.json",
+          data: payload,
+          cacheControl: "no-store",
+          dryRun: !!argv["dry-run"],
+        });
+        console.log(`[publish] index → (provider: ${process.env.GCS_BUCKET ? "GCS" : process.env.CLOUDFLARE_ACCOUNT_ID ? "R2" : "FS"})`);
       } catch (e) {
-        console.warn(`[publish] failed to upload index: ${(e as Error).message}`);
+        console.warn(`[publish] failed (putJsonObject): ${(e as Error).message}`);
       }
     } else {
       console.log(`[publish] non-coordinator shard ${TASK_IDX}/${TASK_CNT}; skipping final index publish`);
     }
 
-    const bucket = process.env.GCS_BUCKET;
+    // Optional: keep legacy GCS sync for non-index debug artifacts (if bucket present)
+    const bucket = process.env.GCS_BUCKET || undefined;
     const prefix = process.env.GCS_PREFIX || "ga/scratchers";
     if (bucket) {
       try {
         const n = await syncDirToGCS(OUT_DIR, bucket, prefix);
-        console.log(`[publish] uploaded ${n} objects to gs://${bucket}/${prefix}/`);
-        const pub = process.env.PUBLIC_BASE_URL;
-        if (pub) {
-          console.log(`[publish] latest index: ${pub.replace(/\/+$/, "")}/${prefix}/index.latest.json`);
-        }
+        console.log(`[publish] uploaded ${n} objects to gs://${bucket}/${prefix}/ (non-index artifacts)`);
       } catch (e) {
         console.warn(`[publish] GCS sync failed: ${(e as Error).message}`);
       }
-    } else {
-      console.log(`[publish] GCS_BUCKET not set; skipping upload.`);
     }
   } finally {
     await maybeStopTracing(context, "_debug_trace.zip");
@@ -1461,8 +1453,17 @@ async function main() {
   }
 }
 
-// ESM-safe CLI guard
-if (import.meta.url === `file://${process.argv[1]}`) {
+// ESM-safe CLI guard (cross-platform: normalize argv[1] to a file URL)
+try {
+  const invoked = process.argv[1] ? pathToFileURL(path.resolve(process.argv[1])).href : "";
+  if (import.meta.url === invoked) {
+    main().catch((err) => {
+      console.error(err);
+      process.exit(1);
+    });
+  }
+} catch {
+  // Fallback: try to run anyway if guard resolution fails
   main().catch((err) => {
     console.error(err);
     process.exit(1);

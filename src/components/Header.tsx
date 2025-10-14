@@ -1,16 +1,27 @@
 // src/components/Header.tsx
 'use client';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import ThemeSwitcher from './ThemeSwitcher';
 import * as React from 'react';
 import './Header.css';
+import {
+  type StateKey,
+  stateFromPath,
+  sectionFromPath,
+  routeFor,
+  getStoredState,
+  storeState,
+} from 'lib/state';
 
 export default function Header() {
   const headerRef = React.useRef<HTMLElement>(null);
+  const titleWrapRef = React.useRef<HTMLSpanElement>(null); // points to .brand__subtitle
+  const titleBoxRef = React.useRef<HTMLSpanElement>(null);  // points to .brand__title-box
   const pathname = usePathname();
-  const isDraw = pathname === '/' || pathname.startsWith('/draws');
-  const isScratchers = pathname.startsWith('/scratchers');
+  const router = useRouter();
+  const section = sectionFromPath(pathname || '/');
+  const [activeState, setActiveState] = React.useState<StateKey>(stateFromPath(pathname || '/'));
   const detailsRef = React.useRef<HTMLDetailsElement>(null);
   const tabDrawRef = React.useRef<HTMLAnchorElement>(null);
   const tabScratchRef = React.useRef<HTMLAnchorElement>(null);
@@ -26,6 +37,19 @@ export default function Header() {
     } catch {}
   }, []);
 
+  // On mount, prefer stored state ONLY for where tabs/links point to (URL still wins for content)
+  React.useEffect(() => {
+    const stored = getStoredState(activeState);
+    if (stored !== activeState) setActiveState(stored);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Derived hrefs for tabs / menu (based on the switcher-selected state)
+  const hrefDraws = routeFor(activeState, 'draws');
+  const hrefScratchers = routeFor(activeState, 'scratchers');
+  const isDraw = (pathname || '/') === hrefDraws;
+  const isScratchers = (pathname || '/') === hrefScratchers;
+
   // Measure total header height → expose as --header-total-h (px)
   React.useLayoutEffect(() => {
     const el = headerRef.current;
@@ -40,6 +64,42 @@ export default function Header() {
     el.style.setProperty('--header-total-h', `${h}px`);
     return () => ro.disconnect();
   }, []);
+
+  // Measure title box and badge to compute a fixed max width for the subtitle
+  React.useLayoutEffect(() => {
+    const box = titleBoxRef.current;
+    const wrap = titleWrapRef.current;
+    if (!box || !wrap) return;
+
+    const compute = () => {
+      const badge = box.querySelector('.title-badge') as HTMLElement | null;
+      const boxW = Math.ceil(box.offsetWidth || 0);
+      const badgeW = Math.ceil(badge?.offsetWidth || 0);
+      // Read CSS token for desired fixed gap (falls back to 12px if missing)
+      const cs = getComputedStyle(wrap);
+      const gapToken = cs.getPropertyValue('--subtitle-gap').trim();
+      const gap =
+        gapToken.endsWith('px')
+          ? parseFloat(gapToken)
+          : (Number.parseFloat(gapToken) || 12);
+      // Available area is title width minus badge width (container ends at badge).
+      // The *visual* gap is added via padding-inline-end in CSS using --subtitle-gap.
+      const area = Math.max(0, boxW - badgeW);
+      wrap.style.setProperty('--subtitle-area-w', `${area}px`);
+    };
+
+    // Initial compute + observers for dynamic changes (font load, resize, state switch)
+    compute();
+    const ro = new ResizeObserver(compute);
+    ro.observe(box);
+    // Also recompute on window resize
+    window.addEventListener('resize', compute);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('resize', compute);
+    };
+  }, [activeState]);
+
 
   // Close the hamburger when clicking anywhere outside it
   React.useEffect(() => {
@@ -89,9 +149,16 @@ export default function Header() {
             loading="eager"
           />
           <span className="brand__title-wrap">
-            <h1 className="brand__title brand__title--xl">LottoSmartPicker 9000</h1>
-            {/* playslip-style twin badge, right-aligned to title */}
-            <span className="title-badge" aria-hidden />
+            {/* A box that is sized ONLY by the title; badge anchors to its right edge */}
+            <span className="brand__title-box" ref={titleBoxRef}>
+              <h1 className="brand__title brand__title--xl">LottoSmartPicker 9000</h1>
+              {/* playslip-style twin badge, right-aligned to title */}
+              <span className="title-badge" aria-hidden />
+            </span>
+            {/* Subtitle appears to the left of (i.e., before) where the badge drops under */}
+            <span className="brand__subtitle" aria-live="polite" ref={titleWrapRef}>
+              {activeState === 'ny' ? 'New York' : 'Georgia'}
+            </span>
           </span>
         </Link>
       </div>
@@ -102,10 +169,30 @@ export default function Header() {
         aria-label="Primary & theme"
         style={navItemW ? ({ ['--navItemW' as any]: `${navItemW}px` }) : undefined}
       >
+        {/* State switcher — left-aligned with page content, square like the hamburger */}
+        <div className="state-wrap">
+          <label className="visually-hidden" htmlFor="state-select">State</label>
+          <select
+            id="state-select"
+            className="state-select"
+            aria-label="State"
+            value={activeState}
+            onChange={(e) => {
+              const next = (e.target.value as StateKey) || 'ga';
+              storeState(next);
+              setActiveState(next);
+              const target = routeFor(next, section);
+              router.push(target);
+            }}
+          >
+            <option value="ga">GA</option>
+            <option value="ny">NY</option>
+          </select>
+        </div>
         {/* Inline pills (wrap; aligned to the right side) */}
         <nav className="nav-inline" aria-label="Primary">
-          <HeaderTab href="/" active={isDraw} refEl={tabDrawRef}>Draw Games</HeaderTab>
-          <HeaderTab href="/scratchers" active={isScratchers} refEl={tabScratchRef}>GA Scratchers</HeaderTab>
+          <HeaderTab href={hrefDraws} active={isDraw} refEl={tabDrawRef}>Draw Games</HeaderTab>
+          <HeaderTab href={hrefScratchers} active={isScratchers} refEl={tabScratchRef}>Scratchers</HeaderTab>
         </nav>
         {/* Right controls: Theme + Hamburger (stacked on mobile, aligned right) */}
         <div className="right-ctrls">
@@ -129,11 +216,11 @@ export default function Header() {
             <span className="visually-hidden">Menu</span>
           </summary>
           <div className="nav-sheet" id="primary-menu" role="menu">
-            <Link href="/" role="menuitem" aria-current={isDraw ? 'page' : undefined} className="sheet-link">
+            <Link href={hrefDraws} role="menuitem" aria-current={isDraw ? 'page' : undefined} className="sheet-link">
               Draw Games
             </Link>
-            <Link href="/scratchers" role="menuitem" aria-current={isScratchers ? 'page' : undefined} className="sheet-link">
-              GA Scratchers
+            <Link href={hrefScratchers} role="menuitem" aria-current={isScratchers ? 'page' : undefined} className="sheet-link">
+              Scratchers
             </Link>
             {/* Theme remains visible in-row on mobile; keep this hidden */}
             <div className="sheet-theme theme-in-sheet" role="menuitem" />

@@ -38,6 +38,18 @@ export async function saveDebug(page: Page, basename: string) {
   } catch {}
 }
 
+export function cleanText(s?: string | null): string {
+  return String(s ?? "").replace(/\u00A0/g, " ").replace(/\s+/g, " ").trim();
+}
+
+export function parseIntLoose(s?: string | null): number | null {
+  if (!s) return null;
+  const m = String(s).match(/-?\d[\d,]*/);
+  if (!m) return null;
+  const n = Number(m[0].replace(/,/g, ""));
+  return Number.isFinite(n) ? n : null;
+}
+
 type RetryOpts = {
   attempts?: number;
   label?: string;

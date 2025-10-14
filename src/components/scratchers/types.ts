@@ -23,12 +23,14 @@ export type IndexPayload = {
 
 export type SortKey =
   | 'best'
-  | 'adjusted'
-  | 'odds'
+  | 'name'
+  | 'startDate'
   | 'price'
+  | 'odds'
+  | 'adjusted'
   | 'topPrizeValue'
   | 'topPrizesRemain'
   | '%topAvail'
-  | 'name'
-  | 'startDate';
+  | 'totalPrizesRemain'
+  | '%totalAvail';
   

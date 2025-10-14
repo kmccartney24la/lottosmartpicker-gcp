@@ -49,7 +49,8 @@ export type EraGame =
   | 'multi_megamillions'
   | 'multi_cash4life'
   | 'ga_fantasy5'
-  | 'ny_take5';
+  | 'ny_take5'
+  | 'ny_lotto';
 
 // Games that we fetch from Socrata (NY Open Data).
 export type SocrataGame =
@@ -123,6 +124,8 @@ const isMultiGame = (g: GameKey) =>
 function resolveEraGame(game: GameKey): EraGame {
   // Twice-daily Take 5 representatives & underlying collapse to 'ny_take5'
   if (game === 'ny_take5' || game === 'ny_take5_midday' || game === 'ny_take5_evening') return 'ny_take5';
+  // NY Lotto maps to its own era (6 + Bonus)
+  if (game === 'ny_lotto' || game === 'ny_nylotto') return 'ny_lotto';
   // All multi-state & GA Fantasy 5 are already EraGame members
   if (game === 'multi_powerball' || game === 'multi_megamillions' || game === 'multi_cash4life' || game === 'ga_fantasy5') {
     return game;
@@ -399,7 +402,7 @@ export const CURRENT_ERA: Record<EraGame, EraConfig> = {
       'Mega Millions’ current matrix took effect on Apr 8, 2025: 5 mains from 1–70 and Mega Ball 1–24 (reduced from 25).',
   },
   multi_cash4life: {
-    start: '2014-07-01', // conservative lower bound; matrix unchanged since launch in 2014 per NY Open Data
+    start: '2014-06-16', // conservative lower bound; matrix unchanged since launch in 2014 per NY Open Data
     mainMax: 60,
     specialMax: 4,
     mainPick: 5,
@@ -425,6 +428,16 @@ export const CURRENT_ERA: Record<EraGame, EraConfig> = {
     description:
       'NY Take 5: 5 mains from 1–39, no bonus ball. Draws twice daily (midday/evening).',
   },
+  ny_lotto: {
+    // NY Lotto has been 6-from-59 + Bonus (59) for the modern era.
+    start: '2001-09-12', // safe lower bound; adjust if you later version eras
+    mainMax: 59,
+    specialMax: 59,       // use the same domain for the Bonus UI
+    mainPick: 6,          // ← key change: six mains
+    label: '6/59 + Bonus (1–59)',
+    description:
+      'NY Lotto: 6 mains from 1–59 plus a Bonus ball (also 1–59). Jackpot odds = C(59,6); Bonus used for 2nd prize.',
+  },
 };
 
 export function getCurrentEraConfig(game: GameKey): EraConfig {
@@ -434,7 +447,8 @@ export function getCurrentEraConfig(game: GameKey): EraConfig {
 export function filterRowsForCurrentEra(rows: LottoRow[], game: GameKey): LottoRow[] {
   const eraKey = resolveEraGame(game);
   const era = CURRENT_ERA[eraKey];
-  return rows.filter(r => r.game === game && r.date >= era.start);
+  // Accept any row whose game resolves to the same era group (handles ny_lotto vs ny_nylotto, take5 rep vs underlying, etc.)
+  return rows.filter(r => resolveEraGame(r.game) === eraKey && r.date >= era.start);
 }
 
 export function eraTooltipFor(game: GameKey): string {
@@ -732,7 +746,13 @@ function toLottoShim(fr: FlexibleRow, rep: GameKey): LottoRow {
     fr.values[3] || 0,
     fr.values[4] || 0,
   ];
-  return { game: rep, date: fr.date, n1, n2, n3, n4, n5, special: fr.special };
+  // For NY Lotto, preserve the 6th MAIN inside `special` so stats can count 6 mains
+  // (Bonus will be fetched separately for Past Draws via extended fetcher).
+  const sixth = fr.values[5];
+  const special = (rep === 'ny_lotto' && Number.isFinite(sixth))
+    ? Number(sixth)
+    : fr.special;
+  return { game: rep, date: fr.date, n1, n2, n3, n4, n5, special };
 }
 
 // ---- New: fetchers for digits (Numbers/Win4) and Pick 10 ----
@@ -813,6 +833,7 @@ export async function fetchLogicalRows(opts: {
   const canonical = keys.filter(isCanonicalUnderlying);
   const REP_FOR_LOGICAL: Partial<Record<LogicalGameKey, GameKey>> = {
     ny_take5: 'ny_take5', // use Take 5’s own era (5/39, no bonus)
+    ny_lotto: 'ny_lotto',
   };
   const rep: GameKey = canonical[0] ?? REP_FOR_LOGICAL[logical] ?? 'multi_cash4life';
 
@@ -937,9 +958,19 @@ export function computeStats(
   const totalDraws = rows.length;
   const reversed = [...rows].reverse();
   reversed.forEach((d, idx)=>{
+    // Base mains from the canonical 5 fields
     const mains=[d.n1,d.n2,d.n3,d.n4,d.n5];
+    // NY Lotto: treat the stored `special` as the 6th MAIN for stats purposes
+    if ((overrideCfg?.mainPick ?? getCurrentEraConfig(game).mainPick) > 5
+        && (game === 'ny_lotto' || game === 'ny_nylotto')
+        && typeof d.special === 'number') {
+      mains.push(d.special);
+    }
     mains.forEach(m=>{countsMain.set(m,(countsMain.get(m)||0)+1); lastSeenMain.set(m, Math.min(lastSeenMain.get(m)||Infinity, idx));});
-    if (cfg.specialMax > 0 && typeof d.special === 'number') {
+    // For NY Lotto we do NOT treat Bonus as special in stats (it lives outside LottoRow here).
+    if (cfg.specialMax > 0
+        && typeof d.special === 'number'
+        && !(game === 'ny_lotto' || game === 'ny_nylotto')) {
       countsSpecial.set(d.special,(countsSpecial.get(d.special)||0)+1);
       lastSeenSpecial.set(d.special, Math.min(lastSeenSpecial.get(d.special)||Infinity, idx));
     }
@@ -1497,6 +1528,24 @@ export function jackpotOddsForLogical(logical: LogicalGameKey): number | null {
     default:
       return null;
   }
+}
+
+// ---------- NY Lotto: extended rows (6 mains + bonus) for Past Draws ----------
+export type NyLottoExtendedRow = { date: string; mains: number[]; bonus: number };
+export async function fetchNyLottoExtendedRows(): Promise<NyLottoExtendedRow[]> {
+  const url = apiPathForUnderlying('ny_nylotto');
+  const res = await fetch(url, { cache: 'no-store', next: { revalidate: 0 } as any });
+  if (!res.ok) return [];
+  const csv = await res.text();
+  const flex = parseFlexibleCsv(csv); // ascending
+  return flex.map(fr => {
+    const vals = fr.values.filter(Number.isFinite).map(Number);
+    const mains = vals.slice(0, 6);
+    const bonus = Number.isFinite(fr.special) ? (fr.special as number) : (Number.isFinite(vals[6]) ? vals[6] : NaN);
+    return (mains.length === 6 && Number.isFinite(bonus))
+      ? { date: fr.date, mains, bonus: bonus as number }
+      : null;
+  }).filter(Boolean) as NyLottoExtendedRow[];
 }
 
 // Spots-aware odds for Quick Draw (hit-all top prize)

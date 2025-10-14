@@ -60,6 +60,8 @@ steps:
             /app/dist/lib/gcs.mjs \
             /app/dist/lib/csv.mjs \
             /app/dist/scripts/scratchers/fetch_ga_scratchers.js \
+            /app/dist/scripts/scratchers/fetch_ny_scratchers.js \
+            /app/dist/scripts/scratchers/run_all.js \
             /app/dist/scripts/update_csvs.js \
           ; do
             if [ ! -e "$p" ]; then echo "MISSING: $p" && exit 1; fi
@@ -146,9 +148,9 @@ steps:
           --image "${_TAG}" \
           --update-labels "gcb-build=${BUILD_ID}" \
           --command "/usr/local/bin/node" \
-          --args "dist/scripts/scratchers/fetch_ga_scratchers.js,--seed,--concurrency=4" \
+          --args "dist/scripts/scratchers/run_all.js,--concurrency=4" \
           --cpu 2 --memory 8Gi --tasks 1 --parallelism 1 --task-timeout 7200s --max-retries 1 \
-          --set-env-vars "NODE_OPTIONS=--trace-uncaught --trace-warnings --unhandled-rejections=strict,PUBLIC_BASE_URL=${_PUBLIC_BASE_URL},GCS_BUCKET=lottosmartpicker-data,SCRATCHERS_PREFIX=ga/scratchers,OUTPUT_PREFIX=ga/scratchers,PLAYWRIGHT_BROWSERS_PATH=/ms-playwright,CHROMIUM_ARGS=--no-sandbox --disable-dev-shm-usage --disk-cache-dir=/tmp/chrome-cache --renderer-process-limit=2 --disable-gpu --disable-software-rasterizer,XDG_CACHE_HOME=/app/.cache"
+          --set-env-vars "NODE_OPTIONS=--trace-uncaught --trace-warnings --unhandled-rejections=strict,PUBLIC_BASE_URL=${_PUBLIC_BASE_URL},GCS_BUCKET=lottosmartpicker-data,DATA_BUCKET=lottosmartpicker-data,PLAYWRIGHT_BROWSERS_PATH=/ms-playwright,CHROMIUM_ARGS=--no-sandbox --disable-dev-shm-usage --disk-cache-dir=/tmp/chrome-cache --renderer-process-limit=2 --disable-gpu --disable-software-rasterizer,XDG_CACHE_HOME=/app/.cache"
 
   - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
     id: "Update job: update-csvs"

@@ -4,14 +4,69 @@ import * as path from "node:path";
 import * as crypto from "node:crypto";
 import { Buffer } from "node:buffer";
 import { fetch as undiciFetch } from "undici";
-import type { RequestInit, HeadersInit } from "undici";
+import type { RequestInit, HeadersInit, Response as UndiciResponse } from "undici";
 import { S3Client, PutObjectCommand, HeadObjectCommand } from "@aws-sdk/client-s3";
 import { Storage } from "@google-cloud/storage";
 import { chromium } from "playwright";
 
 // ---- one-time capability probes (top-level; used for logging & defaults)
-const HAVE_GCS: boolean =
-  !!process.env.GCS_BUCKET && !!process.env.PUBLIC_BASE_URL;
+// ---- one-time capability probes (top-level; used for logging & defaults)
+function deriveBucketFromPublicBaseUrl(pub?: string): string | undefined {
+  const u = (pub || "").trim();
+  if (!u) return undefined;
+  try {
+    const url = new URL(u);
+    // Accept canonical Google Cloud Storage domain formats
+    //  - https://storage.googleapis.com/<bucket>
+    //  - https://<bucket>.storage.googleapis.com
+    if (url.hostname === "storage.googleapis.com") {
+      const seg = url.pathname.replace(/^\/+/, "").split("/")[0] || "";
+      return seg || undefined;
+    }
+    const m = url.hostname.match(/^([^.]+)\.storage\.googleapis\.com$/i);
+    if (m) return m[1];
+  } catch {}
+  return undefined;
+}
+
+// -------- GCS / R2 discovery (portable across local + jobs) --------
+function resolveBucketAndPublicBase() {
+  // Accept either GCS_BUCKET or DATA_BUCKET as the bucket name.
+  const envBucket =
+    process.env.GCS_BUCKET ||
+    process.env.DATA_BUCKET ||
+    "";
+
+  // Prefer PUBLIC_BASE_URL if present. Else try the Next public fallbacks.
+  const envPublicBase =
+    (process.env.PUBLIC_BASE_URL ||
+     process.env.NEXT_PUBLIC_DATA_BASE_URL ||
+     process.env.NEXT_PUBLIC_DATA_BASE ||
+     "").replace(/\/+$/, "");
+
+  // If PUBLIC_BASE_URL is set, try to derive bucket from it if no bucket env.
+  const derivedFromPublic = deriveBucketFromPublicBaseUrl(envPublicBase) || "";
+
+  // Final bucket: explicit > derived-from-public > empty
+  const bucket = envBucket || derivedFromPublic || "";
+
+  // Final public base:
+  //   - If PUBLIC_BASE_URL present, use it (custom CDN supported)
+  //   - Else, if we have a bucket, fall back to the canonical GCS endpoint
+  //   - Else, empty ⇒ FS mode
+  const publicBase =
+    envPublicBase ||
+    (bucket ? `https://storage.googleapis.com/${bucket}` : "");
+
+  return { bucket, publicBase };
+}
+
+const _RESOLVED = resolveBucketAndPublicBase();
+const _BUCKET = _RESOLVED.bucket;
+const _PUB_BASE = _RESOLVED.publicBase;
+const _DERIVED_BUCKET = deriveBucketFromPublicBaseUrl(_PUB_BASE);
+
+const HAVE_GCS: boolean = !!_BUCKET && !!_PUB_BASE;
 const HAVE_R2: boolean =
   !!process.env.CLOUDFLARE_ACCOUNT_ID &&
   !!process.env.R2_ACCESS_KEY_ID &&
@@ -88,25 +143,28 @@ export async function saveManifest(): Promise<void> {
 }
 
 export async function loadManifestFromGCSIfAvailable() {
-  if (!process.env.GCS_BUCKET) return;
+  const bucketName = process.env.GCS_BUCKET || process.env.DATA_BUCKET || _DERIVED_BUCKET;
+  if (!bucketName) return;
   try {
     const storage = new Storage();
-    const f = storage.bucket(process.env.GCS_BUCKET!).file(MANIFEST_GCS_OBJECT);
+    const f = storage.bucket(bucketName!).file(MANIFEST_GCS_OBJECT);
     const [exists] = await f.exists();
     if (!exists) return;
     const [buf] = await f.download();
-    manifestCache = JSON.parse(buf.toString("utf8"));
-    console.log(`[manifest] loaded ${Object.keys(manifestCache).length} entries from GCS`);
+    manifestCache = JSON.parse(buf.toString("utf8")) as Manifest;
+    const count = Object.keys(manifestCache as Manifest).length;
+    console.log(`[manifest] loaded ${count} entries from GCS`);
   } catch (e) {
     console.warn(`[manifest] GCS load skipped: ${String(e)}`);
   }
 }
 
 export async function saveManifestToGCSIfAvailable() {
-  if (!manifestCache || !process.env.GCS_BUCKET) return;
+  const bucketName = process.env.GCS_BUCKET || process.env.DATA_BUCKET || _DERIVED_BUCKET;
+  if (!manifestCache || !bucketName) return;
   try {
     const storage = new Storage();
-    const f = storage.bucket(process.env.GCS_BUCKET!).file(MANIFEST_GCS_OBJECT);
+    const f = storage.bucket(bucketName!).file(MANIFEST_GCS_OBJECT);
     await f.save(Buffer.from(JSON.stringify(manifestCache, null, 2)), {
       resumable: false,
       contentType: "application/json",
@@ -140,15 +198,16 @@ export async function sha256(bytes: Uint8Array): Promise<string> {
   return h.digest("hex");
 }
 
-const DEFAULT_HEADERS: HeadersInit = {
+const DEFAULT_HEADERS: Record<string, string> = {
   "User-Agent":
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125 Safari/537.36",
-  "Accept": "image/png,image/jpeg;q=0.9,*/*;q=0.8",
+  // Prefer PNG/JPEG to avoid implicit WEBP conversions
+  "Accept": "image/png,image/jpeg;q=0.9,*/*;q=0.7",
   "Accept-Language": "en-US,en;q=0.9",
   "Referer": "https://www.galottery.com/",
 };
 
-async function fetchWithRetry(url: string, init?: RequestInit): Promise<Response> {
+async function fetchWithRetry(url: string, init?: RequestInit): Promise<UndiciResponse> {
   const attempts = 3;
   const base = 250; // ms
   let lastErr: any;
@@ -183,9 +242,27 @@ async function fetchWithRetry(url: string, init?: RequestInit): Promise<Response
  * Returns a Node Buffer + contentType string.
  */
 async function fetchBinaryWithHeaders(url: string, init?: RequestInit): Promise<{ buf: Buffer; contentType: string }> {
+  // Choose a sane referer per host (NY blocks foreign referers)
+  let perHostHeaders: Record<string, string> = {};
+  try {
+    const { origin, hostname } = new URL(url);
+    const isNY = /(^|\.)nylottery\.ny\.gov$/i.test(hostname);
+    const isGA = /(^|\.)galottery\.com$/i.test(hostname);
+    perHostHeaders = {
+      Referer: isNY
+        ? "https://nylottery.ny.gov/"
+        : isGA
+        ? "https://www.galottery.com/"
+        : DEFAULT_HEADERS["Referer"],
+      // Some CDNs look at Sec-Fetch-Site; Playwright will set sensible values later too
+    };
+  } catch {}
   // 1) Undici fast path
   try {
-    const res = await fetchWithRetry(url, init);
+    const res = await fetchWithRetry(url, {
+      ...(init || {}),
+      headers: { ...(DEFAULT_HEADERS as HeadersInit), ...(perHostHeaders as HeadersInit), ...(init?.headers as any) },
+    });
     const ct = (res.headers.get("content-type") || "").toLowerCase();
     if (!ct || ct.startsWith("text/html")) throw new Error(`unexpected content-type from undici: ${ct}`);
     const buf = Buffer.from(await res.arrayBuffer());
@@ -201,9 +278,9 @@ async function fetchBinaryWithHeaders(url: string, init?: RequestInit): Promise<
     const context = await browser.newContext({
         userAgent: String(DEFAULT_HEADERS["User-Agent"]),
       extraHTTPHeaders: {
-        "Accept": "image/png,image/jpeg;q=0.9,*/*;q=0.8",
+        "Accept": "image/png,image/jpeg;q=0.9,*/*;q=0.7",
         "Accept-Language": "en-US,en;q=0.9",
-        "Referer": "https://www.galottery.com/",
+        ...(perHostHeaders || {}),
       },
     });
     const page = await context.newPage();
@@ -319,10 +396,14 @@ class GCSProvider implements StorageProvider {
   private publicBase: string;
 
   constructor() {
-    const bucket = process.env.GCS_BUCKET!;
-    const publicBase = (process.env.PUBLIC_BASE_URL || "").replace(/\/+$/, "");
+    const publicBase = _PUB_BASE;
+    const bucket = _BUCKET || deriveBucketFromPublicBaseUrl(publicBase);
     if (!bucket || !publicBase) {
-      throw new Error("GCSProvider missing env: GCS_BUCKET, PUBLIC_BASE_URL");
+      throw new Error(
+        "GCSProvider cannot resolve bucket/publicBase. " +
+        "Set PUBLIC_BASE_URL and GCS_BUCKET (or DATA_BUCKET), or ensure PUBLIC_BASE_URL " +
+        "is a storage.googleapis.com URL I can parse."
+      );
     }
     this.bucketName = bucket;
     this.publicBase = publicBase;
@@ -377,10 +458,10 @@ class FSProvider implements StorageProvider {
   private publicBase: string;
 
   constructor() {
-    // Canonical path (replaces legacy ga_scratchers)
-    this.baseDir = path.join("public", "cdn", "ga", "scratchers");
+    // Put files under /public/cdn/<your key> (key controls subfolders: ga/scratchers, ny/scratchers, etc.)
+    this.baseDir = path.join("public", "cdn");
     const localBase = (process.env.LOCAL_PUBLIC_BASE_URL || "http://localhost:3000").replace(/\/+$/, "");
-    this.publicBase = `${localBase}/cdn/ga/scratchers`;
+    this.publicBase = `${localBase}/cdn`;
   }
 
   private normalizeKey(key: string) {
@@ -451,6 +532,31 @@ export function getStorage(): StorageProvider {
 
 // one-time informative log without instantiating providers
 console.log(`[storage] using ${HAVE_GCS ? 'GCS' : HAVE_R2 ? 'R2' : 'FS'} provider`);
+
+// Publish a JSON object to the configured storage (GCS/R2/FS), honoring the same PUBLIC_BASE_URL pathing.
+export async function putJsonObject(params: {
+  key: string;               // e.g. "ny/scratchers/index.json"
+  data: unknown;
+  cacheControl?: string;     // default: "no-store"
+  storage?: StorageProvider;
+  dryRun?: boolean;
+}) {
+  const storage = params.storage || getStorage();
+  const cache = params.cacheControl || "no-store"; // indexes change; don't cache hard
+  const json = JSON.stringify(params.data, null, 2);
+  const bytes = new TextEncoder().encode(json);
+
+  if (params.dryRun) {
+    const url = storage.publicUrlFor(params.key);
+    console.log(`[json:dry] put ${params.key} (${bytes.byteLength} bytes) → ${url}`);
+    return { key: params.key, url, bytes: bytes.byteLength, contentType: "application/json" };
+  }
+
+  const hosted = await storage.put(params.key, bytes, "application/json", cache);
+  console.log(`[json] put ${params.key} (${hosted.bytes} bytes) → ${hosted.url}`);
+  return hosted;
+}
+
 
 // -----------------------------
 // Core API
@@ -558,6 +664,22 @@ export async function ensureHashKey(params: {
   dryRun?: boolean;
 }): Promise<Hosted> {
   const base = `ga/scratchers/images/${params.gameNumber}/${params.kind}-<sha>.<ext>`;
+  return downloadAndHost({
+    sourceUrl: params.sourceUrl,
+    keyHint: base,
+    storage: params.storage,
+    dryRun: params.dryRun,
+  });
+}
+
+export async function ensureHashKeyNY(params: {
+  gameNumber: number;
+  kind: "ticket" | "odds";
+  sourceUrl: string;
+  storage?: StorageProvider;
+  dryRun?: boolean;
+}): Promise<Hosted> {
+  const base = `ny/scratchers/images/${params.gameNumber}/${params.kind}-<sha>.<ext>`;
   return downloadAndHost({
     sourceUrl: params.sourceUrl,
     keyHint: base,

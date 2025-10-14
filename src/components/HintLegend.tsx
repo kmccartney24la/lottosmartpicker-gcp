@@ -9,16 +9,17 @@ import { useMemo, useState } from 'react';
 const EXPLAIN = HINT_EXPLAIN;
 
 // Lightweight game-shape detector (no lib changes needed)
-function gameShapeFor(game?: string): 'five' | 'digit3' | 'digit4' | 'pick10' {
+function gameShapeFor(game?: string): 'five' | 'digit3' | 'digit4' | 'pick10' | 'quickdraw' {
   const g = (game || '').toLowerCase();
   if (g.includes('numbers')) return 'digit3';
   if (g.includes('win4') || g.includes('win_4') || g.includes('win-4')) return 'digit4';
   if (g.includes('pick10') || g.includes('pick_10') || g.includes('pick-10')) return 'pick10';
+  if (g.includes('quick_draw') || g.includes('quick draw') || g.includes('quickdraw')) return 'quickdraw';
   return 'five';
 }
 
 // Static core sets per shape — only include labels that exist in HINT_EXPLAIN
-function commonSetFor(shape: 'five'|'digit3'|'digit4'|'pick10') {
+function commonSetFor(shape: 'five'|'digit3'|'digit4'|'pick10'|'quickdraw') {
   const byShape: Record<typeof shape, string[]> = {
     five: [
       '3-in-a-row',
@@ -46,9 +47,16 @@ function commonSetFor(shape: 'five'|'digit3'|'digit4'|'pick10') {
       'High-heavy',
       'Sum outlier',
     ],
-    // If you later add Pick 10 labels to hint.ts, list them here.
+    /* Pick 10 ticket hints already emit these */
     pick10: [
-      // e.g., 'clustered-columns','spread-columns-wide','repeat-count-k≥Y'
+      '3-in-a-row',
+      'Tight span',
+      'Birthday-heavy',
+    ],
+    /* Quick Draw (variable k) uses the same flags as Evaluate/Generator */
+    quickdraw: [
+      '3-in-a-row',
+      'Tight span',
     ],
   };
   return byShape[shape].filter(k => EXPLAIN[k]);

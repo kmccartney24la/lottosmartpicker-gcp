@@ -13,16 +13,51 @@ import React, {
   type MutableRefObject,
 } from 'react';
 import { createPortal } from 'react-dom';
-import type { ActiveGame } from './types';
+import { comparators } from './sort';
+import type { SortKey, ActiveGame } from './types';
 import type { DisplayMode } from './DisplayModeSwitcher';
 import DisplayModeSwitcher from './DisplayModeSwitcher'; // use dropdown-only
 
 type ThumbKind = 'ticket' | 'odds';
+type LeftMode = 'top' | 'total';
 
 function pctTopPrizesRemain(g: ActiveGame) {
   const orig = g.topPrizesOriginal ?? 0;
   const rem = g.topPrizesRemaining ?? 0;
   return orig > 0 ? rem / orig : 0;
+}
+
+// --- NY tiers: total prizes left helpers -----------------------------------
+function totalsFromTiers(g: ActiveGame) {
+  const tiers = Array.isArray((g as any).tiers) ? (g as any).tiers as Array<{
+    prizesRemaining?: number | null;
+    prizesPaidOut?: number | null;
+    totalPrizes?: number | null;
+  }> : [];
+  let remaining = 0;
+  let original = 0;
+  for (const t of tiers) {
+    const rem = t.prizesRemaining ?? 0;
+    const tot = (t.totalPrizes != null ? t.totalPrizes : (t.prizesRemaining ?? 0) + (t.prizesPaidOut ?? 0)) ?? 0;
+    remaining += rem;
+    original  += tot;
+  }
+  return { remaining, original };
+}
+
+function pctTotalPrizesRemain(g: ActiveGame) {
+  const { remaining, original } = totalsFromTiers(g);
+  return original > 0 ? remaining / original : NaN;
+}
+
+function hasTierToggleAvailable(games: ActiveGame[]) {
+  // Only show the toggle if ANY game has tier rows with enough info to compute totals.
+  return games.some(g => {
+    const tiers = Array.isArray((g as any).tiers) ? (g as any).tiers : [];
+    return tiers.length > 0 && tiers.some((t: any) =>
+      t && (t.prizesRemaining != null) && (t.totalPrizes != null || t.prizesPaidOut != null)
+    );
+  });
 }
 
 const OddsCell = ({ g }: { g: ActiveGame }) => (
@@ -34,12 +69,21 @@ const OddsCell = ({ g }: { g: ActiveGame }) => (
   </div>
 );
 
-const TopLeftCell = ({ g }: { g: ActiveGame }) => {
-  const pct = Math.round(pctTopPrizesRemain(g) * 100);
+const TopLeftCell = ({ g, mode }: { g: ActiveGame; mode: LeftMode }) => {
+  const isTotal = mode === 'total';
+  const pctRaw = isTotal ? pctTotalPrizesRemain(g) : pctTopPrizesRemain(g);
+  const pct = Math.round((isFinite(pctRaw) ? pctRaw : 0) * 100);
+  const display = (() => {
+    if (isTotal) {
+      const { remaining, original } = totalsFromTiers(g);
+      return { rem: remaining, orig: original };
+    }
+    return { rem: g.topPrizesRemaining ?? 0, orig: g.topPrizesOriginal ?? 0 };
+  })();
   return (
     <div className="leading-tight">
       <div className="mono">
-        {(g.topPrizesRemaining ?? 0).toLocaleString()} / {(g.topPrizesOriginal ?? 0).toLocaleString()}
+        {display.rem.toLocaleString()} / {display.orig.toLocaleString()}
       </div>
       <div className="mono hint">{isFinite(pct) ? `${pct}% left` : '—'}</div>
       <div className="meter" aria-hidden="true">
@@ -161,6 +205,10 @@ type ScratchersTableProps = {
   onToggleGlobalImageKind?: () => void;
   /** Container-driven override for cards/table */
   forcedView?: 'table' | 'cards';
+  /** Optional: the active sort key (if parent wants table to sort) */
+  sortKey?: SortKey;
+  /** Optional: reverse flag (descending) */
+  isSortReversed?: boolean;
 };
 
 const ScratchersTable = forwardRef<HTMLDivElement, ScratchersTableProps>(function ScratchersTable(
@@ -173,12 +221,51 @@ const ScratchersTable = forwardRef<HTMLDivElement, ScratchersTableProps>(functio
     onChangeDisplayMode,
     onToggleGlobalImageKind,
     forcedView,
+    sortKey,
+    isSortReversed = false,
   }: ScratchersTableProps,
   scrollRootRef: ForwardedRef<HTMLDivElement>
 ) {
   const isDetailed = displayMode === ('detailed' as DisplayMode);
   const isExpanded = displayMode === ('expanded' as DisplayMode);
   const showThumbs = isDetailed || isExpanded;
+  // NY: there are no odds images. Decide UI affordances from the data:
+  const hasAnyOdds = useMemo(() => games.some(g => !!g.oddsImageUrl), [games]);
+  // NY-only: expose header toggle when any game has tiers with counts
+  const canToggleLeft = useMemo(() => hasTierToggleAvailable(games), [games]);
+  const [leftMode, setLeftMode] = useState<LeftMode>('top');
+  /** Tracks if the user explicitly clicked the header toggle in this session. */
+  const userOverrodeLeftMode = useRef<boolean>(false);
+
+  // Default to 'total' when NY totals are available (first load / dataset change)
+  useEffect(() => {
+    if (canToggleLeft && !userOverrodeLeftMode.current) {
+      setLeftMode('total');
+    }
+  }, [canToggleLeft]);
+
+  // Listen for Filters → Table hint events to sync the left bar view.
+  useEffect(() => {
+    const onLeftMode = (e: Event) => {
+      const ce = e as CustomEvent<LeftMode | undefined>;
+      const detail = ce?.detail;
+      if (detail === 'top' || detail === 'total') {
+        setLeftMode(detail);
+        // This is an app-driven hint (e.g., user changed sort),
+        // so clear any prior "override" so the next header click wins again.
+        userOverrodeLeftMode.current = false;
+      }
+    };
+    // TypeScript may not know this custom event; cast name as string.
+    window.addEventListener('scratchers:leftMode' as any, onLeftMode as EventListener);
+    return () => window.removeEventListener('scratchers:leftMode' as any, onLeftMode as EventListener);
+  }, []);
+
+  const toggleLeftMode = useCallback(() => {
+    if (!canToggleLeft) return;
+    userOverrodeLeftMode.current = true;
+    setLeftMode(m => (m === 'top' ? 'total' : 'top'));
+  }, [canToggleLeft]);
 
   // Per-row overrides
   const [rowThumb, setRowThumb] = useState<Record<number, ThumbKind>>({});
@@ -189,10 +276,40 @@ const ScratchersTable = forwardRef<HTMLDivElement, ScratchersTableProps>(functio
   const toggleRow = (id: number) =>
     setRowThumb(prev => ({ ...prev, [id]: currentKindFor(id) === 'odds' ? 'ticket' : 'odds' }));
 
+  // ────────────────────────────────────────────────────────────────────────
+  // Sorting (optional): use sort.ts comparators when the parent provides a key
+  // ────────────────────────────────────────────────────────────────────────
+  const cmpMap: Partial<Record<SortKey, (a: ActiveGame, b: ActiveGame) => number>> = useMemo(() => ({
+    // We only intercept the keys we added/changed. Others remain as-is (parent may sort upstream).
+    best: comparators.best,
+    startDate: comparators.startDate,
+    totalPrizesRemain: comparators.totalPrizesRemain,
+    '%totalAvail': comparators.pctTotalAvail,
+  }), []);
+
+  const sortedGames = useMemo(() => {
+    const cmp = sortKey ? cmpMap[sortKey] : undefined;
+    if (!cmp) return games;
+
+    // inside sortedGames useMemo()
+    const baseDir = 1; // <-- keep it 1 (no special-case for startDate)
+    const dir = isSortReversed ? -baseDir : baseDir;
+
+    const copy = [...games];
+    copy.sort((a, b) => {
+      const core = cmp(a, b);
+      if (core !== 0) return dir * core;
+      // Final stability: name ASC for any remaining tie
+      return String(a.name).localeCompare(String(b.name));
+    });
+    return copy;
+  }, [games, sortKey, isSortReversed, cmpMap]);
+
+
   /** Lightbox (Detailed mode only) */
   type LightboxState = { id: number; kind: ThumbKind } | null;
   const [lightbox, setLightbox] = useState<LightboxState>(null);
-  const gameMap = useMemo(() => new Map(games.map(g => [g.gameNumber, g])), [games]);
+  const gameMap = useMemo(() => new Map(sortedGames.map(g => [g.gameNumber, g])), [sortedGames]);
 
   const openLightbox = (id: number) => {
     if (!isDetailed) return;
@@ -266,7 +383,7 @@ const ScratchersTable = forwardRef<HTMLDivElement, ScratchersTableProps>(functio
       scrollEl.removeEventListener('scroll', onScroll);
       window.removeEventListener('resize', onResize);
     };
-  }, [games, updateBottomShadow]);
+  }, [sortedGames, updateBottomShadow]);
 
   if (loading || !hasMounted) {
     return (
@@ -296,7 +413,8 @@ const ScratchersTable = forwardRef<HTMLDivElement, ScratchersTableProps>(functio
             aria-label="View mode"
             className="mode-switcher"  /* optional hook for styling */
           />
-          {displayMode === 'expanded' && (
+          {/* Only show toggle if there exists at least one odds image */}
+          {displayMode === 'expanded' && hasAnyOdds && (
             <button
               type="button"
               className="btn btn-primary odds-toggle"
@@ -313,7 +431,7 @@ const ScratchersTable = forwardRef<HTMLDivElement, ScratchersTableProps>(functio
     );
   }
   // Keep the header even when there are no rows
-  const hasRows = games.length > 0;
+  const hasRows = sortedGames.length > 0;
 
   return (
     <div
@@ -341,7 +459,8 @@ const ScratchersTable = forwardRef<HTMLDivElement, ScratchersTableProps>(functio
             aria-label="View mode"
             className="mode-switcher"  /* optional hook for styling */
           />
-       {isExpanded && (
+       {/* Only show toggle if there exists at least one odds image */}
+       {isExpanded && hasAnyOdds && (
           <button
             type="button"
             className="btn btn-primary odds-toggle"
@@ -373,14 +492,42 @@ const ScratchersTable = forwardRef<HTMLDivElement, ScratchersTableProps>(functio
             <th className={`col-price mono text-right ${showThumbs ? 'w-[8%]'  : 'w-[10%]'}`}>Price</th>
             <th className={`col-odds  mono text-right ${showThumbs ? 'w-[16%]' : 'w-[18%]'}`}>Odds (adj / print)</th>
             <th className={`col-top   mono text-right ${showThumbs ? 'w-[14%]' : 'w-[12%]'}`}>Top prize</th>
-            <th className={`col-left  mono text-right ${showThumbs ? 'w-[14%]' : 'w-[12%]'}`}>Top-prizes left</th>
+            <th
+              className={`col-left  mono text-right ${showThumbs ? 'w-[14%]' : 'w-[12%]'}`}
+              aria-sort="none"
+            >
+              {canToggleLeft ? (
+                <button
+                  type="button"
+                  className="btn btn-primary odds-toggle th-toggle"
+                  onClick={toggleLeftMode}
+                  aria-pressed={leftMode === 'total'}
+                  aria-label={
+                    leftMode === 'total'
+                      ? 'Showing total prizes left. Click to show top-prizes left.'
+                      : 'Showing top-prizes left. Click to show total prizes left.'
+                  }
+                  title={
+                    leftMode === 'total'
+                      ? 'Total prizes left (click to switch to Top-prizes left)'
+                      : 'Top-prizes left (click to switch to Total prizes left)'
+                  }
+                >
+                  {leftMode === 'total' ? 'Total prizes left' : 'Top-prizes left'}
+                </button>
+              ) : (
+                'Top-prizes left'
+              )}
+            </th>
           </tr>
         </thead>
         <tbody ref={tbodyRef}>
-          {games.map(g => {
+          {sortedGames.map(g => {
             const kind = currentKindFor(g.gameNumber);
             const src =
               (kind === 'odds' ? g.oddsImageUrl : g.ticketImageUrl) || g.ticketImageUrl || g.oddsImageUrl;
+            const hasTicket = !!g.ticketImageUrl;
+            const hasOdds = !!g.oddsImageUrl;
             return (
               <tr key={g.gameNumber} className="row">
                 {showThumbs && (
@@ -399,19 +546,23 @@ const ScratchersTable = forwardRef<HTMLDivElement, ScratchersTableProps>(functio
                         ) : (
                           <div className="thumb placeholder" aria-hidden="true" />
                         )}
-                        <div className="thumb-badge mono">
-                          {currentKindFor(g.gameNumber) === 'odds' ? 'Odds' : 'Ticket'}
-                        </div>
-                        <div className="thumb-controls" role="group" aria-label="Swap image">
-                          <button
-                            type="button"
-                            className="thumb-arrow"
-                            aria-label={`Show ${currentKindFor(g.gameNumber) === 'odds' ? 'ticket' : 'odds'} image`}
-                            onClick={() => toggleRow(g.gameNumber)}
-                          >
-                            ‹ ›
-                          </button>
-                        </div>
+                        {/* Only show badge + arrows when BOTH images exist */}
+                        {hasTicket && hasOdds && (
+                          <>
+                            <div className="thumb-badge mono">
+                              {currentKindFor(g.gameNumber) === 'odds' ? 'Odds' : 'Ticket'}
+                            </div>
+                            <div className="thumb-controls" role="group" aria-label="Swap image">
+                              <button
+                                type="button"
+                                className="thumb-arrow"
+                                onClick={() => toggleRow(g.gameNumber)}
+                              >
+                                ‹ ›
+                              </button>
+                            </div>
+                          </>
+                        )}
                       </div>
                     ) : (
                       <button
@@ -458,7 +609,7 @@ const ScratchersTable = forwardRef<HTMLDivElement, ScratchersTableProps>(functio
                   <Money value={g.topPrizeValue} />
                 </td>
                 <td className="col-left text-right">
-                  <TopLeftCell g={g} />
+                  <TopLeftCell g={g} mode={canToggleLeft ? leftMode : 'top'} />
                 </td>
               </tr>
             );
@@ -474,10 +625,21 @@ const ScratchersTable = forwardRef<HTMLDivElement, ScratchersTableProps>(functio
         </div>
       ) : (
       <div className="mobile-only" role="list" aria-label="GA Scratchers comparison, mobile cards">
-        {games.map(g => {
-          const pct  = Math.round(pctTopPrizesRemain(g) * 100);
+        {sortedGames.map(g => {
+          const useMode: LeftMode = canToggleLeft ? leftMode : 'top';
+          const pctRaw = useMode === 'total' ? pctTotalPrizesRemain(g) : pctTopPrizesRemain(g);
+          const pct  = Math.round((isFinite(pctRaw) ? pctRaw : 0) * 100);
+          const counts = (() => {
+            if (useMode === 'total') {
+              const { remaining, original } = totalsFromTiers(g);
+              return { rem: remaining, orig: original };
+            }
+            return { rem: g.topPrizesRemaining ?? 0, orig: g.topPrizesOriginal ?? 0 };
+          })();
           const kind = currentKindFor(g.gameNumber);
           const src  = (kind === 'odds' ? g.oddsImageUrl : g.ticketImageUrl) || g.ticketImageUrl || g.oddsImageUrl;
+          const hasTicket = !!g.ticketImageUrl;
+          const hasOdds = !!g.oddsImageUrl;
           const lifecycle = lifecycleLabelFromStartDate(g.startDate);
           return (
             <div key={g.gameNumber} role="listitem" className={`mobile-card ${showThumbs ? 'twocol' : ''}`}>
@@ -491,17 +653,21 @@ const ScratchersTable = forwardRef<HTMLDivElement, ScratchersTableProps>(functio
                       ) : (
                         <div className="thumb placeholder" aria-hidden="true" />
                       )}
-                      <div className="thumb-badge mono">{kind === 'odds' ? 'Odds' : 'Ticket'}</div>
-                      <div className="thumb-controls" role="group" aria-label="Swap image">
-                        <button
-                          type="button"
-                          className="thumb-arrow"
-                          aria-label={`Show ${kind === 'odds' ? 'ticket' : 'odds'} image`}
-                          onClick={() => toggleRow(g.gameNumber)}
-                        >
-                          ‹ ›
-                        </button>
-                      </div>
+                      {/* Only show badge + arrows when BOTH images exist */}
+                      {hasTicket && hasOdds && (
+                        <>
+                          <div className="thumb-badge mono">{kind === 'odds' ? 'Odds' : 'Ticket'}</div>
+                          <div className="thumb-controls" role="group" aria-label="Swap image">
+                            <button
+                              type="button"
+                              className="thumb-arrow"
+                              onClick={() => toggleRow(g.gameNumber)}
+                            >
+                              ‹ ›
+                            </button>
+                          </div>
+                        </>
+                      )}
                     </div>
                   ) : (
                     <button
@@ -538,7 +704,8 @@ const ScratchersTable = forwardRef<HTMLDivElement, ScratchersTableProps>(functio
                 </div>
                 <div className="line4 mono">
                   <span className="counts">
-                    {(g.topPrizesRemaining ?? 0).toLocaleString()} / {(g.topPrizesOriginal ?? 0).toLocaleString()} · {isFinite(pct) ? `${pct}% left` : '—'}
+                    {canToggleLeft ? (leftMode === 'total' ? 'Total: ' : 'Top: ') : ''}
+                    {counts.rem.toLocaleString()} / {counts.orig.toLocaleString()} · {isFinite(pct) ? `${pct}% left` : '—'}
                   </span>
                   <div className="meter" aria-hidden="true"><span style={{ width: `${isFinite(pct) ? Math.max(0, Math.min(100, pct)) : 0}%` }} /></div>
                 </div>

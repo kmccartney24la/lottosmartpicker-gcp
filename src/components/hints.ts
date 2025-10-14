@@ -3,13 +3,13 @@ export const HINT_EXPLAIN: Record<string, string> = {
   'Balanced':
     'No strong hot/cold signals; no obvious sequences or tight clusters.',
   'Hot mains':
-    'At least 3 numbers show z-score > 1 (hit more than expected recently).',
+    'At least three of your main numbers have been hitting more than usual in recent draws.',
   'Cold mains':
-    'At least 3 numbers have appeared ≤1 time — a colder mix.',
+    'At least three of your main numbers have shown up rarely in recent draws.',
   'Hot special':
-    'Special ball z-score > 1 (more frequent lately).',
+    'Your special (bonus) number has been hitting more than usual in recent draws.',
   'Cold special':
-    'Special ball z-score < -1 (less frequent lately).',
+    'Your special (bonus) number has shown up rarely in recent draws.',
   '3-in-a-row':
     'Contains a consecutive run of three numbers (e.g., 21-22-23).',
   '4-in-a-row':

@@ -200,6 +200,57 @@ export function resolveIndexUrls(): string[] {
   return out;
 }
 
+// --- NY mirror (keeps GA logic untouched) ---
+export function resolveNyIndexUrls(): string[] {
+  const env =
+    typeof process !== "undefined" ? (process.env as Record<string, string | undefined>) : {};
+
+  const bases: string[] = [];
+  const resolvedBase = (getPublicBaseUrl() || "").trim();
+  if (resolvedBase) bases.push(resolvedBase);
+  const altNextBase = (env.NEXT_PUBLIC_DATA_BASE ?? env.NEXT_PUBLIC_DATA_BASE_URL ?? "").trim();
+  if (altNextBase && altNextBase !== resolvedBase) bases.push(altNextBase);
+
+  const out: string[] = [];
+
+  function expandBase(baseRaw: string): string[] {
+    const base = baseRaw.replace(/\/+$/, "");
+    const isFile = /\.json(\?.*)?$/i.test(base);
+    if (isFile) {
+      if (base.endsWith("/index.json")) {
+        return [base.replace(/\/index\.json$/, "/index.latest.json"), base];
+      }
+      if (base.endsWith("/index.latest.json")) {
+        return [base, base.replace(/\/index\.latest\.json$/, "/index.json")];
+      }
+      return [base];
+    }
+    return [
+      `${base}/ny/scratchers/index.latest.json`,
+      `${base}/ny/scratchers/index.json`,
+    ];
+  }
+
+  for (const b of bases) {
+    for (const u of expandBase(b)) if (!out.includes(u)) out.push(u);
+  }
+
+  // Local dev fallbacks
+  for (const u of [
+    "/data/ny/scratchers/index.latest.json",
+    "/data/ny/scratchers/index.json",
+  ]) if (!out.includes(u)) out.push(u);
+
+  // Public GCS fallback (derive bucket from the same helper as GA)
+  const fallbackBase = `https://storage.googleapis.com/${deriveBucketFromBaseUrl()}`;
+  for (const u of [
+    `${fallbackBase}/ny/scratchers/index.latest.json`,
+    `${fallbackBase}/ny/scratchers/index.json`,
+  ]) if (!out.includes(u)) out.push(u);
+
+  return out;
+}
+
 // -----------------------------
 // Fetchers
 // -----------------------------

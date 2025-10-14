@@ -273,7 +273,14 @@ export default function FiltersPanel(props: FiltersPanelProps) {
       // Optional: read "rev" (reverse sort) if parent wants it
       if (props.onSetSortReversed && params.has('rev')) {
         const v = String(params.get('rev')).toLowerCase();
-        props.onSetSortReversed(v === '1' || v === 'true' || v === 'yes');
+        const incoming = (v === '1' || v === 'true' || v === 'yes');
+        const incomingSort = (params.get('sort') as SortKey) || DEFAULTS.sortKey;
+        // For Launch date we want newest first by default → not reversed.
+        if (incomingSort === 'startDate') {
+          props.onSetSortReversed(false);
+        } else {
+          props.onSetSortReversed(incoming);
+        }
       }
 
       if (Object.keys(patch).length) onChange(patch);
@@ -453,11 +460,27 @@ export default function FiltersPanel(props: FiltersPanelProps) {
             <select
               id={ids.sort}
               value={sortKey}
-              onChange={(e) => onChange({ sortKey: e.currentTarget.value as SortKey })}
+              onChange={(e) => {
+                const v = e.currentTarget.value as SortKey;
+                onChange({ sortKey: v });
+                // Ensure the default visual order for Launch date is "newest first"
+                // (i.e., not reversed). This prevents sticky reverse from a prior key.
+                if (props.onSetSortReversed) {
+                  if (v === 'startDate') {
+                    props.onSetSortReversed(false);
+                  }
+                }
+                // Hint the table to show the matching left-bar view on mobile/compact
+                if (v === 'topPrizesRemain' || v === '%topAvail') {
+                  window.dispatchEvent(new CustomEvent<'top' | 'total'>('scratchers:leftMode', { detail: 'top' }));
+                } else if (v === 'totalPrizesRemain' || v === '%totalAvail') {
+                  window.dispatchEvent(new CustomEvent<'top' | 'total'>('scratchers:leftMode', { detail: 'total' }));
+                }
+              }}
               aria-label="Sort results by"
               className="filters-select compact-control"
             >
-              <option value="best">Best (printed odds → prizes left → price)</option>
+              <option value="best">Best</option>
               <option value="name">Name (A→Z)</option>
               <option value="startDate">Launch date</option>
               <option value="price">Ticket price</option>
@@ -466,10 +489,12 @@ export default function FiltersPanel(props: FiltersPanelProps) {
               <option value="topPrizeValue">Top prize $</option>
               <option value="topPrizesRemain">Top prizes remaining</option>
               <option value="%topAvail">% top-prizes remaining</option>
+              <option value="totalPrizesRemain">Total prizes remaining</option>
+              <option value="%totalAvail">% total-prizes remaining</option>
             </select>
             <button
               type="button"
-              className="btn btn-ghost icon-only sort-reverse-btn"
+              className={`btn icon-only sort-reverse-btn ${isSortReversed ? 'is-pressed' : ''}`}
               aria-pressed={!!isSortReversed}
               aria-label={isSortReversed ? 'Reverse sort: on (descending relative to current key)' : 'Reverse sort: off (ascending/standard for key)'}
               title="Reverse sort"
@@ -679,9 +704,11 @@ function readableSort(k: SortKey): string {
     case 'topPrizeValue': return 'Top prize $';
     case 'topPrizesRemain': return 'Top prizes remaining';
     case '%topAvail': return '% top-prizes remaining';
+    case 'totalPrizesRemain': return 'Total prizes remaining';
+    case '%totalAvail': return '% total-prizes remaining';
     case 'name': return 'Name (A→Z)';
     // Forward-compat with parent if it supports this key
-    case 'startDate': return 'Start date';
+    case 'startDate': return 'Launch date';
     default: return String(k);
   }
 }

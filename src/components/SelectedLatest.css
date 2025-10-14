@@ -8,9 +8,15 @@
   position: relative !important;
   isolation: isolate; /* create a stacking context to keep z-index local */
   padding: var(--space-4);
-  /* Reserve horizontal space ≈ button width + a gap */
-  padding-inline-end: calc(var(--space-4) + var(--touch-target-min) + var(--space-2));
+  /* Base padding comes from .card; the right gutter is handled by .card--reserve-topright */
+  padding: var(--space-4);
   min-height: 64px;
+}
+
+/* Be explicit about matching page-level anchor variables (docs-only). */
+:where(.selected-latest) {
+  --anchor-inset-inline: var(--anchor-inset-inline);
+  --anchor-inset-block: var(--anchor-inset-block);
 }
 
 /* Use the shared .card-title typography. Only keep spacing tweaks if needed. */
@@ -24,8 +30,8 @@
 @media (--bp-mobile) {
   .selected-latest,
   .card.selected-latest {
+    /* Right gutter handled by .card--reserve-topright; only top/left/bottom change on mobile */
     padding: var(--space-3);
-    padding-inline-end: calc(var(--space-3) + var(--touch-target-comfortable) + var(--space-1));
   }
 }
 

@@ -4,7 +4,7 @@ import './styles/themes.css';
 import { Inter } from "next/font/google";
 import './styles/globals.css';
 import './styles/brand.css';
-import './scratchers/scratchers.css';
+import './scratchers.css';
 import './page.css';
 import './styles/sidebar.css';
 import { Rubik } from 'next/font/google';

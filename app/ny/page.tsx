@@ -1,7 +1,7 @@
  // app/ny/page.tsx
  import type { Metadata } from 'next';
  import React from 'react';
- import HomeClientNY from '../_components/HomeClientNY';
+ import HomeClientNY from './_components/HomeClientNY';
 
  export const metadata: Metadata = {
    title: 'New York Lottery — Draw Games (Powerball, Mega Millions, Cash4Life, Take 5, Numbers, Win4, Lotto, Pick 10, Quick Draw)',

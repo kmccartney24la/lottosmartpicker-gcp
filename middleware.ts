@@ -51,6 +51,50 @@ if (host === APP_HOST && APP_HOST === "app.lottosmartpicker.com" && isHTML) {
   }
 }
 
+// ---- Geo redirects for unprefixed entry points (before heavy security/session) ----
+  if (isHTML) {
+    const p = pathname;
+    const isBareDraws = p === '/' || p === '/index.html';
+    const isBareScratchers = p === '/scratchers';
+    const isStatePrefixed = p.startsWith('/ga') || p.startsWith('/ny');
+    const isApi = p.startsWith('/api/');
+    const isStatic =
+      p.startsWith('/_next/') ||
+      p.startsWith('/brand/') ||
+      p.startsWith('/favicon') ||
+      p === '/robots.txt' ||
+      p === '/sitemap.xml' ||
+      p === '/ads.txt';
+
+    // TS-safe geo inference using headers only.
+    function inferStateFromHeaders(req: NextRequest): 'ga' | 'ny' {
+      const up = (v: string | null) => (v || '').toUpperCase();
+      // Vercel-style
+      const vcCountry = up(req.headers.get('x-vercel-ip-country'));
+      const vcRegion  = up(req.headers.get('x-vercel-ip-country-region'));
+      // Cloudflare-style fallbacks
+      const cfCountry = up(req.headers.get('cf-ipcountry'));
+      const cfRegion  = up(req.headers.get('x-vercel-ip-region')) || up(req.headers.get('x-region-code'));
+      const country = vcCountry || cfCountry;
+      const region  = vcRegion  || cfRegion;
+      if (country === 'US') {
+        if (region === 'NY') return 'ny';
+        if (region === 'GA') return 'ga';
+      }
+      return 'ga'; // default
+    }
+
+    if (!isStatePrefixed && (isBareDraws || isBareScratchers) && !isApi && !isStatic) {
+      const st = inferStateFromHeaders(req);
+      const target = isBareScratchers
+        ? (st === 'ny' ? '/ny/scratchers' : '/ga/scratchers')
+        : (st === 'ny' ? '/ny' : '/ga');
+      const url = req.nextUrl.clone();
+      url.pathname = target;
+      return NextResponse.redirect(url, 302);
+    }
+  }
+
   // --- Security Controls (early exit for critical issues) ---
   // 1. Request Size Limit
   const sizeLimitResponse = await enforceRequestSizeLimit(req);

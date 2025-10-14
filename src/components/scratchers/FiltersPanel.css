@@ -139,40 +139,37 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-/* === Drawer mode: turn the filters panel into a real right-side modal === */
+/* === Drawer mode: real side modal without transforms (keeps <select> tappable) === */
 .filters-panel.mobile-drawer{
-  position: fixed;            /* lift above page flow */
-  top: 0; right: 0; bottom: 0;
+  position: fixed;
+  top: 0; right: -100%; bottom: 0;     /* off-screen by default */
   width: min(420px, 90vw);
   height: 100dvh;
-  /* Put this ABOVE any app sidebars & generic backdrops */
   z-index: var(--z-filters-drawer, 10020);
-  isolation: isolate;          /* create a new top-level stacking context */
-  pointer-events: auto;        /* be explicit */
+  isolation: isolate;
   border-left: 1px solid var(--card-bd);
   box-shadow: -8px 0 24px color-mix(in oklab, var(--bubble-amber) 25%, transparent);
   display: grid;
-  /* Header / scroll — no footer */
   grid-template-rows: auto 1fr;
-  overflow: hidden;           /* drawer owns scroll via its content */
-  transform: translateX(100%);          /* closed state; JS should toggle open */
-  transition: transform .25s ease;
+  overflow: hidden;
+  transition: right .25s ease;
+  pointer-events: none;                 /* do NOT intercept when closed */
 }
 .filters-panel.mobile-drawer.open{
-  transform: translateX(0);
+  right: 0;
+  pointer-events: auto;                 /* only clickable when open */
 }
-
 /* Left-side variant (when side="left") */
 .filters-panel.mobile-drawer.left{
-  left: 0;
+  left: -100%;
   right: auto;
   border-right: 1px solid var(--card-bd);
   border-left: none;
   box-shadow: 8px 0 24px color-mix(in oklab, var(--bubble-amber) 25%, transparent);
-  transform: translateX(-100%);
+  transition: left .25s ease;
 }
 .filters-panel.mobile-drawer.left.open{
-  transform: translateX(0);
+  left: 0;
 }
 
 /* Drawer body scroll area */
@@ -389,7 +386,31 @@ input[type="number"].filters-input{ -moz-appearance: textfield; }
   padding: 0 .5rem;
   height: 2rem;
   min-width: 2rem;
+  background: var(--card);
+  color: var(--fg);
+  border: 1px solid var(--card-bd);
+  transition: background .15s ease, color .15s ease, transform .15s ease, box-shadow .15s ease;
 }
+
+/* Visual cue when sort is reversed */
+.sort-reverse-btn[aria-pressed="true"],
+.sort-reverse-btn.is-pressed {
+  background: var(--accent);
+  color: var(--accent-contrast);
+  border-color: color-mix(in oklab, var(--accent) 65%, var(--card-bd));
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklab, var(--accent) 55%, transparent),
+    0 0 0 2px color-mix(in oklab, var(--accent) 18%, transparent);
+}
+
+/* Nice little motion + clearer hover focus */
+.sort-reverse-btn{
+  transition: background .15s ease, color .15s ease, transform .15s ease, box-shadow .15s ease;
+}
+.sort-reverse-btn:focus-visible{
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--accent) 40%, transparent);
+}
+
 
 /* ────────────────────────────────────────────────────────────────────────────
    Inline panel (desktop) – tighten label→input spacing only here.
@@ -481,4 +502,22 @@ input[type="number"].filters-input{ -moz-appearance: textfield; }
     line-height: 34px;
     border-radius: 10px;
   }
+
+  /* Strong, scoped pressed styles so they win over .btn/.btn-ghost defaults */
+  .filters-panel .sort-row .sort-reverse-btn.is-pressed,
+  .filters-panel .sort-row .sort-reverse-btn[aria-pressed="true"]{
+    background: color-mix(in oklab, var(--accent) 22%, var(--card));
+    color: var(--accent-contrast);
+    border: 1px solid color-mix(in oklab, var(--accent) 65%, var(--card-bd));
+    box-shadow:
+      inset 0 1px 0 color-mix(in oklab, var(--accent) 55%, transparent),
+      0 0 0 2px color-mix(in oklab, var(--accent) 18%, transparent);
+  }
+
+  /* Optional “off” state for clarity */
+  .filters-panel .sort-row .sort-reverse-btn[aria-pressed="false"]{
+    background: var(--accent);
+    color: var(--accent-contrast);
+    border-color: var(--card-bd);
+}
 }

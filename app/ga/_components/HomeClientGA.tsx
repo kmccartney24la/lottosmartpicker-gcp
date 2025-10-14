@@ -1,8 +1,9 @@
-// app/_components/HomeClient.tsx
+// app/ga/_components/HomeClientGA.tsx
 
 'use client';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import PastDrawsSidebar from 'src/components/PastDrawsSidebar';
+import type { PastDrawsPayload } from 'src/components/PastDrawsSidebar';
 import Generator from 'src/components/Generator';
 import AnalyzeSidebar from 'src/components/AnalyzeSidebar';
 import GameOverview from 'src/components/GameOverview';
@@ -23,10 +24,10 @@ const AdsLot = dynamic(() => import('src/components/ads/AdsLot'), { ssr: false }
 // Canonical draw games only (no scratchers in this client)
 type CanonicalDrawGame = Exclude<GameKey, 'ga_scratchers'>;
 const GAME_OPTIONS: { key: CanonicalDrawGame; label: string }[] = [
-  { key: 'multi_powerball',    label: 'Powerball (5/69 + 1/26)' },
-  { key: 'multi_megamillions', label: 'Mega Millions (5/70 + 1/24)' },
-  { key: 'multi_cash4life',    label: 'Cash4Life (5/60 + Cash Ball 1–4)' },
-  { key: 'ga_fantasy5',        label: 'Fantasy 5 (GA) (5/42)' },
+  { key: 'multi_cash4life',    label: 'Cash4Life' },
+  { key: 'multi_megamillions', label: 'Mega Millions'},
+  { key: 'multi_powerball',    label: 'Powerball'},
+  { key: 'ga_fantasy5',        label: 'Fantasy 5' },
 ];
 
 export default function HomeClient() {
@@ -54,6 +55,13 @@ export default function HomeClient() {
   }, [rows, sortDir]);
   const pageCount = Math.max(1, Math.ceil(sortedRows.length / pageSize));
   const pageRows = useMemo(() => sortedRows.slice((page - 1) * pageSize, page * pageSize), [sortedRows, page]);
+
+  // Shape-aware payload for the PastDrawsSidebar (canonical five-ball only in this client)
+  const payload: PastDrawsPayload = useMemo(() => ({
+    kind: 'five',
+    rows: pageRows,
+    game,
+  }), [pageRows, game]);
 
   const rowsForGenerator = rows;
 
@@ -99,9 +107,12 @@ export default function HomeClient() {
         <div className="center-clamp">
           <div className="vstack vstack--4">
             {/* Header controls */}
-            <section className="card">
+            <section className="card card--reserve-topright">
               <div className="controls header-controls">
-                <div className="card game-select-card">
+                <div
+                  className="card game-select-card"
+                  data-has-period="false" /* parity with NY (no period selector on GA) */
+                >
                   <div className="card-title game-select-label">Game</div>
                   <select
                     aria-label="Select game"
@@ -115,7 +126,12 @@ export default function HomeClient() {
                   </select>
                 </div>
                 <div className="latest-and-actions">
-                  <SelectedLatest game={game} onOpenPastDraws={openPastDraws} showPast={showPast} />
+                  {/* Keep prop shape consistent with NY (where applicable) */}
+                  <SelectedLatest
+                    game={game}
+                    onOpenPastDraws={openPastDraws}
+                    showPast={showPast}
+                  />
                 </div>
               </div>
             </section>
@@ -164,6 +180,7 @@ export default function HomeClient() {
               total={sortedRows.length}
               side="right"
               game={game}
+              payload={payload}
               sortDir={sortDir}
               onToggleSort={() => setSortDir(d => d === 'desc' ? 'asc' : 'desc')}
             />

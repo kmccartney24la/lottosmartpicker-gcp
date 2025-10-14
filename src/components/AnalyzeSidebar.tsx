@@ -42,7 +42,7 @@ const REP_FOR_LOGICAL: Record<LogicalGameKey, CanonicalDrawGame> = {
   ny_take5: 'ny_take5' as CanonicalDrawGame,
   ny_numbers: 'multi_cash4life',
   ny_win4: 'multi_cash4life',
-  ny_lotto: 'multi_cash4life',
+  ny_lotto: 'ny_lotto',              // ← use NY Lotto’s own era (6/59 + Bonus)
   ny_pick10: 'multi_cash4life',
   ny_quick_draw: 'multi_cash4life',
   multi_powerball: 'multi_powerball',
@@ -80,6 +80,14 @@ export default function AnalyzeSidebar({ canonical, logical, title, period = 'bo
   const [err, setErr] = useState<string|null>(null);
   const [okCount, setOkCount] = useState(0);
   const [qdSpots, setQdSpots] = useState<1|2|3|4|5|6|7|8|9|10>(10);
+
+  // Alphabetical views (case-insensitive)
+  const CANON_VIEW = [...CANON_LIST].sort((a, b) =>
+    String(a.label).localeCompare(String(b.label), 'en', { sensitivity: 'base' })
+  );
+  const LOGICAL_VIEW = [...LOGICAL_LIST].sort((a, b) =>
+    String(NY_LABEL[a] ?? a).localeCompare(String(NY_LABEL[b] ?? b), 'en', { sensitivity: 'base' })
+  );
 
   // Load per-game analysis (current era only)
   useEffect(() => {
@@ -176,7 +184,7 @@ export default function AnalyzeSidebar({ canonical, logical, title, period = 'bo
       <div className="analyze-games">
         {!busy && (
           <>
-            {CANON_LIST.map(g => {
+            {CANON_VIEW.map(g => {
               const a = data5[g.key];
               return (
                 <div key={g.key} className="analyze-game">
@@ -207,7 +215,7 @@ export default function AnalyzeSidebar({ canonical, logical, title, period = 'bo
                 </div>
               );
             })}
-            {LOGICAL_LIST.map(lg => {
+            {LOGICAL_VIEW.map(lg => {
               const a5  = data5[lg];
               const ad  = dataDigits[lg];
               const ap10= dataP10[lg];

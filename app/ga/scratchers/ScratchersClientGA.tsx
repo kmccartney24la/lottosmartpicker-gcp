@@ -1,4 +1,4 @@
-// app/scratchers/ScratchersClient.tsx
+// app/ga/scratchers/ScratchersClient.tsx
 
 'use client';
 /* eslint-disable no-console */
@@ -10,6 +10,7 @@ import { useScratchersIndex } from 'src/components/scratchers/useScratchersIndex
 import type { ActiveGame, SortKey } from 'src/components/scratchers/types';
 import type { DisplayMode } from 'src/components/scratchers/DisplayModeSwitcher';
 import { useIsMobile, useDrawerMode } from '@lib/breakpoints';
+import { comparators } from 'src/components/scratchers/sort';
 
 const LS_SHOW_ODDS = 'lsp.showOddsByDefault';
 const AdsLot = dynamic(() => import('src/components/ads/AdsLot'), { ssr: false });
@@ -128,20 +129,17 @@ export default function ScratchersClient() {
     const key: SortKey = filters.sortKey;
     out.sort((a, b) => {
       const adjA = a.adjustedOdds ?? Infinity, adjB = b.adjustedOdds ?? Infinity;
-      const odA = a.overallOdds ?? Infinity,   odB = b.overallOdds ?? Infinity;
-      const pA = a.price ?? -Infinity,         pB = b.price ?? -Infinity;
+      const odA  = a.overallOdds  ?? Infinity, odB  = b.overallOdds  ?? Infinity;
+      const pA   = a.price        ?? -Infinity, pB  = b.price        ?? -Infinity;
       const tpvA = a.topPrizeValue ?? -Infinity, tpvB = b.topPrizeValue ?? -Infinity;
       const remA = a.topPrizesRemaining ?? -Infinity, remB = b.topPrizesRemaining ?? -Infinity;
       const pctA = pctTopPrizesRemain(a), pctB = pctTopPrizesRemain(b);
       let result = 0;
       switch (key) {
         case 'best': {
-          if (odA !== odB) { result = odA - odB; break; }
-          if (remA !== remB) { result = remB - remA; break; }
-          const priceA = Number.isFinite(a.price ?? NaN) ? (a.price as number) : Infinity;
-          const priceB = Number.isFinite(b.price ?? NaN) ? (b.price as number) : Infinity;
-          if (priceA !== priceB) { result = priceA - priceB; break; }
-          result = a.gameNumber - b.gameNumber; break;
+          // Shared GA/NY “Best v2”: odds → %top → %total → #top → #total → jackpot → price → recency → name
+          result = comparators.best(a, b);
+          break;
         }
         case 'adjusted':       result = adjA === adjB ? a.gameNumber - b.gameNumber : adjA - adjB; break;
         case 'odds':           result = odA === odB   ? a.gameNumber - b.gameNumber : odA - odB; break;
@@ -150,9 +148,9 @@ export default function ScratchersClient() {
         case 'topPrizesRemain':result = remA === remB ? a.gameNumber - b.gameNumber : remB - remA; break;
         case '%topAvail':      result = pctA === pctB ? a.gameNumber - b.gameNumber : pctB - pctA; break;
         case 'startDate': {
-          const ts = (s?: string) => { const t = Date.parse(s ?? ''); return Number.isFinite(t) ? t : -Infinity; };
-          const A = ts(a.startDate), B = ts(b.startDate);
-          result = B === A ? a.gameNumber - b.gameNumber : B - A; break;
+          // Robust: newest date first; missing dates sink; tie → higher gameNumber first.
+          result = comparators.startDate(a, b);
+          break;
         }
         case 'name': default:  result = a.name.localeCompare(b.name); break;
       }

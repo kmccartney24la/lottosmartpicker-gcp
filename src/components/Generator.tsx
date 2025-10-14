@@ -21,7 +21,16 @@ import {
   // Quick Draw (Keno-style; 20-from-80 history, user selects “spots”)
   fetchQuickDrawRowsFor, computeQuickDrawStats, recommendQuickDrawFromStats, generateQuickDrawTicket,
  } from '@lib/lotto';
+ import type { LogicalGameKey } from '@lib/lotto';
 
+// ---- Shape detection: only use base LogicalGameKey values (no *_rep, no *_midday/evening) ----
+function detectShape(lg?: LogicalGameKey) {
+  const isDigits = lg === 'ny_numbers' || lg === 'ny_win4';
+  const isPick10 = lg === 'ny_pick10';
+  const isQuickDraw = lg === 'ny_quick_draw';
+  const isFiveBall = !lg || (!isDigits && !isPick10 && !isQuickDraw);
+  return { isDigits, isPick10, isQuickDraw, isFiveBall };
+}
 export default function Generator({
   game,                 // keep: canonical rep for era/theming
   logical,              // NEW: logical game for shape detection
@@ -42,15 +51,8 @@ export default function Generator({
     // Use logical (if provided) to determine the game shape; fall back to canonical
   const shapeKey = logical ?? (game as unknown as LogicalGameKey);
   
-    // --- shape guards -------------------------------------------------
-    const isDigits =
-    shapeKey === 'ny_numbers' || shapeKey === 'ny_numbers_midday' || shapeKey === 'ny_numbers_evening' ||
-    shapeKey === 'ny_win4'    || shapeKey === 'ny_win4_midday'    || shapeKey === 'ny_win4_evening';
-
-  const isPick10   = shapeKey === 'ny_pick10' || shapeKey === 'ny_pick10_rep';
-  const isQuickDraw= shapeKey === 'ny_quick_draw' || shapeKey === 'ny_quick_draw_rep';
-
-  const isFiveBall = !isDigits && !isPick10 && !isQuickDraw;
+  const { isDigits, isPick10, isQuickDraw, isFiveBall } = detectShape(logical);
+  const isNyLotto = (logical === 'ny_lotto') || (game === 'ny_lotto');
 
   // Modes are inferred from sliders: alpha >= 0.5 => 'hot', else 'cold'
   const [alphaMain, setAlphaMain] = useState(0.6);
@@ -142,7 +144,7 @@ useEffect(() => {
           'both'
         );
         if (!alive) return;
-        setDigitStats(computeDigitStats(rows, game === 'ny_win4' ? 4 : 3));
+        setDigitStats(computeDigitStats(rows, logical === 'ny_win4' ? 4 : 3));
       } else setDigitStats(null);
 
       if (isPick10) {
@@ -207,7 +209,7 @@ useEffect(() => {
       if (!digitStats) return;
       const parsed = parseInt(numInput, 10);
       const target = Number.isFinite(parsed) ? Math.max(1, Math.min(100, parsed)) : 4;
-      const k = (game === 'ny_win4') ? 4 : 3;
+      const k = (logical === 'ny_win4') ? 4 : 3;
       const rec = recommendDigitsFromStats(digitStats);          // decide default mode/alpha
       const mode = alphaMain >= 0.5 ? 'hot' : 'cold';            // allow user override via slider
       const alpha = alphaMain ?? rec.alpha;
@@ -261,6 +263,14 @@ useEffect(() => {
         guard++;
       }
       setTicketsDigits(out);
+      // Report active hint labels (union) to the legend
+      if (onActiveHints) {
+        const all = new Set<string>();
+        for (const t of out) {
+          for (const h of ticketHintsDigits(t.digits, digitStats)) all.add(h);
+        }
+        onActiveHints(Array.from(all));
+      }
       if (liveRef.current) liveRef.current.textContent = `Generated ${out.length} tickets.`;
       return;
     }
@@ -295,6 +305,13 @@ useEffect(() => {
         guard++;
       }
       setTicketsP10(out);
+      if (onActiveHints) {
+        const all = new Set<string>();
+        for (const t of out) {
+          for (const h of ticketHintsPick10(t.values, p10Stats)) all.add(h);
+        }
+        onActiveHints(Array.from(all));
+      }
       if (liveRef.current) liveRef.current.textContent = `Generated ${out.length} tickets.`;
       return;
     }
@@ -326,6 +343,17 @@ useEffect(() => {
         guard++;
       }
       setTicketsQD(out);
+      if (onActiveHints) {
+        const all = new Set<string>();
+        for (const t of out) {
+          const flags: string[] = [];
+          if (qdHas3Run(t.values)) flags.push('3-in-a-row');
+          if (qdIsTight(t.values, 80)) flags.push('Tight span');
+          if (flags.length === 0) flags.push('Balanced');
+          flags.forEach(h => all.add(h));
+        }
+        onActiveHints(Array.from(all));
+      }
       if (liveRef.current) liveRef.current.textContent = `Generated ${out.length} tickets.`;
       return;
     }
@@ -387,7 +415,7 @@ useEffect(() => {
           title={
             anLoading ? 'Analyzing…' : (
               analysisForGame
-                ? `Recommended from analysis: mains ${analysisForGame.recMain.mode} (α=${analysisForGame.recMain.alpha.toFixed(2)}), special ${analysisForGame.recSpec.mode} (α=${analysisForGame.recSpec.alpha.toFixed(2)})`
+                ? `Recommended from analysis: mains ${analysisForGame.recMain.mode} (α=${analysisForGame.recMain.alpha.toFixed(2)}), ${isNyLotto ? 'bonus' : 'special'} ${analysisForGame.recSpec.mode} (α=${analysisForGame.recSpec.alpha.toFixed(2)})`
                 : 'Click to analyze and apply the recommended weights'
             )
           }
@@ -437,10 +465,11 @@ useEffect(() => {
       {hasSpecial && (
         <div className="generator-section generator-section--special">
           <div className="controls items-start">
-            <div className="font-semibold">Special ball weighting</div>
+            <div className="font-semibold">{isNyLotto ? 'Bonus weighting' : 'Special ball weighting'}</div>
             <Info
               tip={
                 'Special ball weighting:\n' +
+                (isNyLotto ? 'Bonus weighting:\n' : 'Special ball weighting:\n') +
                 '• hot = favor specials that have hit more often\n' +
                 '• cold = favor specials that have hit less often\n' +
                 '• α controls strength (0 = even, 1 = max bias)\n' +
@@ -534,7 +563,13 @@ useEffect(() => {
         <button
           onClick={copyTicketsToClipboard}
           className="btn btn-ghost"
-          disabled={tickets.length === 0}
+          disabled={
+            isFiveBall  ? tickets.length === 0
+          : isDigits    ? ticketsDigits.length === 0
+          : isPick10    ? ticketsP10.length === 0
+          : isQuickDraw ? ticketsQD.length === 0
+          : true
+          }
           aria-label="Copy tickets to clipboard"
         >
           Copy tickets
@@ -557,6 +592,11 @@ useEffect(() => {
       game={game}
       rowsForGenerator={rowsForGenerator}
       precomputedStats={stats}
+      logical={logical}
+      precomputedDigitStats={digitStats}
+      precomputedPick10Stats={p10Stats}
+      precomputedQuickDrawStats={qdStats}
+      quickDrawSpots={qdSpots}
     />
   </div>
 )}
@@ -583,7 +623,7 @@ useEffect(() => {
                   : game === 'multi_cash4life' ? 'num-bubble--green'
                   : 'num-bubble--amber'
                 }`}
-                aria-label="Special"
+                aria-label={isNyLotto ? 'Bonus' : 'Special'}
               >
                 {t.special}
               </span>
@@ -609,6 +649,16 @@ useEffect(() => {
           <span key={`d-${idx}`} className="num-bubble">{d}</span>
         ))}
       </div>
+      {/* Hints for Digits (Pick 3 / Win 4) */}
+      {digitStats && (
+        <div className="chips">
+          {ticketHintsDigits(t.digits, digitStats).map(h => (
+            <Pill key={h} tone={classifyHint(h)} title={HINT_EXPLAIN[h]}>
+              {displayHint(h)}
+            </Pill>
+          ))}
+        </div>
+      )}
     </div>
   ))}
 
@@ -620,6 +670,16 @@ useEffect(() => {
           <span key={`p-${idx}`} className="num-bubble">{n}</span>
         ))}
       </div>
+      {/* Hints for Pick 10 */}
+      {p10Stats && (
+        <div className="chips">
+          {ticketHintsPick10(t.values, p10Stats).map(h => (
+            <Pill key={h} tone={classifyHint(h)} title={HINT_EXPLAIN[h]}>
+              {displayHint(h)}
+            </Pill>
+          ))}
+        </div>
+      )}
     </div>
   ))}
 
@@ -630,6 +690,20 @@ useEffect(() => {
         {t.values.map((n, idx) => (
           <span key={`q-${idx}`} className="num-bubble">{n}</span>
         ))}
+      </div>
+      {/* Hints for Quick Draw (variable k) */}
+      <div className="chips">
+        {(() => {
+          const flags: string[] = [];
+          if (qdHas3Run(t.values)) flags.push('3-in-a-row');
+          if (qdIsTight(t.values, 80)) flags.push('Tight span');
+          if (flags.length === 0) flags.push('Balanced');
+          return flags.map(h => (
+            <Pill key={h} tone={classifyHint(h)} title={HINT_EXPLAIN[h]}>
+              {displayHint(h)}
+            </Pill>
+          ));
+        })()}
       </div>
     </div>
   ))}
