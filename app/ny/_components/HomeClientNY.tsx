@@ -192,7 +192,7 @@ export default function HomeClientNY() {
                   className="card card--reserve-topright game-select-card"
                   data-has-period={supportsPeriod ? 'true' : 'false'}
                 >
-                  <div className="card-title game-select-label">NY Game</div>
+                  <div className="card-title game-select-label">Game</div>
                   <select
                     aria-label="Select New York game"
                     value={logical}

@@ -17,25 +17,38 @@ function mediaUrl(bucket: string, key: string) {
 }
 
 // Map any GCS-based image URL to a same-origin /api/file path.
+// ALSO rewrite localhost FS CDN URLs (e.g., http://localhost:3000/cdn/<key>) → /api/file/<key>
 function toSameOriginImage(url?: string): string | undefined {
   if (!url) return url;
   try {
     // If it's already a same-origin (starts with /), keep it.
     if (url.startsWith('/')) return url;
     const u = new URL(url);
-    // Match both forms:
-    //  - https://storage.googleapis.com/<bucket>/<key>
-    //  - https://storage.cloud.google.com/<bucket>/<key> (rare)
-    const hostOk = /(^|\.)storage\.googleapis\.com$/.test(u.hostname) || /(^|\.)storage\.cloud\.google\.com$/.test(u.hostname);
-    if (!hostOk) return url; // leave other hosts unchanged
-    // First path segment is bucket, the rest is object key.
+    const host = u.hostname.toLowerCase();
+
+    // 1) Rewrite old FS URLs like http://localhost:3000/cdn/<key> → /api/file/<key>
+    if (host === 'localhost' || host === '127.0.0.1' || host === '::1') {
+      const m = u.pathname.match(/^\/cdn\/(.+)$/);
+      if (m && m[1]) {
+        return `/api/file/${m[1]}`;
+      }
+      return url; // localhost but not our CDN shape – leave unchanged
+    }
+
+    // 2) Rewrite GCS public links to our authenticated same-origin proxy
+    //    Accept both:
+    //      - https://storage.googleapis.com/<bucket>/<key>
+    //      - https://storage.cloud.google.com/<bucket>/<key>
+    const isGcsHost =
+      /(^|\.)storage\.googleapis\.com$/.test(host) ||
+      /(^|\.)storage\.cloud\.google\.com$/.test(host);
+    if (!isGcsHost) return url; // leave non-GCS hosts unchanged
+
     const parts = u.pathname.replace(/^\/+/, '').split('/');
     const bucket = parts.shift() ?? '';
     const key = parts.join('/');
     if (!bucket || !key) return url;
-    // If it’s our bucket, serve through our authenticated proxy.
-    if (bucket === BUCKET) return `/api/file/${key}`;
-    // Different bucket? still proxy safely via our API (optional):
+    // Whether same or different bucket, proxy via our /api/file/<key>
     return `/api/file/${key}`;
   } catch {
     return url;

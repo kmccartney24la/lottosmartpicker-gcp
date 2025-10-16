@@ -9,7 +9,7 @@ substitutions:
   _RUN_SMOKE_TEST: "1"
   _APP_URL: "https://app.lottosmartpicker.com"
   # Browser-facing data domain used for canonical links, sitemaps, etc.
-  _PUBLIC_BASE_URL: "https://data.lottosmartpicker.com"
+  _PUBLIC_BASE_URL: "https://storage.googleapis.com/lottosmartpicker-data"
   _UPDATE_JOBS: "1"
   _NODE_EXPECTED: "v20.19.5"
   # Optional: fail build if Fantasy 5 CSV is "small". 0 = off (default), 1 = on

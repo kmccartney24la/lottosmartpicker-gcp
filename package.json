@@ -8,7 +8,6 @@
     "start": "next start",
     "build:scripts": "tsc -p tsconfig.scripts.json",
     "build:all": "npm run build && npm run build:scripts",
-
     "scratchers:all": "tsx scripts/scratchers/run_all.ts --concurrency 6",
     "scratchers:dry": "tsx scripts/scratchers/run_all.ts --concurrency 4 --dry-run"
   },
@@ -23,6 +22,8 @@
     "mri": "^1.2.0",
     "next": "15.5.3",
     "p-limit": "^3.1.0",
+    "pdf-parse": "^2.3.12",
+    "pdfjs-dist": "^5.4.296",
     "playwright": "^1.55.0",
     "react": "18.3.1",
     "react-dom": "18.3.1",

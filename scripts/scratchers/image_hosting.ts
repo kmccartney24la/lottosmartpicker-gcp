@@ -248,11 +248,14 @@ async function fetchBinaryWithHeaders(url: string, init?: RequestInit): Promise<
     const { origin, hostname } = new URL(url);
     const isNY = /(^|\.)nylottery\.ny\.gov$/i.test(hostname);
     const isGA = /(^|\.)galottery\.com$/i.test(hostname);
+    const isFL = /(^|\.)flalottery\.com$/i.test(hostname);
     perHostHeaders = {
       Referer: isNY
         ? "https://nylottery.ny.gov/"
         : isGA
         ? "https://www.galottery.com/"
+        : isFL
+        ? "https://www.flalottery.com/"
         : DEFAULT_HEADERS["Referer"],
       // Some CDNs look at Sec-Fetch-Site; Playwright will set sensible values later too
     };
@@ -680,6 +683,22 @@ export async function ensureHashKeyNY(params: {
   dryRun?: boolean;
 }): Promise<Hosted> {
   const base = `ny/scratchers/images/${params.gameNumber}/${params.kind}-<sha>.<ext>`;
+  return downloadAndHost({
+    sourceUrl: params.sourceUrl,
+    keyHint: base,
+    storage: params.storage,
+    dryRun: params.dryRun,
+  });
+}
+
+export async function ensureHashKeyFL(params: {
+  gameNumber: number;
+  kind: "ticket" | "odds";
+  sourceUrl: string;
+  storage?: StorageProvider;
+  dryRun?: boolean;
+}): Promise<Hosted> {
+  const base = `fl/scratchers/images/${params.gameNumber}/${params.kind}-<sha>.<ext>`;
   return downloadAndHost({
     sourceUrl: params.sourceUrl,
     keyHint: base,

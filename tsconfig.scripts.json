@@ -3,7 +3,7 @@
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
     "target": "ES2022",
-    "lib": ["ES2022"],
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     // We only want this strict rule for NodeNext scripts so we catch missing .js
@@ -16,9 +16,10 @@
     "sourceMap": false,
     "isolatedModules": false,
 
-    "types": ["node"],
+    "types": ["node", "playwright"],
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
+    "skipLibCheck": true,                       // ⬅️ optional but recommended
 
     // IMPORTANT: no path aliases here
     "paths": {}

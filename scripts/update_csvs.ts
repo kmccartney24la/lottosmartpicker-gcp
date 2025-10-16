@@ -1,5 +1,6 @@
 // scripts/update_csvs.ts
 // Compile with tsconfig.scripts.json (NodeNext). Run the emitted JS: dist/scripts/update_csvs.js
+import * as fs from "node:fs/promises";
 
 // ✅ lib stays .mjs (these files are shipped as ESM in the image)
 import { upsertObject, deriveBucketFromBaseUrl } from "../lib/gcs.mjs";
@@ -7,6 +8,12 @@ import { latestCsv } from "../lib/csv.mjs";
 
 // ✅ script-to-script imports must end with .js so the emitted JS has correct ESM extensions
 import { buildFantasy5Csv } from "./sources/fantasy5.js";
+import { buildFloridaLottoCsv } from "./sources/fl_lotto.js";
+import { buildFloridaJtpCsv } from "./sources/fl_jtp.js";
+import { buildFloridaPick5Csvs } from "./sources/fl_pick5.js";
+import { buildFloridaPick4Csvs } from "./sources/fl_pick4.js";
+import { buildFloridaPick3Csvs } from "./sources/fl_pick3.js";
+import { buildFloridaPick2Csvs } from "./sources/fl_pick2.js";
 import { buildFantasy5CsvFromLocalSeed } from "./builders/fantasy5.js";
 import { buildSocrataCsv } from "./builders/socrata.js";
 import { buildGaScratchersIndex } from "./builders/scratchers_ga.js";
@@ -40,6 +47,10 @@ const BOOL = (v: unknown): boolean => {
   return s === "1" || s === "true" || s === "yes";
 };
 
+// sensible default, override via env if you like
+const CSV_CACHE_CONTROL =
+  process.env.CSV_CACHE_CONTROL ?? "public, max-age=300, must-revalidate";
+
 async function maybeUploadCsv(params: { bucketName: string; objectPath: string; fullCsv: string }) {
   const { bucketName, objectPath, fullCsv } = params;
 
@@ -49,6 +60,7 @@ async function maybeUploadCsv(params: { bucketName: string; objectPath: string; 
     objectPath,
     contentType: "text/csv; charset=utf-8",
     bodyBuffer: Buffer.from(fullCsv, "utf8"),
+    cacheControl: CSV_CACHE_CONTROL,
   });
 
   // Latest CSV (optional but handy)
@@ -58,6 +70,7 @@ async function maybeUploadCsv(params: { bucketName: string; objectPath: string; 
     objectPath: objectPath.replace(/\.csv$/i, ".latest.csv"),
     contentType: "text/csv; charset=utf-8",
     bodyBuffer: Buffer.from(latest, "utf8"),
+    cacheControl: CSV_CACHE_CONTROL,
   });
 }
 
@@ -67,11 +80,27 @@ export async function main(): Promise<void> {
   const skipSocrata = BOOL(process.env.SKIP_SOCRATA);
   const skipF5 = BOOL(process.env.SKIP_FANTASY5);
   const skipScratch = BOOL(process.env.SKIP_SCRATCHERS); // optional, recognized if present
+  const skipFLLotto = BOOL(process.env.SKIP_FL_LOTTO);
+  const skipFLJtp  = BOOL(process.env.SKIP_FL_JTP);
+  const skipFLPick5  = BOOL(process.env.SKIP_FL_PICK5);
+  const skipFLPick4  = BOOL(process.env.SKIP_FL_PICK4);
+  const skipFLPick3  = BOOL(process.env.SKIP_FL_PICK3);
+  const skipFLPick2  = BOOL(process.env.SKIP_FL_PICK2);
   const socrataToken = process.env.NY_SOCRATA_APP_TOKEN || process.env.SOCRATA_APP_TOKEN;
 
   console.log(`[update-csvs] Bucket: ${bucket}`);
-  console.log(
-    `[update-csvs] Flags: skipSocrata=${skipSocrata} skipF5=${skipF5} skipScratchers=${skipScratch}`
+   console.log(
+    `[update-csvs] Bucket: ${bucket}\n` +
+    `[update-csvs] Flags: ` +
+    `skipSocrata=${skipSocrata} ` +
+    `skipF5=${skipF5} ` +
+    `skipFLLotto=${skipFLLotto} ` +
+    `skipFLJtp=${skipFLJtp} ` +
+    `skipFLPick5=${skipFLPick5} ` +
+    `skipFLPick4=${skipFLPick4} ` +
+    `skipFLPick3=${skipFLPick3} ` +
+    `skipFLPick2=${skipFLPick2} ` +
+    `skipScratchers=${skipScratch}`
   );
 
   // --- Draws: Socrata (Multi-state + New York) ---
@@ -108,7 +137,6 @@ export async function main(): Promise<void> {
   } else {
     console.log("[update-csvs] SKIP_FANTASY5=1 — skipping Fantasy 5");
   }
-
   // --- Scratchers: GA ---
   if (!skipScratch) {
     const json = await buildGaScratchersIndex();
@@ -135,8 +163,80 @@ export async function main(): Promise<void> {
     console.log("[update-csvs] SKIP_SCRATCHERS=1 — skipping GA scratchers");
   }
 
+    // --- Draws: Florida LOTTO (from official PDF) ---
+  if (!skipFLLotto) {
+    await buildFloridaLottoCsv(); // writes public/data/fl/lotto.csv
+    const csv = await fs.readFile("public/data/fl/lotto.csv", "utf8");
+    await maybeUploadCsv({
+      bucketName: bucket,
+      objectPath: "fl/lotto.csv",
+      fullCsv: csv,
+    });
+  } else {
+    console.log("[update-csvs] SKIP_FL_LOTTO=1 — skipping Florida Lotto");
+  }
+
+  // --- Draws: Florida Jackpot Triple Play (from official PDF) ---
+  if (!skipFLJtp) {
+    await buildFloridaJtpCsv(); // writes public/data/fl/jackpot_triple_play.csv
+    const csv = await fs.readFile("public/data/fl/jackpot_triple_play.csv", "utf8");
+    await maybeUploadCsv({
+      bucketName: bucket,
+      objectPath: "fl/jackpot_triple_play.csv",
+      fullCsv: csv,
+    });
+  } else {
+    console.log("[update-csvs] SKIP_FL_JTP=1 — skipping Florida Jackpot Triple Play");
+  }
+
+  // --- Draws: Florida Pick 5 (from official PDF) ---
+  if (!skipFLPick5) {
+    await buildFloridaPick5Csvs();
+    const mid = await fs.readFile("public/data/fl/pick5_midday.csv", "utf8");
+    const eve = await fs.readFile("public/data/fl/pick5_evening.csv", "utf8");
+    await maybeUploadCsv({ bucketName: bucket, objectPath: "fl/pick5_midday.csv",  fullCsv: mid });
+    await maybeUploadCsv({ bucketName: bucket, objectPath: "fl/pick5_evening.csv", fullCsv: eve });
+  } else {
+    console.log("[update-csvs] SKIP_FL_PICK5=1 — skipping Florida Pick 5");
+  }
+
+  // --- Draws: Florida Pick 4 (from official PDF) ---
+  if (!skipFLPick4) {
+    await buildFloridaPick4Csvs();
+    const mid = await fs.readFile("public/data/fl/pick4_midday.csv", "utf8");
+    const eve = await fs.readFile("public/data/fl/pick4_evening.csv", "utf8");
+    await maybeUploadCsv({ bucketName: bucket, objectPath: "fl/pick4_midday.csv",  fullCsv: mid });
+    await maybeUploadCsv({ bucketName: bucket, objectPath: "fl/pick4_evening.csv", fullCsv: eve });
+  } else {
+    console.log("[update-csvs] SKIP_FL_PICK4=1 — skipping Florida Pick 4");
+  }
+
+  // --- Draws: Florida Pick 3 (from official PDF) ---
+  if (!skipFLPick3) {
+    await buildFloridaPick3Csvs();
+    const mid = await fs.readFile("public/data/fl/pick3_midday.csv", "utf8");
+    const eve = await fs.readFile("public/data/fl/pick3_evening.csv", "utf8");
+    await maybeUploadCsv({ bucketName: bucket, objectPath: "fl/pick3_midday.csv",  fullCsv: mid });
+    await maybeUploadCsv({ bucketName: bucket, objectPath: "fl/pick3_evening.csv", fullCsv: eve });
+  } else {
+    console.log("[update-csvs] SKIP_FL_PICK3=1 — skipping Florida Pick 3");
+  }
+
+  // --- Draws: Florida Pick 2 (from official PDF) ---
+  if (!skipFLPick2) {
+    await buildFloridaPick2Csvs();
+    const mid = await fs.readFile("public/data/fl/pick2_midday.csv", "utf8");
+    const eve = await fs.readFile("public/data/fl/pick2_evening.csv", "utf8");
+    await maybeUploadCsv({ bucketName: bucket, objectPath: "fl/pick2_midday.csv",  fullCsv: mid });
+    await maybeUploadCsv({ bucketName: bucket, objectPath: "fl/pick2_evening.csv", fullCsv: eve });
+  } else {
+    console.log("[update-csvs] SKIP_FL_PICK2=1 — skipping Florida Pick 2");
+  }
+
   console.log("[update-csvs] Done.");
 }
+
+
 
 // ---------- CLI ----------
 if (import.meta.url === `file://${process.argv[1]}`) {

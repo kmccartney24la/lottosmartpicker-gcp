@@ -1,4 +1,3 @@
-// scripts/scratchers/run_all.ts
 import { spawn } from "node:child_process";
 
 type RunResult = { name: string; code: number | null };
@@ -19,7 +18,8 @@ function passThroughFlags(): string[] {
   const out: string[] = [];
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
-    if (a === "--dry-run") {
+    // simple boolean flags we support
+    if (a === "--dry-run" || a === "--seed" || a === "--rehost-all" || a === "--only-missing") {
       out.push(a);
       continue;
     }
@@ -46,15 +46,20 @@ async function main() {
   const flags = passThroughFlags();
 
   console.log(`[orchestrator] starting (flags: ${flags.join(" ") || "(none)"} )`);
-  console.log(`[orchestrator] storage: ${process.env.PUBLIC_BASE_URL ? "PUBLIC_BASE_URL=" + process.env.PUBLIC_BASE_URL : "FS mode"}; provider banner will follow...`);
+  console.log(
+    `[orchestrator] storage: ${
+      process.env.PUBLIC_BASE_URL ? "PUBLIC_BASE_URL=" + process.env.PUBLIC_BASE_URL : "FS mode"
+    }; provider banner will follow...`
+  );
 
   // Use "npx tsx" so it works cross-platform (Windows needs .cmd shims)
   const ga = await run("npx", ["tsx", "scripts/scratchers/fetch_ga_scratchers.ts", ...flags], "GA");
   const ny = await run("npx", ["tsx", "scripts/scratchers/fetch_ny_scratchers.ts", ...flags], "NY");
+  const fl = await run("npx", ["tsx", "scripts/scratchers/fetch_fl_scratchers.ts", ...flags], "FL");
 
-  console.log(`[orchestrator] results: GA=${ga.code} NY=${ny.code}`);
+  console.log(`[orchestrator] results: GA=${ga.code} NY=${ny.code} FL=${fl.code}`);
 
-  const hardFail = (ga.code ?? 1) !== 0 || (ny.code ?? 1) !== 0;
+  const hardFail = (ga.code ?? 1) !== 0 || (ny.code ?? 1) !== 0 || (fl.code ?? 1) !== 0;
   if (hardFail) {
     console.error("[orchestrator] one or more scrapers failed");
     process.exit(1);

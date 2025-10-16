@@ -8,6 +8,13 @@
    // GA
    | 'ga_fantasy5'
    | 'ga_scratchers'
+   // Florida
+   | 'fl_lotto'
+   |'fl_jackpot_triple_play'
+   | 'fl_pick5_midday' | 'fl_pick5_evening'
+   | 'fl_pick4_midday' | 'fl_pick4_evening'
+   | 'fl_pick3_midday' | 'fl_pick3_evening'
+   | 'fl_pick2_midday' | 'fl_pick2_evening'
    // New York — underlying “file-backed” keys (exactly match update_csvs.ts objectPaths)
    | 'ny_nylotto'
    | 'ny_numbers_midday'
@@ -35,6 +42,11 @@
    | 'ny_lotto'
    | 'ny_pick10'
    | 'ny_quick_draw'
+   // Florida
+   | 'fl_pick5'
+   | 'fl_pick4'
+   | 'fl_pick3'
+   | 'fl_pick2'
    // also allow multi-state on that page
    | 'multi_powerball'
    | 'multi_megamillions'
@@ -50,7 +62,9 @@ export type EraGame =
   | 'multi_cash4life'
   | 'ga_fantasy5'
   | 'ny_take5'
-  | 'ny_lotto';
+  | 'ny_lotto'
+  | 'fl_lotto'
+  | 'fl_jackpot_triple_play';
 
 // Games that we fetch from Socrata (NY Open Data).
 export type SocrataGame =
@@ -99,6 +113,10 @@ export const LOGICAL_TO_UNDERLYING: Record<
   ny_lotto:           { both: ['ny_nylotto'] },
   ny_pick10:          { both: ['ny_pick10'] },
   ny_quick_draw:      { both: ['ny_quick_draw'] },
+  fl_pick5:           {both:   ['fl_pick5_midday','fl_pick5_evening'], midday: ['fl_pick5_midday'], evening:['fl_pick5_evening'], },
+  fl_pick4:           {both:   ['fl_pick4_midday','fl_pick4_evening'], midday: ['fl_pick4_midday'], evening:['fl_pick4_evening'], },
+  fl_pick3:           {both:   ['fl_pick3_midday','fl_pick3_evening'], midday: ['fl_pick3_midday'], evening:['fl_pick3_evening'], },
+  fl_pick2:           {both:   ['fl_pick2_midday','fl_pick2_evening'], midday: ['fl_pick2_midday'], evening:['fl_pick2_evening'], },
 };
 
 export function underlyingKeysFor(logical: LogicalGameKey, period: Period): UnderlyingKey[] {
@@ -127,7 +145,14 @@ function resolveEraGame(game: GameKey): EraGame {
   // NY Lotto maps to its own era (6 + Bonus)
   if (game === 'ny_lotto' || game === 'ny_nylotto') return 'ny_lotto';
   // All multi-state & GA Fantasy 5 are already EraGame members
-  if (game === 'multi_powerball' || game === 'multi_megamillions' || game === 'multi_cash4life' || game === 'ga_fantasy5') {
+  if (
+    game === 'multi_powerball' ||
+    game === 'multi_megamillions' ||
+    game === 'multi_cash4life' ||
+    game === 'ga_fantasy5' ||
+    game === 'fl_lotto' ||
+    game === 'fl_jackpot_triple_play'
+  ) {
     return game;
   }
   // Fallback: use Cash4Life era (safe, 5+1) if someone passes a non-era NY key by mistake.
@@ -184,6 +209,17 @@ export const GAME_TO_API_PATH: Record<GameKey, string> = {
   multi_cash4life:    `${FILE_BASE}/multi/cash4life.csv`,
   ga_fantasy5:        `${FILE_BASE}/ga/fantasy5.csv`,
   ga_scratchers:      `${FILE_BASE}/ga/scratchers/index.latest.json`,
+  // --- Florida ---
+  fl_lotto:           `${FILE_BASE}/fl/lotto.csv`,
+  fl_jackpot_triple_play: `${FILE_BASE}/fl/jackpot_triple_play.csv`,
+  fl_pick5_midday:    `${FILE_BASE}/fl/pick5_midday.csv`,
+  fl_pick5_evening:   `${FILE_BASE}/fl/pick5_evening.csv`,
+  fl_pick4_midday:    `${FILE_BASE}/fl/pick4_midday.csv`,
+  fl_pick4_evening:   `${FILE_BASE}/fl/pick4_evening.csv`,
+  fl_pick3_midday:    `${FILE_BASE}/fl/pick3_midday.csv`,
+  fl_pick3_evening:   `${FILE_BASE}/fl/pick3_evening.csv`,
+  fl_pick2_midday:    `${FILE_BASE}/fl/pick2_midday.csv`,
+  fl_pick2_evening:   `${FILE_BASE}/fl/pick2_evening.csv`,
   // --- New York (UNDERLYING, file-backed) ---
   ny_nylotto:         `${FILE_BASE}/ny/nylotto.csv`,
   ny_numbers_midday:  `${FILE_BASE}/ny/numbers_midday.csv`,
@@ -438,6 +474,24 @@ export const CURRENT_ERA: Record<EraGame, EraConfig> = {
     description:
       'NY Lotto: 6 mains from 1–59 plus a Bonus ball (also 1–59). Jackpot odds = C(59,6); Bonus used for 2nd prize.',
   },
+  fl_lotto: {
+    start: '1999-10-24',   // matrix changed to 6/53 on Oct 24, 1999
+    mainMax: 53,
+    specialMax: 53,        // we store the 6th main in `special` for schema compatibility
+    mainPick: 6,           // six mains
+    label: '6/53 (no bonus; 6th stored as special)',
+    description:
+      'Florida LOTTO: 6 mains from 1–53. We store the 6th main in “special” to match the 5+special CSV schema. Double Play rows are excluded.',
+  },
+  fl_jackpot_triple_play: {
+   start: '2019-01-30',     // JTP launch
+   mainMax: 46,
+   specialMax: 46,          // store 6th main in `special` (schema compatibility)
+   mainPick: 6,
+   label: '6/46 (no bonus; 6th stored as special)',
+   description:
+     'Florida Jackpot Triple Play: 6 mains from 1–46, no bonus ball. We store the 6th main in “special” to match the canonical 5+special schema.',
+ },
 };
 
 export function getCurrentEraConfig(game: GameKey): EraConfig {
