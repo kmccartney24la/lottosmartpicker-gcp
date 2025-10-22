@@ -4,10 +4,12 @@ import { NextResponse } from "next/server";
 import { GoogleAuth } from "google-auth-library";
 
 export const runtime = "nodejs";          // needs metadata server
-export const dynamic = "force-dynamic";   // stream bytes, not statically optimized
+// Don’t force dynamic — allow framework/edge caching.
+// If you need short freshness, tune revalidate instead of disabling cache entirely.
+export const revalidate = 600; // seconds; cache at the framework layer for 10 minutes
 
 const BUCKET = process.env.DATA_BUCKET ?? "lottosmartpicker-data";
-const ALLOWLIST = (process.env.DATA_PREFIX_ALLOWLIST ?? "ga/,fl/,ny/,multi/,scratchers/")
+const ALLOWLIST = (process.env.DATA_PREFIX_ALLOWLIST ?? "ga/,fl/,ny/,ca/,multi/,scratchers/")
   .split(",").map(s => s.trim()).filter(Boolean);
 
 function allowed(key: string) {
@@ -43,21 +45,34 @@ export async function GET(req: NextRequest, { params }: { params: { path?: strin
   }
   if (!allowed(key)) return NextResponse.json({ error: "Not found" }, { status: 404 });
   const url = mediaUrl(BUCKET, key);
-  const t = await token();
+  let t: string;
+  try { t = await token(); } catch {
+    return new NextResponse("Upstream auth error", { status: 502 });
+  }
   // Forward conditional headers to enable 304s
   const condHeaders: Record<string, string> = {};
   const inm = req.headers.get("if-none-match");
   const ims = req.headers.get("if-modified-since");
   if (inm) condHeaders["If-None-Match"] = inm;
   if (ims) condHeaders["If-Modified-Since"] = ims;
-  const upstream = await fetch(url, {
-    headers: { Authorization: `Bearer ${t}`, ...condHeaders }
-  });
+  const upstream = await fetch(
+    url,
+    {
+      headers: { Authorization: `Bearer ${t}`, ...condHeaders },
+      // Hint Next/Vercel to memoize this origin fetch for revalidate seconds
+      // (applies between route invocations; reduces origin trips).
+      cache: "force-cache",
+      next: { revalidate }
+    }
+  );
   if (upstream.status === 304) {
     return new NextResponse(null, {
       status: 304,
       headers: {
-        "Cache-Control": "public, max-age=300, stale-while-revalidate=31536000",
+        // Cacheable at CDNs; clients get 5m, CDNs can serve SWR up to 1y.
+        // s-maxage specifically targets shared caches (CDN/edge).
+        "Cache-Control": "public, max-age=300, s-maxage=600, stale-while-revalidate=31536000",
+        "Vary": "Accept-Encoding",
         "ETag": upstream.headers.get("etag") ?? "",
         "Last-Modified": upstream.headers.get("last-modified") ?? ""
       }
@@ -67,13 +82,15 @@ export async function GET(req: NextRequest, { params }: { params: { path?: strin
   const ct = upstream.headers.get("content-type") || guessContentType(key);
   const res = new NextResponse(upstream.body, { status: 200 });
   res.headers.set("Content-Type", ct);
-  res.headers.set("Cache-Control", "public, max-age=300, stale-while-revalidate=31536000");
+  // Public + client max-age + shared-cache s-maxage + SWR for long tail.
+  res.headers.set("Cache-Control", "public, max-age=300, s-maxage=600, stale-while-revalidate=31536000");
+  res.headers.set("Vary", "Accept-Encoding");
   // Pass through validators when available
   const etag = upstream.headers.get("etag");
   const lm = upstream.headers.get("last-modified");
   if (etag) res.headers.set("ETag", etag);
   if (lm) res.headers.set("Last-Modified", lm);
-  res.headers.delete("Vary");
+  // Ensure nothing marks this as private/non-cacheable.
   res.headers.delete("Set-Cookie");
   return res;
 }
@@ -84,15 +101,33 @@ export async function HEAD(_req: NextRequest, { params }: { params: { path?: str
     return new NextResponse(null, { status: 404 });
   }
   const url = mediaUrl(BUCKET, key);
-  const t = await token();
-  const upstream = await fetch(url, { method: "HEAD", headers: { Authorization: `Bearer ${t}` } });
-  return new NextResponse(null, {
-    status: upstream.ok ? 200 : upstream.status,
-    headers: {
-      "Content-Type": upstream.headers.get("content-type") || guessContentType(key),
-      "Cache-Control": "public, max-age=300, stale-while-revalidate=31536000",
-      "ETag": upstream.headers.get("etag") ?? "",
-      "Last-Modified": upstream.headers.get("last-modified") ?? ""
-    },
-  });
+  let t: string;
+  try { t = await token(); } catch {
+    return new NextResponse(null, { status: 502 });
+  }
+  // Forward conditionals for 304 on HEAD too
+  const condHeaders: Record<string, string> = {};
+  const inm = _req.headers.get("if-none-match");
+  const ims = _req.headers.get("if-modified-since");
+  if (inm) condHeaders["If-None-Match"] = inm;
+  if (ims) condHeaders["If-Modified-Since"] = ims;
+  const upstream = await fetch(
+    url,
+    {
+      method: "HEAD",
+      headers: { Authorization: `Bearer ${t}`, ...condHeaders },
+      cache: "force-cache",
+      next: { revalidate }
+    }
+  );
+  const status = upstream.status; // may be 304
+  const res = new NextResponse(null, { status });
+  res.headers.set("Content-Type", upstream.headers.get("content-type") || guessContentType(key));
+  res.headers.set("Cache-Control", "public, max-age=300, s-maxage=600, stale-while-revalidate=31536000");
+  res.headers.set("Vary", "Accept-Encoding");
+  const etag = upstream.headers.get("etag");
+  const lm = upstream.headers.get("last-modified");
+  if (etag) res.headers.set("ETag", etag);
+  if (lm) res.headers.set("Last-Modified", lm);
+  return res;
 }

@@ -17,7 +17,7 @@ import {
   LogicalGameKey,
   Period,
   fetchLogicalRows,
-  analyzeGame,
+  analyzeGameAsync,
   getCurrentEraConfig,     // used to compute era-aware analysis for rep game
   // use the “representative” helper to get one key for UI components when needed
   primaryKeyFor,
@@ -25,27 +25,48 @@ import {
   fetchPick10RowsFor,
   fetchQuickDrawRowsFor,
   fetchNyLottoExtendedRows,
-} from '@lib/lotto';
+} from 'packages/lib/lotto';
+import { useIsMobile } from 'packages/lib/breakpoints';
+import { ErrorBoundary } from 'src/components/ErrorBoundary';
+
+type NyPeriod = 'midday' | 'evening' | 'both';
+
+export function toNyPeriod(p: Period): NyPeriod {
+  // Map anything non-NY (including 'all' and Cash Pop periods) to 'both'
+  return (p === 'midday' || p === 'evening' || p === 'both') ? p : 'both';
+}
 
 // Match the canonical-draw constraint used in HomeClient.tsx
 type CanonicalDrawGame = Exclude<GameKey, 'ga_scratchers'>;
 
-import { useIsMobile } from '@lib/breakpoints';
+// NY page supports only these logical keys
+const NY_KEYS = [
+  'multi_cash4life',
+  'multi_megamillions',
+  'multi_powerball',
+  'ny_numbers',
+  'ny_lotto',
+  'ny_pick10',
+  'ny_quick_draw',
+  'ny_take5',
+  'ny_win4',
+] as const;
+
+type NyLogicalKey = typeof NY_KEYS[number]; // subtype of LogicalGameKey
 
 const AdsLot = dynamic(() => import('src/components/ads/AdsLot'), { ssr: false });
 
 /** Games shown on the New York page (logical keys) */
-const GAME_OPTIONS: { key: LogicalGameKey; label: string; supportsPeriod?: boolean }[] = [
+const GAME_OPTIONS: { key: NyLogicalKey; label: string; supportsPeriod?: boolean }[] = [
   { key: 'multi_cash4life',    label: 'Cash4Life',        supportsPeriod: false },
   { key: 'multi_megamillions', label: 'Mega Millions',    supportsPeriod: false },
   { key: 'multi_powerball',    label: 'Powerball',        supportsPeriod: false },
-  { key: 'ny_numbers', label: 'Numbers (Pick 3)', supportsPeriod: true },
-  { key: 'ny_lotto',   label: 'NY Lotto', supportsPeriod: false },
-  { key: 'ny_pick10',  label: 'Pick 10', supportsPeriod: false },
-  { key: 'ny_quick_draw', label: 'Quick Draw', supportsPeriod: false },
-  { key: 'ny_take5',   label: 'Take 5 (5/39)', supportsPeriod: true },
-  { key: 'ny_win4',    label: 'Win 4', supportsPeriod: true },
-  
+  { key: 'ny_numbers',         label: 'Numbers (Pick 3)', supportsPeriod: true  },
+  { key: 'ny_lotto',           label: 'NY Lotto',         supportsPeriod: false },
+  { key: 'ny_pick10',          label: 'Pick 10',          supportsPeriod: false },
+  { key: 'ny_quick_draw',      label: 'Quick Draw',       supportsPeriod: false },
+  { key: 'ny_take5',           label: 'Take 5 (5/39)',    supportsPeriod: true  },
+  { key: 'ny_win4',            label: 'Win 4',            supportsPeriod: true  },
 ];
 
 /**
@@ -58,17 +79,18 @@ const GAME_OPTIONS: { key: LogicalGameKey; label: string; supportsPeriod?: boole
  * You can refine this mapping later (e.g., add a dedicated rep for Pick 10).
  */
 // Important: ensure none of these are 'ga_scratchers'
-const REP_FOR_LOGICAL: Record<LogicalGameKey, CanonicalDrawGame> = {
-  ny_take5: 'ny_take5',              // native canonical already exists
-  ny_numbers: 'multi_cash4life',     // neutral era config; no special ball UX
+const REP_FOR_LOGICAL: Record<NyLogicalKey, CanonicalDrawGame> = {
+  ny_take5: 'ny_take5',
+  ny_numbers: 'multi_cash4life',
   ny_win4: 'multi_cash4life',
-  ny_lotto: 'ny_lotto',              // ← use NY Lotto’s own era (6/59 + Bonus)
+  ny_lotto: 'ny_lotto',
   ny_pick10: 'multi_cash4life',
   ny_quick_draw: 'multi_cash4life',
   multi_powerball: 'multi_powerball',
   multi_megamillions: 'multi_megamillions',
   multi_cash4life: 'multi_cash4life',
 };
+
 
 export default function HomeClientNY() {
   const [logical, setLogical] = useState<LogicalGameKey>('multi_powerball');
@@ -162,7 +184,7 @@ export default function HomeClientNY() {
     if (existing) return { recMain: existing.recMain, recSpec: existing.recSpec };
     // The analysis/generator logic is era-aware by GameKey. Since the rows here
     // are “shimmed” (for flexible sources) to a repGame, it will behave consistently.
-    const a = analyzeGame(rows, repGame);
+    const a = await analyzeGameAsync(rows, repGame);
     setAnalysisByRep(prev => ({ ...prev, [repGame]: a }));
     return { recMain: a.recMain, recSpec: a.recSpec };
   }, [analysisByRep, repGame, rows]);
@@ -171,7 +193,8 @@ export default function HomeClientNY() {
   const supportsPeriod = GAME_OPTIONS.find(g => g.key === logical)?.supportsPeriod;
 
   return (
-    <main className="layout-rails">
+    <ErrorBoundary>
+      <main className="layout-rails">
       {/* Left rail */}
       <aside className="rail rail--left" aria-label="Sponsored">
         <div className="rail__inner">
@@ -192,15 +215,15 @@ export default function HomeClientNY() {
                   className="card card--reserve-topright game-select-card"
                   data-has-period={supportsPeriod ? 'true' : 'false'}
                 >
-                  <div className="card-title game-select-label">Game</div>
+                  <div className="card-title game-select-label">Pick Your Game</div>
                   <select
                     aria-label="Select New York game"
                     value={logical}
                     onChange={(e) => {
-                      setLogical(e.target.value as LogicalGameKey);
-                      // reset period to 'both' when switching games
-                      setPeriod('both');
-                      setPage(1);
+                      const next = e.target.value as NyLogicalKey; // or LogicalGameKey
+                      setLogical(next);       // <-- update the selected logical game
+                      setPeriod('both');      // reset period on game change
+                      setPage(1);             // reset pagination
                     }}
                     className="compact-control"
                   >
@@ -208,6 +231,7 @@ export default function HomeClientNY() {
                       <option key={opt.key} value={opt.key}>{opt.label}</option>
                     ))}
                   </select>
+
 
                 {/* Period picker (only for midday/evening games) */}
                 {/* inside the same .game-select-card as the game dropdown */}
@@ -236,7 +260,7 @@ export default function HomeClientNY() {
                   <SelectedLatest
                     game={repGame}
                     logical={logical}
-                    period={supportsPeriod ? period : 'both'}
+                    period={supportsPeriod ? toNyPeriod(period) : 'both'}
                     onOpenPastDraws={openPastDraws}
                     showPast={showPast}
                   />
@@ -249,7 +273,15 @@ export default function HomeClientNY() {
               <section className="vstack vstack--4">
                 <GameOverview game={repGame} logical={logical} period={period} />
                 <div>
-                  <Generator
+                  <ErrorBoundary
+                    fallback={
+                      <div className="card p-3 text-sm">
+                        <div className="font-medium mb-1">Generator temporarily unavailable.</div>
+                        <div>Try changing the game/period or reload the page.</div>
+                      </div>
+                    }
+                  >
+                    <Generator
                     game={repGame}                   // canonical rep (5-ball era config)
                     logical={logical}                // NEW: drives shape (digits/pick10/quickdraw)
                     rowsForGenerator={rows}
@@ -257,9 +289,10 @@ export default function HomeClientNY() {
                     anLoading={loading}
                     onEnsureRecommended={async () => {
                         const era = getCurrentEraConfig(repGame);
-                        return analyzeGame(rows, repGame);
+                        return analyzeGameAsync(rows, repGame);
                     }}
                     />
+                  </ErrorBoundary>
                 </div>
                 <div className="ad-slot ad-slot--rect-280" aria-label="Advertisement">
                   {!loading && rows.length > 0 ? <AdsLot /> : null}
@@ -271,29 +304,42 @@ export default function HomeClientNY() {
                         title="Analysis (All Games)"
                         canonical={['multi_powerball','multi_megamillions','multi_cash4life']}
                         logical={['ny_take5','ny_numbers','ny_win4','ny_lotto','ny_pick10','ny_quick_draw']}
-                        period={supportsPeriod ? period : 'both'}
+                        period={supportsPeriod ? toNyPeriod(period) : 'both'}
+                        state="ny"
                         /></div>
               </section>
             </div>
 
             {/* Drawer */}
-            <PastDrawsSidebar
-              open={showPast}
-              onClose={() => setShowPast(false)}
-              compact={compact}
-              setCompact={setCompact}
-              pageRows={pageRows}
-              page={page}
-              pageCount={pageCount}
-              setPage={setPage}
-              total={sortedRows.length}
-              side="right"
-              game={repGame}
-              logical={logical}
-              payload={payload}
-              sortDir={sortDir}
-              onToggleSort={() => setSortDir(d => d === 'desc' ? 'asc' : 'desc')}
-            />
+            <ErrorBoundary
+              fallback={
+                <div className="card p-3 text-sm">
+                  <div className="font-medium mb-1">Past Draws failed to load.</div>
+                  <button className="mt-1 rounded bg-black text-white px-3 py-1"
+                          onClick={() => setShowPast(false)}>
+                    Close
+                  </button>
+                </div>
+              }
+            >
+              <PastDrawsSidebar
+                open={showPast}
+                onClose={() => setShowPast(false)}
+                compact={compact}
+                setCompact={setCompact}
+                pageRows={pageRows}
+                page={page}
+                pageCount={pageCount}
+                setPage={setPage}
+                total={sortedRows.length}
+                side="right"
+                game={repGame}
+                logical={logical}
+                payload={payload}
+                sortDir={sortDir}
+                onToggleSort={() => setSortDir(d => d === 'desc' ? 'asc' : 'desc')}
+              />
+            </ErrorBoundary>
           </div>
         </div>
       </div>
@@ -306,5 +352,6 @@ export default function HomeClientNY() {
         </div>
       </aside>
     </main>
+    </ErrorBoundary>
   );
 }

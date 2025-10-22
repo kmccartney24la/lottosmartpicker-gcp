@@ -29,6 +29,15 @@
 }
 
 @layer pages {
+
+   /* Give only the game-select card an accented surface */
+  .header-controls .game-select-card {
+    --card: var(--card-emphasis);
+    --card-bd: var(--card-emphasis-bd);
+    /* no shadows, no glow */
+    box-shadow: none;
+  }
+  
   /* Reserve space only between the title and the first control, so the title doesn't move */
   .header-controls .game-select-card[data-has-period="true"],
   .header-controls .game-select-card.game-select-card--has-period {

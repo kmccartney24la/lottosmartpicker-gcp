@@ -1,25 +1,39 @@
 // src/components/EvaluateTicket.tsx
 'use client';
 import './EvaluateTicket.css';
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo, useState, useEffect, useRef } from 'react';
 import Pill from 'src/components/Pill';
 import Info from 'src/components/Info';
-import { HINT_EXPLAIN, classifyHint } from 'src/components/hints';
+import { HINT_EXPLAIN, classifyHint, displayHint } from 'src/components/hints';
 import {
   GameKey,
   type LogicalGameKey,
   getCurrentEraConfig,
   ticketHints,
-  computeStats,
-  filterRowsForCurrentEra,
-  // digits
-  computeDigitStats, ticketHintsDigits,
-  // pick 10
-  computePick10Stats, ticketHintsPick10,
-  // quick draw
-  computeQuickDrawStats,
+  ticketHintsPick10,
   LottoRow,
-} from '@lib/lotto';
+  // worker-offloaded fallback when precomputedStats is absent
+  computeStatsAsync,
+} from 'packages/lib/lotto';
+// type-only imports to keep bundle clean but fix TS types
+import type {
+  computeStats,
+  computeDigitStats,
+  computePick10Stats,
+  computeQuickDrawStats,
+} from 'packages/lib/lotto';
+import {
+  resolveGameMeta,
+  isDigitShape,
+  specialToneClass,
+  filterHintsForGame,
+  bonusMustDifferFromMains,
+  eraConfigFor,
+  playTypeLabelsForDigits,
+  qdHas3Run,
+  qdIsTight,
+  hasColoredSpecial,
+} from 'packages/lib/gameRegistry';
 
 type StatsT = ReturnType<typeof computeStats>;
 
@@ -44,16 +58,21 @@ export default function EvaluateTicket({
   quickDrawSpots?: 1|2|3|4|5|6|7|8|9|10;
 }) {
 
-  // ---- Game shape detection (LogicalGameKey only; no *_rep, no *_midday/evening) ----
-  const lg = logical; // undefined means we're on a canonical 5-ball page
-  const isDigits = lg === 'ny_numbers' || lg === 'ny_win4';
-  const isPick10 = lg === 'ny_pick10';
-  const isQuickDraw = lg === 'ny_quick_draw';
-  const isFiveBall = !lg || (!isDigits && !isPick10 && !isQuickDraw);
-  const isNyLotto = lg === 'ny_lotto' || game === 'ny_lotto';
+  // ---- Registry-driven shape detection ----
+  const meta = useMemo(() => resolveGameMeta(game, logical), [game, logical]);
+  const isDigits   = isDigitShape(meta.shape);
+  const isPick10   = meta.shape === 'pick10';
+  const isQuickDraw= meta.shape === 'quickdraw';
+  const isFiveBall = meta.shape === 'five' || meta.shape === 'six';
+  const isNyLotto  = !!meta.isNyLotto;
 
-  const eraCfg = useMemo(() => getCurrentEraConfig(game), [game]);
-  const hasSpecial = eraCfg.specialMax > 0;
+  // Apply registry tweaks (e.g., FL LOTTO/JTP -> specialMax: 0) once here.
+  const eraCfg = useMemo(() => {
+    const base = getCurrentEraConfig(game);
+    return eraConfigFor(meta, base);
+  }, [game, meta]);
+  // Respect registry flags exactly like the Generator (PB/MM/C4L : special; FL LOTTO/JTP : no special)
+  const hasSpecial = hasColoredSpecial(meta);
 
  // --------------------- FIVE-BALL INPUTS ------------------------------
   // Build controlled inputs sized to the game’s domain (lazy init)
@@ -63,7 +82,7 @@ export default function EvaluateTicket({
   const [special, setSpecial] = useState<string>('');
 
   // --------------------- DIGITS INPUTS ---------------------------------
-  const kDigits = lg === 'ny_win4' ? 4 : 3;
+  const kDigits = (meta.kDigits ?? 3) as 2|3|4|5;
   const [digits, setDigits] = useState<string[]>(
     () => Array.from({ length: kDigits }, () => '')
   );
@@ -81,6 +100,8 @@ export default function EvaluateTicket({
 
   const [errors, setErrors] = useState<string[]>([]);
   const [resultHints, setResultHints] = useState<string[] | null>(null);
+  // allow canceling a pending worker compute if user re-clicks or shape changes
+  const evalInflightRef = useRef<AbortController | null>(null);
 
   // (Safety) Reset inputs/results whenever the domain changes
   useEffect(() => {
@@ -92,12 +113,14 @@ export default function EvaluateTicket({
     setResultHints(null);
     setErrors([]);
   }, [game, eraCfg.mainPick, eraCfg.specialMax, kDigits, qdSpotsLocal]);
-  // Color class for the special input (matches ticket bubble colors)
-  const specialColorClass =
-    game === 'multi_powerball'    ? 'special--red'
-  : game === 'multi_megamillions' ? 'special--blue'
-  : game === 'multi_cash4life'    ? 'special--green'
-  :                                  'special--amber';
+  // Color class for the special input (matches ticket bubble colors).
+  // Provide an explicit NY Lotto bonus style to mirror chips/bubbles elsewhere.
+  const specialInputClass =
+    isNyLotto ? 'special--nylotto-bonus' :
+    (meta.specialTone === 'red'   ? 'special--red'
+    : meta.specialTone === 'blue'  ? 'special--blue'
+    : meta.specialTone === 'green' ? 'special--green'
+    : 'special--amber');
 
   function updateMainAt(i: number, val: string) {
     setMains(prev => prev.map((v, idx) => (idx === i ? val : v)));
@@ -125,10 +148,10 @@ export default function EvaluateTicket({
       if (!Number.isFinite(v)) errs.push(isNyLotto ? 'Enter a Bonus number.' : 'Enter a special ball number.');
       else if (v < 1 || v > eraCfg.specialMax) errs.push(`${isNyLotto ? 'Bonus' : 'Special'} must be between 1 and ${eraCfg.specialMax}.`);
       else specialNum = v;
-      // NY Lotto: Bonus must be different from all mains
-      if (isNyLotto && Number.isFinite(v)) {
-        const mainNums = mains.map(s => parseInt(s, 10)).filter(n => Number.isFinite(n));
-        if (mainNums.includes(v)) errs.push('Bonus must be different from all main numbers.');
+      // Registry-driven rule: some games require bonus ≠ mains (NY Lotto)
+      if (bonusMustDifferFromMains(meta) && Number.isFinite(v)) {
+        const mainNums2 = mains.map(s => parseInt(s, 10)).filter(n => Number.isFinite(n));
+        if (mainNums2.includes(v)) errs.push('Bonus must be different from all main numbers.');
       }
     }
 
@@ -177,36 +200,22 @@ export default function EvaluateTicket({
     return { values: nums };
   }
 
-  // ---------------- QUICK DRAW simple pattern flags --------------------
-  function qdHas3Run(values: number[]): boolean {
-    if (values.length < 3) return false;
-    const a = [...values].sort((x,y)=>x-y);
-    for (let i=2;i<a.length;i++){
-      if (a[i-2]+2===a[i-1]+1 && a[i-1]+1===a[i]) return true;
-    }
-    return false;
-  }
-  function qdIsTight(values: number[], domainMax=80): boolean {
-    if (!values.length) return false;
-    const a = [...values].sort((x,y)=>x-y);
-    const span = a[a.length-1] - a[0];
-    const k = values.length;
-    const limit = Math.ceil(domainMax / Math.max(8, k+2));
-    return span <= limit;
-  }
-
   // ---------------- Main evaluate() switch -----------------------------
-  function evaluate() {
+  async function evaluate() {
     setResultHints(null);
+    // cancel any previous evaluation
+    if (evalInflightRef.current) { try { evalInflightRef.current.abort(); } catch {} }
+    const ac = new AbortController();
+    evalInflightRef.current = ac;
 
     // DIGITS
     if (!isFiveBall && isDigits) {
       const ok = validateDigits();
       if (!ok) return;
-      const stats = precomputedDigitStats ?? null;
-      if (!stats) { setErrors(['Stats unavailable for Digits.']); return; }
-      const hints = ticketHintsDigits(ok.digits, stats);
-      setResultHints(hints);
+      // Play-type labels from the registry (Straight/Box/variants as applicable)
+      const labels = playTypeLabelsForDigits(ok.digits, meta)
+        .filter(l => !!HINT_EXPLAIN[l]); // only keep labels we explain
+      setResultHints(labels);
       return;
     }
 
@@ -230,7 +239,7 @@ export default function EvaluateTicket({
       // Library doesn’t expose ticketHintsQuickDraw; supply light, consistent flags
       const flags: string[] = [];
       if (qdHas3Run(ok.values)) flags.push('3-in-a-row');
-      if (qdIsTight(ok.values, 80)) flags.push('Tight span');
+      if (qdIsTight(ok.values, 80))  flags.push('Tight span');
       // Keep a generic "Balanced" tag if neither flag tripped
       if (flags.length === 0) flags.push('Balanced');
       setResultHints(flags);
@@ -240,10 +249,19 @@ export default function EvaluateTicket({
     // FIVE-BALL
     const ok = validateFive();
     if (!ok) { setResultHints(null); return; }
-    // Reuse existing stats from parent (fast). If you prefer to recompute for safety:
-    // const rowsEra = filterRowsForCurrentEra(rowsForGenerator, game);
-    // const stats = computeStats(rowsEra as any, game, eraCfg);
-    const hints = ticketHints(game, ok.mains, ok.special ?? 0, precomputedStats!);
+    // Prefer precomputed from Generator; otherwise compute via worker (era-aware override).
+    const stats =
+      precomputedStats ??
+      (await computeStatsAsync(rowsForGenerator, game, {
+        mainMax: eraCfg.mainMax,
+        specialMax: eraCfg.specialMax,
+        mainPick: eraCfg.mainPick,
+      }, ac.signal).catch((e: any) => {
+        setErrors([e?.message || 'Failed to compute stats.']); return null;
+      }));
+    if (!stats) return;
+    const hintsRaw = ticketHints(game, ok.mains, ok.special ?? 0, stats);
+    const hints = filterHintsForGame(meta, hintsRaw);
     setResultHints(hints);
   }
 
@@ -305,7 +323,7 @@ export default function EvaluateTicket({
                   value={special}
                   onChange={e => setSpecial(e.target.value)}
                   onWheel={e => (e.currentTarget as HTMLInputElement).blur()}
-                  className={`evaluate-special-input ${specialColorClass} ${
+                  className={`evaluate-special-input ${specialInputClass} ${
                     (() => {
                       const v = Number.parseInt(special, 10);
                       const bad = !(Number.isFinite(v) && v >= 1 && v <= eraCfg.specialMax);
@@ -348,7 +366,7 @@ export default function EvaluateTicket({
               );
             })}
           </div>
-          <div className="evaluate-hint">Digits can repeat; palindromes/sequences are flagged.</div>
+          <div className="evaluate-hint">Digits can repeat. We’ll tag the applicable play type(s) for your digits.</div>
         </label>
       )}
 
@@ -442,16 +460,8 @@ export default function EvaluateTicket({
                   <>
                     <span className="evaluate-separator" aria-hidden="true">|</span>
                     <span
-                      className={
-                        `num-bubble ${
-                          game === 'multi_powerball' ? 'num-bubble--red'
-                          : game === 'multi_megamillions' ? 'num-bubble--blue'
-                          : game === 'multi_cash4life' ? 'num-bubble--green'
-                          : 'num-bubble--amber'
-                        }`
-                      }
-                      aria-label={isNyLotto ? 'Bonus' : 'Special'}
-                    >
+                      className={`num-bubble ${specialToneClass(meta)}`}
+                      aria-label={isNyLotto ? 'Bonus' : 'Special'}>
                       {special || '–'}
                     </span>
                   </>
@@ -483,7 +493,7 @@ export default function EvaluateTicket({
           <div className="evaluate-hints">
             {resultHints.map(h => (
               <Pill key={h} tone={classifyHint(h)} title={HINT_EXPLAIN[h]}>
-                {h}
+                {displayHint(h)}
               </Pill>
             ))}
           </div>

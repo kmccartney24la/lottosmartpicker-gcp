@@ -1,6 +1,7 @@
 // src/components/PastDrawsSidebar.tsx
 'use client';
 import './PastDrawsSidebar.css';
+import { ErrorBoundary } from 'src/components/ErrorBoundary';
 import {
   LottoRow,
   GameKey,
@@ -10,22 +11,39 @@ import {
   type DigitRow,
   type Pick10Row,
   type QuickDrawRow,
-} from '@lib/lotto';
+} from 'packages/lib/lotto';
 import { useEffect, useRef, useState, useMemo } from 'react';
 import { createPortal } from 'react-dom';
+import {
+  resolveGameMeta,
+  sidebarModeFor,
+  sidebarHeaderLabel,
+  sidebarSpecialForRow,
+  sidebarDateKey,
+  rowToFiveView,
+  digitsKFor,
+  type FiveLikeRow,
+  type SidebarMode,
+} from 'packages/lib/gameRegistry';
+
 
 /*
  * New: shape-aware payload (backward compatible).
  */
 export type PastDrawsPayload =
   | { kind: 'five'; rows: LottoRow[]; game?: GameKey }
-  | { kind: 'digits'; rows: DigitRow[]; k: 3 | 4 }
+  // Allow FL digits too: k may be 2 | 3 | 4 | 5
+  | { kind: 'digits'; rows: DigitRow[]; k: 2 | 3 | 4 | 5 }
+  // Florida digits with Fireball (optional) — rows shaped locally
+  | { kind: 'digits_fb'; rows: { date: string; digits: number[]; fb?: number }[]; k: 2 | 3 | 4 | 5 }
   | { kind: 'pick10'; rows: Pick10Row[] }
   | { kind: 'quickdraw'; rows: QuickDrawRow[] }
   // Optional explicit NY Lotto extended shape if parent provides it
-  | { kind: 'ny_lotto'; rows: { date: string; mains: number[]; bonus: number }[] };
+  | { kind: 'ny_lotto'; rows: { date: string; mains: number[]; bonus: number }[] }
+  // NEW: Cash Pop (1 number per draw)
+  | { kind: 'cashpop'; rows: { date: string; value: number }[] };
 
-export default function PastDrawsSidebar({
+function PastDrawsSidebarInner({
   open, onClose, compact, setCompact, pageRows, page, pageCount, setPage, total,
   side = 'right',
   sortDir,
@@ -70,6 +88,16 @@ export default function PastDrawsSidebar({
     setPortalEl(el);
   }, []);
 
+  // Prevent body scroll when drawer is open
+  useEffect(() => {
+    if (!open) return;
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = originalOverflow;
+    };
+  }, [open]);
+
   // Focus handling
   const closeRef = useRef<HTMLButtonElement | null>(null);
   useEffect(() => { if (open) closeRef.current?.focus(); }, [open]);
@@ -96,70 +124,84 @@ export default function PastDrawsSidebar({
   }, [open]);
 
   // ---------- Shape detection ----------
-  type Mode = 'five' | 'digits' | 'pick10' | 'quickdraw' | 'ny_lotto';
-
-  const inferredMode: Mode = useMemo(() => {
-    if (payload) return payload.kind as Mode;
-    switch (logical) {
-      case 'ny_numbers': return 'digits';
-      case 'ny_win4': return 'digits';
-      case 'ny_pick10': return 'pick10';
-      case 'ny_quick_draw': return 'quickdraw';
-      case 'ny_lotto': return 'ny_lotto';
-      default: return 'five';
-    }
-  }, [payload, logical]);
+  // Resolve game metadata ONCE and before any usage
+  const meta = useMemo(() => resolveGameMeta(game, logical), [game, logical]);
+  // Map meta (+ optional payload kind) to a concrete sidebar mode
+  const inferredMode: SidebarMode = useMemo(
+    () => sidebarModeFor(meta, payload?.kind),
+    [meta, payload?.kind]
+  );
 
   // ---------- Normalization to a common row view ----------
-  type ViewRow = { date: string; values: number[]; special?: number; label: 'Numbers' | 'Digits'; sep?: boolean; specialLabel?: string };
+  type ViewRow = {
+    date: string;
+    values: number[];
+    special?: number;
+    label: 'Numbers' | 'Digits';
+    sep?: boolean;
+    specialLabel?: string;   // e.g., 'Bonus' | 'Special' | 'Fireball'
+    specialClass?: string;   // fully resolved CSS class for the special bubble
+  };
 
   const viewRows: ViewRow[] = useMemo(() => {
     const rows: ViewRow[] = [];
 
     const asFive = (rowsIn: LottoRow[], fiveGame?: GameKey) => {
-      const g = fiveGame || game || rowsIn[0]?.game;
-      const cfg = g ? getCurrentEraConfig(g) : { mainPick: 5, specialMax: 0 } as any;
-      const mainPick = cfg.mainPick || 5;
-      const hasSpecial = (cfg.specialMax ?? 0) > 0;
-      const isNyLotto = (g === 'ny_lotto' || g === 'ny_nylotto') || inferredMode === 'ny_lotto';
-
+      const g = (fiveGame || game || rowsIn[0]?.game) as GameKey | undefined;
+      const m = resolveGameMeta(g, logical);
+      const eraCfg = g ? getCurrentEraConfig(g) : ({ mainPick: 5 } as any);
       for (const r of rowsIn) {
-        const mains: number[] = [];
-        // Pull up to 5 from n1..n5
-        const base = [r.n1, r.n2, r.n3, r.n4, r.n5].filter(n => Number.isFinite(n));
-        mains.push(...base);
-        // NY Lotto needs 6 mains; if we only have 5, try to append special as 6th main (shim case)
-        if (isNyLotto && mains.length === 5 && typeof r.special === 'number') {
-          mains.push(r.special);
-        }
-        // Trim/Pad to mainPick (never pad with invalids; just trim)
-        const show = mains.slice(0, mainPick);
-        const spec = isNyLotto
-          ? // For NY Lotto, the rendered "special" is the Bonus (if present we prefer r.special as Bonus; if used as 6th main already, we omit Bonus)
-            (mains.length >= 6 && typeof r.special === 'number' && !show.includes(r.special) ? r.special : undefined)
-          : (hasSpecial ? r.special : undefined);
-
+        const v = rowToFiveView(r as unknown as FiveLikeRow, m, { gameStr: g, eraCfg });
         rows.push({
           date: r.date,
-          values: show,
-          special: spec,
+          values: v.mains,
+          special: v.special,
           label: 'Numbers',
-          sep: isNyLotto ? true : hasSpecial,
-          specialLabel: isNyLotto
-            ? 'Bonus'
-            : g === 'multi_powerball' ? 'Powerball'
-            : g === 'multi_megamillions' ? 'Mega Ball'
-            : g === 'multi_cash4life' ? 'Cash Ball'
-            : 'Special',
+          sep: v.sep,
+          specialLabel: v.label,
+          specialClass: v.className,
         });
       }
     };
+
 
     if (payload) {
       switch (payload.kind) {
         case 'five':
           asFive(payload.rows, payload.game);
           break;
+          case 'cashpop': {
+          for (const r of payload.rows) {
+            rows.push({
+              date: r.date,
+              values: [r.value],
+              label: 'Digits',
+            });
+          }
+          break;
+        }
+          case 'digits_fb': {
+          const k = payload.k;
+          for (const r of payload.rows) {
+            const values = (r.digits || []).slice(0, k);
+            const sp = sidebarSpecialForRow({
+              meta,
+              mains: values,
+              special: r.fb,
+              specialLabelOverride: 'Fireball',
+            });
+            rows.push({
+              date: r.date,
+              values,
+              special: sp.special,
+              label: 'Digits',
+              sep: sp.sep,
+              specialLabel: sp.label,
+              specialClass: sp.className,
+            });
+          }
+          break;
+        }
         case 'ny_lotto': {
           for (const r of payload.rows) {
             rows.push({
@@ -169,13 +211,16 @@ export default function PastDrawsSidebar({
               label: 'Numbers',
               sep: true,
               specialLabel: 'Bonus',
+              // Keep NY Lotto bonus styling consistent with SelectedLatest
+              specialClass: 'num-bubble--nylotto-bonus',
             });
           }
           break;
         }
         case 'digits': {
+          const k = payload.k;
           for (const r of payload.rows) {
-            rows.push({ date: r.date, values: (r.digits || []).slice(0, payload.k), label: 'Digits' });
+            rows.push({ date: r.date, values: (r.digits || []).slice(0, k), label: 'Digits' });
           }
           break;
         }
@@ -195,14 +240,31 @@ export default function PastDrawsSidebar({
       return rows;
     }
 
+    if (inferredMode === 'cashpop') {
+      // No payload? We can't infer Cash Pop from five-ball pageRows — show hint.
+      // (Parent should pass a payload; keep graceful fallback.)
+      return rows;
+    }
+
     // Legacy path (no payload): infer from logical and pageRows
     if (inferredMode === 'digits') {
-      const k: 3 | 4 = logical === 'ny_win4' ? 4 : 3;
+      // Determine digit length straight from registry meta.
+      const k = (digitsKFor(meta) ?? 3) as 2 | 3 | 4 | 5;
+      const showFireball = !!meta.usesFireball;
       for (const r of pageRows) {
         const d = [r.n1, r.n2, r.n3, r.n4, r.n5]
           .filter(n => Number.isFinite(n) && n >= 0 && n <= 9)
           .slice(0, k);
-        if (d.length) rows.push({ date: r.date, values: d, label: 'Digits' });
+        if (!d.length) continue;
+        rows.push({
+          date: r.date,
+          values: d,
+          special: showFireball && typeof r.special === 'number' ? r.special : undefined,
+          label: 'Digits',
+          sep: showFireball && typeof r.special === 'number',
+          specialLabel: showFireball ? 'Fireball' : undefined,
+          specialClass: showFireball && typeof r.special === 'number' ? 'num-bubble--fireball' : undefined,
+        });
       }
       return rows;
     }
@@ -235,9 +297,20 @@ export default function PastDrawsSidebar({
     // Default: classic five-ball (PB/MM/C4L/Fantasy5/Take 5)
     asFive(pageRows, game);
     return rows;
-  }, [payload, pageRows, game, logical, inferredMode]);
+  }, [payload, pageRows, game, logical, inferredMode, meta]);
 
-  const headerLabel = viewRows[0]?.label || (inferredMode === 'digits' ? 'Digits' : 'Numbers');
+  // ---------- Sorting (Newest → Oldest by default) ----------
+  const effectiveSortDir: 'desc' | 'asc' = sortDir ?? 'desc';
+  const sortedViewRows = useMemo(() => {
+    return [...viewRows].sort((a, b) =>
+      effectiveSortDir === 'desc'
+        ? sidebarDateKey(b.date) - sidebarDateKey(a.date)
+        : sidebarDateKey(a.date) - sidebarDateKey(b.date)
+    );
+  }, [viewRows, effectiveSortDir]);
+
+  const headerLabel =
+    viewRows[0]?.label || sidebarHeaderLabel(meta, inferredMode);
 
   if (!portalEl) return null;
   return createPortal(
@@ -306,10 +379,10 @@ export default function PastDrawsSidebar({
                 {viewRows.length === 0 && (
                   <tr><td colSpan={2} className="hint">No rows.</td></tr>
                 )}
-                {viewRows.map((r, idx) => {
+                {sortedViewRows.map((r, idx) => {
                   const showSep = r.sep && typeof r.special !== 'undefined';
-                  const isNyLotto = (logical === 'ny_lotto') || inferredMode === 'ny_lotto';
-                  const specialTitle = r.specialLabel || (isNyLotto ? 'Bonus' : 'Special');
+                  const specialTitle = r.specialLabel || 'Special';
+                  const specialClass = r.specialClass || 'num-bubble--amber';
                   return (
                     <tr key={`${r.date}-${idx}`}>
                       <td className="mono date-cell">{r.date}</td>
@@ -321,7 +394,7 @@ export default function PastDrawsSidebar({
                           <>
                             <span className="numbers-sep" aria-hidden="true">|</span>
                             <span
-                              className={`num-bubble num-bubble--special`}
+                              className={`num-bubble ${specialClass}`}
                               title={specialTitle}
                             >
                               <span className="sr-only">{specialTitle} </span>
@@ -357,5 +430,39 @@ export default function PastDrawsSidebar({
       </aside>
     </>,
     portalEl
+  );
+}
+
+// --- Component-level Error Boundary wrapper ---
+export default function PastDrawsSidebar(props: {
+  open: boolean;
+  onClose: () => void;
+  compact: boolean;
+  setCompact: (v: boolean) => void;
+  pageRows: LottoRow[];
+  page: number;
+  pageCount: number;
+  setPage: (fn: (p: number) => number) => void;
+  total: number;
+  side?: 'left' | 'right' | 'bottom';
+  sortDir?: 'desc' | 'asc';
+  onToggleSort?: () => void;
+  game?: GameKey;
+  logical?: LogicalGameKey;
+  period?: Period;
+  payload?: PastDrawsPayload;
+}) {
+  // Remount (reset) the boundary when key inputs change.
+  const resetKey = JSON.stringify({
+    game: props.game ?? null,
+    logical: props.logical ?? null,
+    period: props.period ?? null,
+    payloadKind: props.payload?.kind ?? null,
+    side: props.side ?? 'right',
+  });
+  return (
+    <ErrorBoundary key={resetKey}>
+      <PastDrawsSidebarInner {...props} />
+    </ErrorBoundary>
   );
 }

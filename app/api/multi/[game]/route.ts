@@ -1,6 +1,6 @@
 // app/api/multi/[game]/route.ts
 import { NextResponse } from 'next/server';
-import { fetchRowsWithCache, type GameKey } from 'lib/lotto';
+import { fetchRowsWithCache, type GameKey } from 'packages/lib/lotto';
 
 const GAME_MAP: Record<string, GameKey> = {
   powerball: 'multi_powerball',

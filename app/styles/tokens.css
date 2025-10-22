@@ -76,6 +76,9 @@
   --bubble-green: #10b981; /* ≈7.4:1 on #121212 */
   --bubble-amber: #eab308; /* ≈9.8:1 on #121212 */
 
+  --bubble-fireball:     #f59e0b; /* amber-500: Fireball */
+  --bubble-nylotto:      #7c3aed; /* violet/purple-600: NY Lotto bonus */
+
   --ticket-radius: 18px;
   --ticket-hole:   8px;
   --ticket-gutter: 14px;

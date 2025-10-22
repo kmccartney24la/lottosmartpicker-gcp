@@ -1,0 +1,23 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+
+    "verbatimModuleSyntax": true,
+
+    "rootDir": "lib-src",
+    "outDir": "lib",
+
+    "declaration": true,
+    "declarationMap": false,
+    "sourceMap": false,
+
+    "isolatedModules": false,
+    "skipLibCheck": true,
+    "types": ["node"]
+  },
+  "include": ["lib-src/**/*.mts"],
+  "exclude": ["node_modules", ".next", "dist", "scripts", "tests"]
+}

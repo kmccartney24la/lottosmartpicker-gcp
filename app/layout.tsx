@@ -78,6 +78,11 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
      <html lang="en" className={inter.className}>
+      <head>
+        {/* Warm browser cache for the most universal CSVs */}
+        <link rel="preload" as="fetch" href="/api/file/multi/powerball.csv" crossOrigin="anonymous" />
+        <link rel="preload" as="fetch" href="/api/file/multi/megamillions.csv" crossOrigin="anonymous" />
+      </head>
       <body className={rubik.variable}>
         {/* Site-wide JSON-LD: Organization + WebSite (with SearchAction) */}
         <script

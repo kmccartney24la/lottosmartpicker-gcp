@@ -47,6 +47,14 @@
     --bubble-blue:  #2563eb; /* ≈5.2:1 on #fff */
     --bubble-green: #047857; /* ≈5.5:1 on #fff (darker than #10b981) */
     --bubble-amber: #a16207; /* ≈4.9:1 on #fff (deeper than #eab308) */
+
+    /* Game-derived specials (LIGHT) — tuned for AA on white */
+    --bubble-fireball: #d97706; /* amber-600 (darker than 500 for contrast) */
+    --bubble-nylotto:  #6d28d9; /* violet-700 (AA on white) */
+
+    --card-emphasis: color-mix(in oklab, var(--accent) 12%, var(--card));
+    --card-emphasis-bd: color-mix(in oklab, var(--accent) 40%, var(--card-bd));
+    
   }
 }
 
@@ -86,6 +94,13 @@
     --bubble-blue:  #3b82f6; /* ≈5.1:1 on #121212 */
     --bubble-green: #10b981; /* ≈7.4:1 on #121212 */
     --bubble-amber: #eab308; /* ≈9.8:1 on #121212 */
+
+    /* Game-derived specials (DARK) — bright enough on near-black */
+    --bubble-fireball: #f59e0b; /* amber-500 */
+    --bubble-nylotto:  #7c3aed; /* purple-600 */
+
+    --card-emphasis: color-mix(in oklab, var(--accent) 18%, var(--card));
+    --card-emphasis-bd: color-mix(in oklab, var(--accent) 45%, var(--card-bd));
   }
 }
 
@@ -124,6 +139,13 @@
   --bubble-blue:  #2563eb;
   --bubble-green: #047857;
   --bubble-amber: #a16207;
+
+  /* Game-derived specials (LIGHT explicit) */
+  --bubble-fireball: #d97706; /* amber-600 */
+  --bubble-nylotto:  #6d28d9; /* violet-700 */
+
+  --card-emphasis: color-mix(in oklab, var(--accent) 12%, var(--card));
+  --card-emphasis-bd: color-mix(in oklab, var(--accent) 40%, var(--card-bd));
 }
 
 [data-theme="dark"] {
@@ -159,6 +181,13 @@
   --bubble-blue:  #3b82f6;
   --bubble-green: #10b981;
   --bubble-amber: #eab308;
+
+  /* Game-derived specials (DARK explicit) */
+  --bubble-fireball: #f59e0b; /* amber-500 */
+  --bubble-nylotto:  #7c3aed; /* purple-600 */
+
+  --card-emphasis: color-mix(in oklab, var(--accent) 18%, var(--card));
+  --card-emphasis-bd: color-mix(in oklab, var(--accent) 45%, var(--card-bd));
 }
 
 [data-theme="contrast"] {
@@ -195,6 +224,14 @@
   --bubble-blue:  #60a5fa; /* sky 400 ≈7.3:1 on #121212/#000 */
   --bubble-green: #34d399; /* mint/emerald tint, very legible on black */
   --bubble-amber: #facc15; /* yellow 400, extremely legible on black */
+
+  /* Game-derived specials (High Contrast) */
+  --bubble-fireball: #ffb020; /* bright amber that pops on black */
+  --bubble-nylotto:  #b794ff; /* bright violet on black */
+
+  --card-emphasis: color-mix(in oklab, var(--accent) 24%, var(--card));
+  --card-emphasis-bd: var(--focus-ring); /* crisp edge in HC */
+
 }
 
 /* End of themes.css */

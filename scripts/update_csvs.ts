@@ -1,22 +1,31 @@
 // scripts/update_csvs.ts
 // Compile with tsconfig.scripts.json (NodeNext). Run the emitted JS: dist/scripts/update_csvs.js
 import * as fs from "node:fs/promises";
+import * as fsSync from "node:fs";
+import { execFile as _execFile } from "node:child_process";
+import { promisify } from "node:util";
+const execFile = promisify(_execFile);
 
 // ✅ lib stays .mjs (these files are shipped as ESM in the image)
-import { upsertObject, deriveBucketFromBaseUrl } from "../lib/gcs.mjs";
+import { upsertObject, deriveBucketFromBaseUrl, getObjectText } from "../lib/gcs.mjs";
 import { latestCsv } from "../lib/csv.mjs";
 
 // ✅ script-to-script imports must end with .js so the emitted JS has correct ESM extensions
-import { buildFantasy5Csv } from "./sources/fantasy5.js";
-import { buildFloridaLottoCsv } from "./sources/fl_lotto.js";
-import { buildFloridaJtpCsv } from "./sources/fl_jtp.js";
-import { buildFloridaPick5Csvs } from "./sources/fl_pick5.js";
-import { buildFloridaPick4Csvs } from "./sources/fl_pick4.js";
-import { buildFloridaPick3Csvs } from "./sources/fl_pick3.js";
-import { buildFloridaPick2Csvs } from "./sources/fl_pick2.js";
-import { buildFantasy5CsvFromLocalSeed } from "./builders/fantasy5.js";
+import { buildGeorgiaFantasy5Csv } from "./sources/ga/ga_fantasy5.js";
+import { buildFloridaLottoCsv } from "./sources/fl/fl_lotto.js";
+import { buildFloridaJtpCsv } from "./sources/fl/fl_jtp.js";
+import { buildFloridaCashPopCsvs } from "./sources/fl/fl_cashpop.js";
+import { buildFloridaPick5Csvs } from "./sources/fl/fl_pick5.js";
+import { buildFloridaPick4Csvs } from "./sources/fl/fl_pick4.js";
+import { buildFloridaPick3Csvs } from "./sources/fl/fl_pick3.js";
+import { buildFloridaPick2Csvs } from "./sources/fl/fl_pick2.js";
+import { buildFloridaFantasy5Csvs } from "./sources/fl/fl_fantasy5.js";
+import { buildGeorgiaFantasy5CsvFromLocalSeed } from "./builders/ga_fantasy5.js";
+import { buildCaliforniaDaily3Update } from "./sources/ca/ca_daily3.js";
+import { buildCaliforniaDaily4Update } from "./sources/ca/ca_daily4.js";
+import { buildCaliforniaSuperLottoPlusUpdate } from "./sources/ca/ca_superlotto_plus.js";
+import { buildCaliforniaFantasy5Update } from "./sources/ca/ca_fantasy5.js";
 import { buildSocrataCsv } from "./builders/socrata.js";
-import { buildGaScratchersIndex } from "./builders/scratchers_ga.js";
 
 // ---------- socrata job matrix ----------
 // Keys must exist in scripts/builders/socrata.ts DATASETS.
@@ -78,14 +87,19 @@ async function maybeUploadCsv(params: { bucketName: string; objectPath: string; 
 export async function main(): Promise<void> {
   const bucket = deriveBucketFromBaseUrl();
   const skipSocrata = BOOL(process.env.SKIP_SOCRATA);
-  const skipF5 = BOOL(process.env.SKIP_FANTASY5);
-  const skipScratch = BOOL(process.env.SKIP_SCRATCHERS); // optional, recognized if present
+  const skipGAF5 = BOOL(process.env.SKIP_GA_FANTASY5);
   const skipFLLotto = BOOL(process.env.SKIP_FL_LOTTO);
   const skipFLJtp  = BOOL(process.env.SKIP_FL_JTP);
+  const skipFLF5 = BOOL(process.env.SKIP_FL_FANTASY5);
   const skipFLPick5  = BOOL(process.env.SKIP_FL_PICK5);
   const skipFLPick4  = BOOL(process.env.SKIP_FL_PICK4);
   const skipFLPick3  = BOOL(process.env.SKIP_FL_PICK3);
   const skipFLPick2  = BOOL(process.env.SKIP_FL_PICK2);
+  const skipFLCashPop = BOOL(process.env.SKIP_FL_CASHPOP);
+  const skipCADaily3 = BOOL(process.env.SKIP_CA_DAILY3);
+  const skipCADaily4  = BOOL(process.env.SKIP_CA_DAILY4);
+  const skipCASLP = BOOL(process.env.SKIP_CA_SUPERLOTTO_PLUS);
+  const skipCAF5 = BOOL(process.env.SKIP_CA_FANTASY5);
   const socrataToken = process.env.NY_SOCRATA_APP_TOKEN || process.env.SOCRATA_APP_TOKEN;
 
   console.log(`[update-csvs] Bucket: ${bucket}`);
@@ -93,14 +107,18 @@ export async function main(): Promise<void> {
     `[update-csvs] Bucket: ${bucket}\n` +
     `[update-csvs] Flags: ` +
     `skipSocrata=${skipSocrata} ` +
-    `skipF5=${skipF5} ` +
+    `skipGAF5=${skipGAF5} ` +
     `skipFLLotto=${skipFLLotto} ` +
     `skipFLJtp=${skipFLJtp} ` +
+    `skipFLF5=${skipFLF5} ` +
     `skipFLPick5=${skipFLPick5} ` +
     `skipFLPick4=${skipFLPick4} ` +
     `skipFLPick3=${skipFLPick3} ` +
     `skipFLPick2=${skipFLPick2} ` +
-    `skipScratchers=${skipScratch}`
+    `skipFLCashPop=${skipFLCashPop} ` +
+    `skipCADaily3=${skipCADaily3} `  +
+    `skipCASLP=${skipCASLP} ` +
+    `skipCAF5=${skipCAF5} `
   );
 
   // --- Draws: Socrata (Multi-state + New York) ---
@@ -121,12 +139,12 @@ export async function main(): Promise<void> {
   }
 
   // --- Draws: GA Fantasy 5 ---
-  if (!skipF5) {
+  if (!skipGAF5) {
     // Step 1: refresh local seed (writes to public/data/ga/fantasy5.csv by default)
-    await buildFantasy5Csv();
+    await buildGeorgiaFantasy5Csv();
 
     // Step 2: normalize to canonical CSV (dedupe, sort, etc.), using the freshly written local seed
-    const csv = await buildFantasy5CsvFromLocalSeed();
+    const csv = await buildGeorgiaFantasy5CsvFromLocalSeed();
 
     // Step 3: publish full + latest
     await maybeUploadCsv({
@@ -136,31 +154,6 @@ export async function main(): Promise<void> {
     });
   } else {
     console.log("[update-csvs] SKIP_FANTASY5=1 — skipping Fantasy 5");
-  }
-  // --- Scratchers: GA ---
-  if (!skipScratch) {
-    const json = await buildGaScratchersIndex();
-    const body = Buffer.from(json, "utf8");
-    const cc = "public, max-age=300, must-revalidate";
-
-    await upsertObject({
-      bucketName: bucket,
-      objectPath: "ga/scratchers/index.json",
-      contentType: "application/json; charset=utf-8",
-      bodyBuffer: body,
-      cacheControl: cc,
-    });
-
-    // Optional mirror: index.latest.json
-    await upsertObject({
-      bucketName: bucket,
-      objectPath: "ga/scratchers/index.latest.json",
-      contentType: "application/json; charset=utf-8",
-      bodyBuffer: body,
-      cacheControl: cc,
-    });
-  } else {
-    console.log("[update-csvs] SKIP_SCRATCHERS=1 — skipping GA scratchers");
   }
 
     // --- Draws: Florida LOTTO (from official PDF) ---
@@ -187,6 +180,21 @@ export async function main(): Promise<void> {
     });
   } else {
     console.log("[update-csvs] SKIP_FL_JTP=1 — skipping Florida Jackpot Triple Play");
+  }
+
+  // --- Draws: Florida Fantasy 5 (from official PDF) ---
+  if (!skipFLF5) {
+    // Writes:
+    //   public/data/fl/fantasy5_midday.csv
+    //   public/data/fl/fantasy5_evening.csv
+    // Optional local override: FL_FF_PDF_PATH=/path/to/ff.pdf
+    await buildFloridaFantasy5Csvs();
+    const mid = await fs.readFile("public/data/fl/fantasy5_midday.csv", "utf8");
+    const eve = await fs.readFile("public/data/fl/fantasy5_evening.csv", "utf8");
+    await maybeUploadCsv({ bucketName: bucket, objectPath: "fl/fantasy5_midday.csv",  fullCsv: mid });
+    await maybeUploadCsv({ bucketName: bucket, objectPath: "fl/fantasy5_evening.csv", fullCsv: eve });
+  } else {
+    console.log("[update-csvs] SKIP_FL_FANTASY5=1 — skipping Florida Fantasy 5");
   }
 
   // --- Draws: Florida Pick 5 (from official PDF) ---
@@ -233,10 +241,173 @@ export async function main(): Promise<void> {
     console.log("[update-csvs] SKIP_FL_PICK2=1 — skipping Florida Pick 2");
   }
 
+  // --- Draws: Florida Cash Pop (from official PDF) ---
+  if (!skipFLCashPop) {
+  // Writes:
+  //   public/data/fl/cashpop_morning.csv
+  //   public/data/fl/cashpop_matinee.csv
+  //   public/data/fl/cashpop_afternoon.csv
+  //   public/data/fl/cashpop_evening.csv
+  //   public/data/fl/cashpop_latenight.csv
+  await buildFloridaCashPopCsvs();
+
+  const periods = ['morning','matinee','afternoon','evening','latenight'] as const;
+
+  for (const p of periods) {
+    const localPath = `public/data/fl/cashpop_${p}.csv`;
+    const csv = await fs.readFile(localPath, "utf8");
+    await maybeUploadCsv({
+      bucketName: bucket,
+      objectPath: `fl/cashpop_${p}.csv`,
+      fullCsv: csv,
+    });
+  }
+  } else {
+    console.log("[update-csvs] SKIP_FL_CASHPOP=1 — skipping Florida Cash Pop");
+  }
+
+  // --- Draws: CA Daily 3 (from official game card) ---
+  // Objects:
+  //   ca/daily3_midday.csv
+  //   ca/daily3_evening.csv
+  if (!skipCADaily3) {
+    const MID_LOCAL = "public/data/ca/daily3_midday.csv";
+    const EVE_LOCAL = "public/data/ca/daily3_evening.csv";
+    const MID_OBJ   = "ca/daily3_midday.csv";
+    const EVE_OBJ   = "ca/daily3_evening.csv";
+
+    // Helper: hydrate local CSVs if missing so update can append (stateless runners)
+    async function hydrateLocalIfMissing(localPath: string, objectPath: string) {
+      try {
+        await fs.access(localPath);
+      } catch {
+        const text = await getObjectText({ bucketName: bucket, objectPath });
+        if (text) {
+          await fs.mkdir(require("node:path").dirname(localPath), { recursive: true });
+          await fs.writeFile(localPath, text, "utf8");
+          console.log(`[update-csvs] Hydrated ${localPath} from gs://${bucket}/${objectPath}`);
+        } else {
+          console.log(`[update-csvs] No remote object for ${objectPath}; starting fresh locally`);
+        }
+      }
+    }
+
+    await hydrateLocalIfMissing(MID_LOCAL, MID_OBJ);
+    await hydrateLocalIfMissing(EVE_LOCAL, EVE_OBJ);
+
+    console.log("[update-csvs] CA Daily 3: running update…");
+    await buildCaliforniaDaily3Update(MID_LOCAL, EVE_LOCAL);
+
+    const mid = await fs.readFile(MID_LOCAL, "utf8");
+    const eve = await fs.readFile(EVE_LOCAL, "utf8");
+    await maybeUploadCsv({ bucketName: bucket, objectPath: MID_OBJ, fullCsv: mid });
+    await maybeUploadCsv({ bucketName: bucket, objectPath: EVE_OBJ, fullCsv: eve });
+  } else {
+    console.log("[update-csvs] SKIP_CA_DAILY3=1 — skipping CA Daily 3");
+  }
+
+
+  // --- Draws: CA Daily 4 (from official game card) ---
+  // Object: ca/daily4.csv
+  if (!skipCADaily4) {
+    const LOCAL = "public/data/ca/daily4.csv";
+    const OBJ   = "ca/daily4.csv";
+
+    // Helper: hydrate local CSV if missing (so update can append)
+    async function hydrateLocalIfMissing(localPath: string, objectPath: string) {
+      try {
+        await fs.access(localPath);
+      } catch {
+        const text = await getObjectText({ bucketName: bucket, objectPath });
+        if (text) {
+          await fs.mkdir(require("node:path").dirname(localPath), { recursive: true });
+          await fs.writeFile(localPath, text, "utf8");
+          console.log(`[update-csvs] Hydrated ${localPath} from gs://${bucket}/${objectPath}`);
+        } else {
+          console.log(`[update-csvs] No remote object for ${objectPath}; starting fresh locally`);
+        }
+      }
+    }
+
+    await hydrateLocalIfMissing(LOCAL, OBJ);
+
+    console.log("[update-csvs] CA Daily 4: running update…");
+    await buildCaliforniaDaily4Update(LOCAL);
+
+    const csv = await fs.readFile(LOCAL, "utf8");
+    await maybeUploadCsv({ bucketName: bucket, objectPath: OBJ, fullCsv: csv });
+  } else {
+    console.log("[update-csvs] SKIP_CA_DAILY4=1 — skipping CA Daily 4");
+  }
+
+  // --- Draws: CA SuperLotto Plus (from official game card) ---
+  // Object: ca/superlotto_plus.csv
+  if (!skipCASLP) {
+    const LOCAL = "public/data/ca/superlotto_plus.csv";
+    const OBJ   = "ca/superlotto_plus.csv";
+
+    // Helper: hydrate local CSV if missing (so update can append)
+    async function hydrateLocalIfMissing(localPath: string, objectPath: string) {
+      try {
+        await fs.access(localPath);
+      } catch {
+        const text = await getObjectText({ bucketName: bucket, objectPath });
+        if (text) {
+          await fs.mkdir(require("node:path").dirname(localPath), { recursive: true });
+          await fs.writeFile(localPath, text, "utf8");
+          console.log(`[update-csvs] Hydrated ${localPath} from gs://${bucket}/${objectPath}`);
+        } else {
+          console.log(`[update-csvs] No remote object for ${objectPath}; starting fresh locally`);
+        }
+      }
+    }
+
+    await hydrateLocalIfMissing(LOCAL, OBJ);
+
+    console.log("[update-csvs] CA SuperLotto Plus: running update…");
+    await buildCaliforniaSuperLottoPlusUpdate(LOCAL);
+
+    const csv = await fs.readFile(LOCAL, "utf8");
+    await maybeUploadCsv({ bucketName: bucket, objectPath: OBJ, fullCsv: csv });
+  } else {
+    console.log("[update-csvs] SKIP_CA_SUPERLOTTO_PLUS=1 — skipping CA SuperLotto Plus");
+  }
+
+  // --- Draws: CA Fantasy 5 (from official game card) ---
+  // Object: ca/fantasy5.csv
+  if (!skipCAF5) {
+    const LOCAL = "public/data/ca/fantasy5.csv";
+    const OBJ   = "ca/fantasy5.csv";
+
+    // Helper: hydrate local CSV if missing (so update can append)
+    async function hydrateLocalIfMissing(localPath: string, objectPath: string) {
+      try {
+        await fs.access(localPath);
+      } catch {
+        const text = await getObjectText({ bucketName: bucket, objectPath });
+        if (text) {
+          await fs.mkdir(require("node:path").dirname(localPath), { recursive: true });
+          await fs.writeFile(localPath, text, "utf8");
+          console.log(`[update-csvs] Hydrated ${localPath} from gs://${bucket}/${objectPath}`);
+        } else {
+          console.log(`[update-csvs] No remote object for ${objectPath}; starting fresh locally`);
+        }
+      }
+    }
+
+    await hydrateLocalIfMissing(LOCAL, OBJ);
+
+    console.log("[update-csvs] CA Fantasy 5: running update…");
+    await buildCaliforniaFantasy5Update(LOCAL);
+
+    const csv = await fs.readFile(LOCAL, "utf8");
+    await maybeUploadCsv({ bucketName: bucket, objectPath: OBJ, fullCsv: csv });
+  } else {
+    console.log("[update-csvs] SKIP_CA_FANTASY5=1 — skipping CA Fantasy 5");
+  }
+
   console.log("[update-csvs] Done.");
 }
-
-
 
 // ---------- CLI ----------
 if (import.meta.url === `file://${process.argv[1]}`) {

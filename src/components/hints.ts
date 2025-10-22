@@ -1,5 +1,6 @@
 // src/components/hint.ts
 export const HINT_EXPLAIN: Record<string, string> = {
+  /* Core (all games) */
   'Balanced':
     'No strong hot/cold signals; no obvious sequences or tight clusters.',
   'Hot mains':
@@ -41,7 +42,56 @@ export const HINT_EXPLAIN: Record<string, string> = {
     'Many digits show higher-than-expected recent frequency.',
   'Cold digits':
     'Many digits show lower-than-expected recent frequency.',
+
+  /* Digit-game play types (simple, newcomer-friendly) */
+  'Straight':
+    'Your digits must match the winning numbers in the exact same order.',
+  'Box':
+    'Match in any order. Payout depends on the number of unique orders for your digits.',
+  'Wheel':
+    'Plays every possible order of your digits on separate Straight bets. Cost scales with the number of orders.',
+  /* Jurisdiction-specific cover-all-orders */
+  'Combo (FL)':
+    'Florida Pick 3/4: wager on each possible Straight combination of your digits on one ticket. Cost scales with # of orders; wins Straight prizes.',
+  'Combination (NY)':
+    'NY Numbers/Win4: play all Straight permutations on one ticket. Cost scales with # of orders; wins Straight prizes.',
+  'Front Pair':
+    'Match the first two digits in exact order (often available on Pick 3 or Pick 4).',
+  'Mid Pair':
+    'Match the middle two digits in exact order (usually for Pick 4).',
+  'Back Pair':
+    'Match the last two digits in exact order (often available on Pick 3 or Pick 4).',
+  'Front Number':
+    'Pick just the first digit. Win if that first digit matches exactly.',
+  'Back Number':
+    'Pick just the last digit. Win if that last digit matches exactly.',
+  /* Box subtypes by game size */
+  '2-Way Box':
+    'Pick 2: digits are different; 2 unique orders.',
+  '3-Way Box':
+    'Pick 3: one pair + one distinct digit; 3 unique orders.',
+  '6-Way Box':
+    'Pick 3: three distinct digits; 6 unique orders. Pick 4: two pairs; 6 unique orders.',
+  '4-Way Box':
+    'Pick 4: three identical + one distinct; 4 unique orders.',
+  '12-Way Box':
+    'Pick 4: one pair + two distinct digits; 12 unique orders.',
+  '24-Way Box':
+    'Pick 4: four distinct digits; 24 unique orders.',
+  '5-Way Box':
+    'Pick 5: four identical + one distinct; 5 unique orders.',
+  '10-Way Box':
+    'Pick 5: three identical + a pair; 10 unique orders.',
+  '20-Way Box':
+    'Pick 5: three identical + two distinct; 20 unique orders.',
+  '30-Way Box':
+    'Pick 5: two pairs + one distinct; 30 unique orders.',
+  '60-Way Box':
+    'Pick 5: one pair + three distinct; 60 unique orders.',
+  '120-Way Box':
+    'Pick 5: five distinct digits; 120 unique orders.',
 };
+
 
 // Map each hint to a visual tone
 export function classifyHint(hint: string): 'hot' | 'cold' | 'neutral' | 'warn' {
@@ -56,6 +106,16 @@ export function classifyHint(hint: string): 'hot' | 'cold' | 'neutral' | 'warn' 
     hint === 'Palindrome' || hint === 'Low-heavy' || hint === 'High-heavy' ||
     hint === 'Sum outlier'
   ) return 'warn';
+  // Play types are informational, not “good” or “bad”
+  if (
+    hint === 'Straight' || hint === 'Box' ||  hint === 'Wheel' || hint === 'Combo (FL)' || hint === 'Combination (NY)' ||
+    hint === '2-Way Box' || hint === '3-Way Box' || hint === '4-Way Box' || 
+    hint === '6-Way Box' || hint === '12-Way Box' || hint === '24-Way Box' ||
+    hint === '5-Way Box' || hint === '10-Way Box' || hint === '20-Way Box' ||
+    hint === '30-Way Box' || hint === '60-Way Box' || hint === '120-Way Box' ||
+    hint === 'Front Pair' || hint === 'Mid Pair' || 
+    hint === 'Back Pair' || hint === 'Front Number' || hint === 'Back Number'
+  ) return 'neutral';
   return 'neutral';
 }
 
@@ -66,6 +126,9 @@ const HINT_DISPLAY: Record<string, string> = {
   'Cold mains': 'Cold numbers',
   'Hot digits': 'Hot numbers',
   'Cold digits': 'Cold numbers',
+  // friendlier surface labels while keeping jurisdiction-specific tooltips
+  'Combo (FL)': 'Combo',
+  'Combination (NY)': 'Combination',
   // everything else keeps its own label by default
 };
 

@@ -9,7 +9,7 @@ import ScratchersTable from 'src/components/scratchers/ScratchersTable';
 import { useScratchersIndex } from 'src/components/scratchers/useScratchersIndex';
 import type { ActiveGame, SortKey } from 'src/components/scratchers/types';
 import type { DisplayMode } from 'src/components/scratchers/DisplayModeSwitcher';
-import { useIsMobile, useDrawerMode } from '@lib/breakpoints';
+import { useIsMobile, useDrawerMode } from 'packages/lib/breakpoints';
 import { comparators } from 'src/components/scratchers/sort';
 
 const LS_SHOW_ODDS = 'lsp.showOddsByDefault';

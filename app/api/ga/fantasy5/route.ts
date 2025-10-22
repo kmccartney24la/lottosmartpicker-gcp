@@ -1,7 +1,7 @@
 // app/api/ga/fantasy5/route.ts
 
 import { NextResponse } from 'next/server';
-import { fetchRowsWithCache } from 'lib/lotto';
+import { fetchRowsWithCache } from 'packages/lib/lotto';
 
 export const dynamic = 'force-dynamic';
 

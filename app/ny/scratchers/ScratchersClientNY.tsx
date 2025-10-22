@@ -9,7 +9,7 @@ import { useScratchersIndex } from 'src/components/scratchers/useScratchersIndex
 import { comparators } from 'src/components/scratchers/sort';
 import type { ActiveGame, SortKey } from 'src/components/scratchers/types';
 import type { DisplayMode } from 'src/components/scratchers/DisplayModeSwitcher';
-import { useIsMobile, useDrawerMode } from '@lib/breakpoints';
+import { useIsMobile, useDrawerMode } from 'packages/lib/breakpoints';
 
 const LS_SHOW_ODDS = 'lsp.showOddsByDefault';
 const AdsLot = dynamic(() => import('src/components/ads/AdsLot'), { ssr: false });

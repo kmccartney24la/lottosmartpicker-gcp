@@ -12,6 +12,7 @@ import React, {
   type ForwardedRef,
   type MutableRefObject,
 } from 'react';
+import { ErrorBoundary } from 'src/components/ErrorBoundary';
 import { createPortal } from 'react-dom';
 import { comparators } from './sort';
 import type { SortKey, ActiveGame } from './types';
@@ -211,7 +212,8 @@ type ScratchersTableProps = {
   isSortReversed?: boolean;
 };
 
-const ScratchersTable = forwardRef<HTMLDivElement, ScratchersTableProps>(function ScratchersTable(
+// Inner implementation (unchanged logic); kept separate so we can wrap with ErrorBoundary
+const ScratchersTableInner = forwardRef<HTMLDivElement, ScratchersTableProps>(function ScratchersTable(
   {
     games,
     loading,
@@ -760,26 +762,28 @@ const ScratchersTable = forwardRef<HTMLDivElement, ScratchersTableProps>(functio
                     <div className="thumb placeholder" aria-hidden="true" />
                   )}
                 </div>
-                <div className="lightbox-controls">
-                  <button
-                    type="button"
-                    className={`btn ${effectiveKind === 'ticket' ? 'btn-primary' : ''}`}
-                    onClick={() => setLightboxKind(g.gameNumber, 'ticket')}
-                    disabled={!hasTicket}
-                    aria-disabled={!hasTicket}
-                  >
-                    Ticket
-                  </button>
-                  <button
-                    type="button"
-                    className={`btn ${effectiveKind === 'odds' ? 'btn-primary' : ''}`}
-                    onClick={() => setLightboxKind(g.gameNumber, 'odds')}
-                    disabled={!hasOdds}
-                    aria-disabled={!hasOdds}
-                  >
-                    Odds
-                  </button>
-                </div>
+                {/* Only show swap controls when BOTH images exist.
+                   This hides the buttons for states without odds images. */}
+                {hasTicket && hasOdds && (
+                  <div className="lightbox-controls">
+                    <button
+                      type="button"
+                      className={`btn ${effectiveKind === 'ticket' ? 'btn-primary' : ''}`}
+                      onClick={() => setLightboxKind(g.gameNumber, 'ticket')}
+                      aria-pressed={effectiveKind === 'ticket'}
+                    >
+                      Ticket
+                    </button>
+                    <button
+                      type="button"
+                      className={`btn ${effectiveKind === 'odds' ? 'btn-primary' : ''}`}
+                      onClick={() => setLightboxKind(g.gameNumber, 'odds')}
+                      aria-pressed={effectiveKind === 'odds'}
+                    >
+                      Odds
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           );
@@ -788,4 +792,24 @@ const ScratchersTable = forwardRef<HTMLDivElement, ScratchersTableProps>(functio
   );
 });
 
-export default ScratchersTable;
+// Error boundary wrapper that preserves the ref API
+export default React.forwardRef<HTMLDivElement, ScratchersTableProps>(function ScratchersTable(
+  props,
+  ref
+) {
+  // Remount the subtree if major identity-defining inputs change.
+  // (Avoid stringifying full game objects; size is a good proxy here.)
+  const resetKey = [
+    props.displayMode ?? 'detailed',
+    props.sortKey ?? 'none',
+    props.isSortReversed ? 'rev' : 'fwd',
+    props.games?.length ?? 0,
+  ].join('|');
+  return (
+    <ErrorBoundary key={resetKey}>
+      <ScratchersTableInner {...props} ref={ref} />
+    </ErrorBoundary>
+  );
+});
+
+

@@ -151,7 +151,7 @@
     overflow: hidden;
   }
   .ad-slot::before {
-    content: "Ad";
+    content: "Your Ad Here";
     position: absolute;
     top: 6px; right: 10px;
     font-size: var(--text-xs);
@@ -235,6 +235,16 @@
   .num-bubble--green { background: color-mix(in oklab, var(--bubble-green) 12%, transparent); color: var(--bubble-green); }
   .num-bubble--amber { background: color-mix(in oklab, var(--bubble-amber) 12%, transparent); color: var(--bubble-amber); }
 
+  .num-bubble--fireball {
+    background: color-mix(in oklab, var(--bubble-fireball) 12%, transparent);
+    color: var(--bubble-fireball);
+  }
+  .num-bubble--nylotto-bonus {
+    background: color-mix(in oklab, var(--bubble-nylotto) 12%, transparent);
+    color: var(--bubble-nylotto);
+  }
+
+
   /* Special-ball via sidebar[data-game] (game-specific tokens) */
   .sidebar[data-game] {
     --special-tone: var(--bubble-amber);
@@ -252,6 +262,11 @@
     --special-tone: var(--bubble-green);
     --special-fg: #fff;
   }
+    .sidebar[data-game="ny_lotto"] {
+    --special-tone: var(--bubble-nylotto);
+    --special-fg: #ffffff;
+  }
+
   .num-bubble--special {
     background: color-mix(in oklab, var(--special-tone) 12%, transparent);
     color: var(--special-tone);

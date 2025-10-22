@@ -15,9 +15,10 @@ import {
   LottoRow,
   fetchRowsWithCache,
   getCurrentEraConfig,
-  analyzeGame,
-} from '@lib/lotto';
-import { useIsMobile } from '@lib/breakpoints';
+  analyzeGameAsync,
+} from 'packages/lib/lotto';
+import { useIsMobile } from 'packages/lib/breakpoints';
+import { ErrorBoundary } from 'src/components/ErrorBoundary';
 
 const AdsLot = dynamic(() => import('src/components/ads/AdsLot'), { ssr: false });
 
@@ -85,7 +86,7 @@ export default function HomeClient() {
   const ensureRecommendedForSelected = useCallback(async () => {
     const existing = analysisByGame[game];
     if (existing) return { recMain: existing.recMain, recSpec: existing.recSpec };
-    const a = analyzeGame(rows, game);
+    const a = await analyzeGameAsync(rows, game);
     setAnalysisByGame(prev => ({ ...prev, [game]: a }));
     return { recMain: a.recMain, recSpec: a.recSpec };
   }, [analysisByGame, game, rows]);
@@ -93,6 +94,7 @@ export default function HomeClient() {
   const openPastDraws = useCallback(() => { setShowPast(true); }, []);
 
   return (
+    <ErrorBoundary>
     <main className="layout-rails">
       {/* Left rail */}
       <aside className="rail rail--left" aria-label="Sponsored">
@@ -113,7 +115,7 @@ export default function HomeClient() {
                   className="card game-select-card"
                   data-has-period="false" /* parity with NY (no period selector on GA) */
                 >
-                  <div className="card-title game-select-label">Game</div>
+                  <div className="card-title game-select-label">Pick Your Game</div>
                   <select
                     aria-label="Select game"
                     value={game}
@@ -141,6 +143,14 @@ export default function HomeClient() {
               <section className="vstack vstack--4">
                 <div><GameOverview game={game} /></div>
                 <div>
+                  <ErrorBoundary
+                    fallback={
+                      <div className="card p-3 text-sm">
+                        <div className="font-medium mb-1">Generator temporarily unavailable.</div>
+                        <div>Try changing the game/period or reload the page.</div>
+                      </div>
+                    }
+                  >
                   <Generator
                     game={game}
                     rowsForGenerator={rowsForGenerator}
@@ -149,9 +159,10 @@ export default function HomeClient() {
                     onEnsureRecommended={async () => {
                       const sinceEra = getCurrentEraConfig(game).start;
                       const rows = await fetchRowsWithCache({ game, since: sinceEra });
-                      return analyzeGame(rows, game);
+                      return analyzeGameAsync(rows, game);
                     }}
                   />
+                  </ErrorBoundary>
                 </div>
                 <div className="ad-slot ad-slot--rect-280" aria-label="Advertisement">
                   {!loading && rows.length > 0 ? <AdsLot /> : null}
@@ -167,6 +178,17 @@ export default function HomeClient() {
               </section>
             </div>
 
+            <ErrorBoundary
+              fallback={
+                <div className="card p-3 text-sm">
+                  <div className="font-medium mb-1">Past Draws failed to load.</div>
+                  <button className="mt-1 rounded bg-black text-white px-3 py-1"
+                          onClick={() => setShowPast(false)}>
+                    Close
+                  </button>
+                </div>
+              }
+            >
             {/* Drawer */}
             <PastDrawsSidebar
               open={showPast}
@@ -184,6 +206,7 @@ export default function HomeClient() {
               sortDir={sortDir}
               onToggleSort={() => setSortDir(d => d === 'desc' ? 'asc' : 'desc')}
             />
+            </ErrorBoundary>
           </div>
         </div>
       </div>
@@ -196,5 +219,6 @@ export default function HomeClient() {
         </div>
       </aside>
     </main>
+    </ErrorBoundary>
   );
 }

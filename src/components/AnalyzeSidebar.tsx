@@ -1,59 +1,118 @@
 // src/components/AnalyzeSidebar.tsx
 'use client';
 import './AnalyzeSidebar.css';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { ErrorBoundary } from 'src/components/ErrorBoundary';
 import {
    GameKey, LogicalGameKey,
-   analyzeGame, fetchRowsWithCache, fetchLogicalRows,
+   fetchRowsWithCache, fetchLogicalRows,
+   defaultSinceFor,
    jackpotOdds, jackpotOddsQuickDraw, jackpotOddsForLogical,
    // Digits
-   fetchDigitRowsFor, computeDigitStats, recommendDigitsFromStats,
+   fetchDigitRowsFor, computeDigitStatsAsync, recommendDigitsFromStats,
    // Pick 10
-   fetchPick10RowsFor, computePick10Stats, recommendPick10FromStats,
+   fetchPick10RowsFor, computePick10StatsAsync, recommendPick10FromStats,
    // Quick Draw (Keno-style)
-   fetchQuickDrawRowsFor, computeQuickDrawStats, recommendQuickDrawFromStats,
- } from '@lib/lotto';
+   fetchQuickDrawRowsFor, computeQuickDrawStatsAsync, recommendQuickDrawFromStats,
+   // Cash Pop
+   fetchCashPopRows,
+   // Worker-offloaded analysis
+   analyzeGameAsync,
+ } from 'packages/lib/lotto';
+import type { StateKey } from 'packages/lib/state';
+import { DEFAULT_STATE } from 'packages/lib/state';
+import {
+  resolveGameMeta,
+  isDigitShape,
+  effectivePeriod,
+  coerceAnyPeriod,
+  digitLogicalFor,
+  repForLogical,
+  displayNameFor,
+  digitsKFor,
+} from 'packages/lib/gameRegistry';
+
 
 // Canonical draw games only (no scratchers here)
 type CanonicalDrawGame = Exclude<GameKey, 'ga_scratchers'>;
 
-const ORDER: { key: CanonicalDrawGame; label: string }[] = [
-  { key: 'multi_powerball',    label: 'Powerball' },
-  { key: 'multi_megamillions', label: 'Mega Millions' },
-  { key: 'multi_cash4life', label: 'Cash4Life' },
-  { key: 'ga_fantasy5',  label: 'Fantasy 5' },
+// Canonical keys to consider (labels will come from registry.displayNameFor)
+const ORDER: CanonicalDrawGame[] = [
+  'multi_powerball',
+  'multi_megamillions',
+  'multi_cash4life',
+  'ga_fantasy5',
+  // California classics
+  'ca_superlotto_plus',
+  'ca_fantasy5',
+  'fl_lotto',
+  'fl_jackpot_triple_play',
 ];
 
-// Labels for NY logical games
-const NY_LABEL: Record<LogicalGameKey, string> = {
-  ny_take5: 'Take 5',
-  ny_numbers: 'Numbers (Pick 3)',
-  ny_win4: 'Win 4',
-  ny_lotto: 'NY Lotto',
-  ny_pick10: 'Pick 10',
-  ny_quick_draw: 'Quick Draw',
-  multi_powerball: 'Powerball',
-  multi_megamillions: 'Mega Millions',
-  multi_cash4life: 'Cash4Life',
+// Which logical games are allowed per state page
+const LOGICAL_ALLOWED: Record<StateKey, LogicalGameKey[]> = {
+  ga: [
+    // GA page currently only shows multi-state logicals (add GA-specific later if needed)
+    'multi_powerball',
+    'multi_megamillions',
+    'multi_cash4life',
+  ],
+  ca: [
+    // California logicals: Daily 3/4 (digits) + multi-state
+    'ca_daily3',
+    'ca_daily4',
+    'multi_powerball',
+    'multi_megamillions',
+  ],
+  ny: [
+    'ny_take5',
+    'ny_numbers',
+    'ny_win4',
+    'ny_lotto',
+    'ny_pick10',
+    'ny_quick_draw',
+    'multi_powerball',
+    'multi_megamillions',
+    'multi_cash4life',
+  ],
+  fl: [
+    'fl_fantasy5',
+    'fl_pick5',
+    'fl_pick4',
+    'fl_pick3',
+    'fl_pick2',
+    'fl_cashpop',
+    'multi_powerball',
+    'multi_megamillions',
+    'multi_cash4life', 
+  ],
 };
 
-// Representative canonical keys for era/odds when analyzing logical games
-const REP_FOR_LOGICAL: Record<LogicalGameKey, CanonicalDrawGame> = {
-  ny_take5: 'ny_take5' as CanonicalDrawGame,
-  ny_numbers: 'multi_cash4life',
-  ny_win4: 'multi_cash4life',
-  ny_lotto: 'ny_lotto',              // ← use NY Lotto’s own era (6/59 + Bonus)
-  ny_pick10: 'multi_cash4life',
-  ny_quick_draw: 'multi_cash4life',
-  multi_powerball: 'multi_powerball',
-  multi_megamillions: 'multi_megamillions',
-  multi_cash4life: 'multi_cash4life',
+// Which canonical games are allowed per state page
+const CANON_ALLOWED: Record<StateKey, CanonicalDrawGame[]> = {
+  ga: ['ga_fantasy5', 'multi_powerball', 'multi_megamillions', 'multi_cash4life'],
+  ca: [
+    'ca_superlotto_plus',
+    'ca_fantasy5',
+    'multi_powerball',
+    'multi_megamillions',
+  ],
+  ny: ['multi_powerball', 'multi_megamillions', 'multi_cash4life'], // no GA Fantasy 5 on NY
+  fl: [
+    'fl_lotto',
+    'fl_jackpot_triple_play',
+    'multi_powerball',
+    'multi_megamillions',
+    'multi_cash4life',
+  ],
 };
 
-type A = ReturnType<typeof analyzeGame>;
-type DS = ReturnType<typeof computeDigitStats>;
-type P10 = ReturnType<typeof computePick10Stats>;
-type QD  = ReturnType<typeof computeQuickDrawStats>;
+type A = ReturnType<typeof import('packages/lib/lotto').analyzeGame>;
+// Use typeof import to avoid pulling sync fns as runtime values
+type DS  = ReturnType<typeof import('packages/lib/lotto').computeDigitStats>;
+type P10 = ReturnType<typeof import('packages/lib/lotto').computePick10Stats>;
+type QD  = ReturnType<typeof import('packages/lib/lotto').computeQuickDrawStats>;
+type CP  = { totalDraws: number };
 
 type Props = {
   /** Canonical games to analyze on this page (defaults to ORDER’s keys). */
@@ -64,86 +123,161 @@ type Props = {
   title?: string;
   /** Period to analyze for logical games that have midday/evening variants. Defaults to 'both'. */
   period?: 'midday'|'evening'|'both';
+  /** State context for filtering which games appear/analyze. */
+  state?: StateKey;
 };
 
-export default function AnalyzeSidebar({ canonical, logical, title, period = 'both' }: Props) {
-  const CANON_LIST = (canonical && canonical.length > 0)
-    ? canonical.map(k => ({ key: k, label: ORDER.find(o => o.key === k)?.label ?? k }))
-    : ORDER;
-  const LOGICAL_LIST = (logical ?? []).slice(); // array of LogicalGameKey
+function AnalyzeSidebarInner({ canonical, logical, title, period = 'both', state }: Props) {
+  const st = state ?? DEFAULT_STATE;
+
+  const CANON_BASE: CanonicalDrawGame[] =
+    (canonical && canonical.length > 0) ? canonical : ORDER;
+
+  const CANON_LIST = CANON_BASE
+    .filter(k => CANON_ALLOWED[st].includes(k))
+    .map(key => ({ key, label: displayNameFor(key) }));
+  // Filter logical by state
+  const LOGICAL_LIST = (logical ?? []).filter(lg => LOGICAL_ALLOWED[st].includes(lg)).slice();
   // Store by string id so canonical and logical can coexist without collisions
   const [data5, setData5] = useState<Record<string, A | null>>({});
   const [dataDigits, setDataDigits] = useState<Record<string, DS | null>>({});
   const [dataP10, setDataP10] = useState<Record<string, P10 | null>>({});
   const [dataQD,  setDataQD]  = useState<Record<string, QD  | null>>({});
+  const [dataCP,  setDataCP]  = useState<Record<string, CP  | null>>({});
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string|null>(null);
   const [okCount, setOkCount] = useState(0);
   const [qdSpots, setQdSpots] = useState<1|2|3|4|5|6|7|8|9|10>(10);
+  // Track a single in-flight analyze chain to abort on prop changes
+  const inflightRef = useRef<{ ac: AbortController | null; timer: any } | null>(null);
 
   // Alphabetical views (case-insensitive)
   const CANON_VIEW = [...CANON_LIST].sort((a, b) =>
     String(a.label).localeCompare(String(b.label), 'en', { sensitivity: 'base' })
   );
   const LOGICAL_VIEW = [...LOGICAL_LIST].sort((a, b) =>
-    String(NY_LABEL[a] ?? a).localeCompare(String(NY_LABEL[b] ?? b), 'en', { sensitivity: 'base' })
+    String(displayNameFor(a)).localeCompare(String(displayNameFor(b)), 'en', { sensitivity: 'base' })
   );
 
-  // Load per-game analysis (current era only)
+  // Load per-game analysis (current era only) with debounce + abort
   useEffect(() => {
-    let alive = true;
-    (async () => {
+    // Abort any previous run + clear pending debounce
+    if (inflightRef.current?.ac) inflightRef.current.ac.abort();
+    if (inflightRef.current?.timer) clearTimeout(inflightRef.current.timer);
+
+    const ac = new AbortController();
+    const signal = ac.signal;
+    const cancelled = () => signal.aborted;
+
+    const timer = setTimeout(async () => {
       try {
-        setBusy(true); setErr(null);
+        if (cancelled()) return;
+        setBusy(true);
+        setErr(null);
         type TaskResult =
           | readonly [key: string, kind: 'five',     value: A]
           | readonly [key: string, kind: 'digits',   value: DS]
           | readonly [key: string, kind: 'pick10',   value: P10]
-          | readonly [key: string, kind: 'quickdraw',value: QD];
+          | readonly [key: string, kind: 'quickdraw',value: QD]
+          | readonly [key: string, kind: 'cashpop',  value: CP];
         const tasks: Promise<TaskResult>[] = [];
         // Canonical games
         for (const g of CANON_LIST) {
           tasks.push((async () => {
-            const rows = await fetchRowsWithCache({ game: g.key });
-            return [g.key, 'five', analyzeGame(rows, g.key)] as const;
+            // Window canonical data using library helper
+            const since = defaultSinceFor(g.key) ?? undefined;
+            const rows = await fetchRowsWithCache({ game: g.key, since })
+            const v = await analyzeGameAsync(rows, g.key, signal);
+            return [g.key, 'five', v] as const;
           })());
         }
         // Logical loader (branch by game type)
         for (const lg of LOGICAL_LIST) {
-          if (lg === 'ny_numbers' || lg === 'ny_win4') {
+          const meta = resolveGameMeta(undefined, lg);
+          // Coerce app-level Period → AnyPeriod understood by registry
+          const eff = effectivePeriod(meta, coerceAnyPeriod(period)); // respects preferEveningWhenBoth
+
+          if (isDigitShape(meta.shape)) {
+            // Use shared helper to derive the exact union accepted by fetchDigitRowsFor
+            const lgDigit = digitLogicalFor(undefined, lg);
+            if (!lgDigit) throw new Error('Unexpected non-digit logical: ' + lg);
             tasks.push((async (): Promise<TaskResult> => {
-              const period = 'both' as const;
-              const rows = await fetchDigitRowsFor(lg, period);
-              const v = computeDigitStats(rows, lg === 'ny_win4' ? 4 : 3);
+              const rows = await fetchDigitRowsFor(lgDigit, eff);
+              const k = meta.kDigits!; // guaranteed by registry for digit shapes
+              if (k === 3 || k === 4) {
+                const v = await computeDigitStatsAsync(rows, k, signal);
+                return [lg, 'digits', v] as const;
+              }
+              // proxy path for k=2|5
+              const proxyK: 3|4 = (k === 2 ? 3 : 4);
+              const proxyRows = rows.map(r => ({
+                date: r.date,
+                digits: (k === 2)
+                  ? [r.digits[0] ?? 0, r.digits[1] ?? 0, r.digits[1] ?? 0]
+                  : r.digits.slice(0, 4),
+              }));
+              const v = await computeDigitStatsAsync(proxyRows as any, proxyK, signal);
               return [lg, 'digits', v] as const;
-            })())
-          } else if (lg === 'ny_pick10') {
-            tasks.push((async (): Promise<TaskResult> => {
-              const rows = await fetchPick10RowsFor('ny_pick10');
-              const v = computePick10Stats(rows);
-              return [lg, 'pick10', v] as const;
             })());
-          } else if (lg === 'ny_quick_draw') {
-            tasks.push((async (): Promise<TaskResult> => {
-              const rows = await fetchQuickDrawRowsFor('ny_quick_draw');
-              const v = computeQuickDrawStats(rows);
-              return [lg, 'quickdraw', v] as const;
-            })());
-          } else {
-            // ny_take5 is 5-ball (no special): use existing analyzeGame path
-            tasks.push((async () => {
-              const rows = await fetchLogicalRows({ logical: lg, period });
-              const rep = REP_FOR_LOGICAL[lg];
-              return [lg, 'five', analyzeGame(rows, rep)] as const;
-            })());
+            continue;
+          }
+
+          switch (meta.shape) {
+            case 'pick10':
+              tasks.push((async (): Promise<TaskResult> => {
+                const rows = await fetchPick10RowsFor('ny_pick10');
+                const v = await computePick10StatsAsync(rows, signal);
+                return [lg, 'pick10', v] as const;
+              })());
+              break;
+
+            case 'quickdraw':
+              tasks.push((async (): Promise<TaskResult> => {
+                const rows = await fetchQuickDrawRowsFor('ny_quick_draw');
+                const v = await computeQuickDrawStatsAsync(rows, signal);
+                return [lg, 'quickdraw', v] as const;
+              })());
+              break;
+
+            case 'cashpop':
+              tasks.push((async (): Promise<TaskResult> => {
+                const rows = await fetchCashPopRows('all'); // all periods for better sample
+                const v: CP = { totalDraws: rows.length };
+                return [lg, 'cashpop', v] as const;
+              })());
+              break;
+
+            // five/six (standard 5-ball style analysis path, including NY Lotto)
+            case 'five':
+            case 'six':
+            default:
+              tasks.push((async () => {
+                // Prefer logical-windowing based on its canonical representative
+                const rep = repForLogical(lg, meta);
+                const since = defaultSinceFor(rep) ?? undefined;
+                const rows = await fetchLogicalRows({ logical: lg, period: eff, since });
+                const v = await analyzeGameAsync(rows, rep, signal);
+                return [lg, 'five', v] as const;
+              })());
+              break;
           }
         }
+
+        if (tasks.length === 0) {
+          if (cancelled()) return;
+          setOkCount(0);
+          setBusy(false);
+          setErr(null);
+          return;
+        }
+
         const settled = await Promise.allSettled(tasks);
-        if (!alive) return;
+        if (cancelled()) return;
         const next5: Record<string, A>  = {};
         const nextD: Record<string, DS> = {};
         const nextP: Record<string, P10> = {};
         const nextQ: Record<string, QD>  = {};
+        const nextC: Record<string, CP>  = {};
         let ok = 0;
         settled.forEach(r => {
           if (r.status === 'fulfilled') {
@@ -152,6 +286,7 @@ export default function AnalyzeSidebar({ canonical, logical, title, period = 'bo
             if (kind === 'digits')    { nextD[k] = v as DS;  ok++; }
             if (kind === 'pick10')    { nextP[k] = v as P10; ok++; }
             if (kind === 'quickdraw') { nextQ[k] = v as QD;  ok++; }
+            if (kind === 'cashpop')   { nextC[k] = v as CP;  ok++; }
           }
         });
         setOkCount(ok);
@@ -159,23 +294,35 @@ export default function AnalyzeSidebar({ canonical, logical, title, period = 'bo
         setDataDigits(prev => ({ ...prev, ...nextD }));
         setDataP10(prev => ({ ...prev, ...nextP }));
         setDataQD(prev => ({ ...prev, ...nextQ }));
+        setDataCP(prev => ({ ...prev, ...nextC }));
         if (ok === 0) setErr('No analysis available (data fetch failed).');
       } catch (e:any) {
-        if (alive) setErr(e?.message || String(e));
+        if (!cancelled()) setErr(e?.message || String(e));
       } finally {
-        if (alive) setBusy(false);
+        if (!cancelled()) setBusy(false);
       }
-    })();
-    return () => { alive = false; };
-  }, [JSON.stringify(CANON_LIST.map(x=>x.key)), JSON.stringify(LOGICAL_LIST), period]);
+    }, 200);
+
+    inflightRef.current = { ac, timer };
+    return () => {
+      ac.abort();
+      clearTimeout(timer);
+    };
+    // Depend on stable identifiers only; JSON.stringify keeps shallow lists stable
+  }, [JSON.stringify(CANON_LIST.map(x => x.key)), JSON.stringify(LOGICAL_LIST), period, st]);
 
   return (
     <section className="card analyze-sidebar ticket-grid" role="note" aria-label="Analysis">
       <div className="card-title">
         {title ?? 'Analysis'}
       </div>
+      {busy && (Object.keys(data5).length + Object.keys(dataDigits).length
+                + Object.keys(dataP10).length + Object.keys(dataQD).length
+                + Object.keys(dataCP).length > 0) && (
+        <div className="analyze-refreshing" aria-live="polite">Refreshing…</div>
+      )}
       {err && <div className="analyze-error">{err}</div>}
-      {busy && <div className="analyze-loading">Analyzing current eras…</div>}
+      {busy && <div className="analyze-loading">Refreshing analysis…</div>}
       {!busy && !err && (
         <div className="analyze-status" aria-live="polite">
           Loaded {okCount}/{CANON_LIST.length + LOGICAL_LIST.length} games.
@@ -188,7 +335,7 @@ export default function AnalyzeSidebar({ canonical, logical, title, period = 'bo
               const a = data5[g.key];
               return (
                 <div key={g.key} className="analyze-game">
-                  <div className="analyze-game-title">{g.label}</div>
+                  <div className="analyze-game-title">{displayNameFor(g.key)}</div>
                   {a ? (
                     <div className="analyze-game-details card-content-text">
                       <div className="analyze-detail">
@@ -219,10 +366,13 @@ export default function AnalyzeSidebar({ canonical, logical, title, period = 'bo
               const a5  = data5[lg];
               const ad  = dataDigits[lg];
               const ap10= dataP10[lg];
-              const rep = REP_FOR_LOGICAL[lg];
+              const acp = dataCP[lg];
+              const meta = resolveGameMeta(undefined, lg);
+              const rep  = repForLogical(lg, meta);
+              const kDisplay = isDigitShape(meta.shape) ? digitsKFor(meta) : undefined;
               return (
                 <div key={lg} className="analyze-game">
-                  <div className="analyze-game-title">{NY_LABEL[lg] ?? lg}</div>
+                  <div className="analyze-game-title">{displayNameFor(lg)}</div>
                   {a5 ? (
                     <div className="analyze-game-details card-content-text">
                       <div className="analyze-detail">
@@ -251,7 +401,12 @@ export default function AnalyzeSidebar({ canonical, logical, title, period = 'bo
                       </div>
                       <div className="analyze-detail">
                         <span className="analyze-label">Digit domain:</span>
-                        <span className="analyze-value mono">0–9 × {ad.k}</span>
+                        <span className="analyze-value mono">
+                          0–9 × {kDisplay ?? ad.k}
+                          {kDisplay && kDisplay !== ad.k && (
+                            <> (analyzed via {ad.k}-digit proxy)</>
+                          )}
+                        </span>
                       </div>
                       <div className="analyze-detail">
                         <span className="analyze-label">Jackpot odds:</span>
@@ -346,6 +501,29 @@ export default function AnalyzeSidebar({ canonical, logical, title, period = 'bo
                         </div>
                       );
                     })()
+                    ) : lg === 'fl_cashpop' ? (
+                    acp ? (
+                      <div className="analyze-game-details card-content-text">
+                        <div className="analyze-detail">
+                          <span className="analyze-label">Total draws analyzed:</span>
+                          <span className="analyze-value mono">{acp.totalDraws.toLocaleString()}</span>
+                        </div>
+                        <div className="analyze-detail">
+                          <span className="analyze-label">Number domain:</span>
+                          <span className="analyze-value mono">1–15 · pick 1</span>
+                        </div>
+                        <div className="analyze-detail">
+                          <span className="analyze-label">Jackpot odds:</span>
+                          <span className="analyze-value mono">n/a</span>
+                        </div>
+                        <div className="analyze-detail analyze-recommendation">
+                          <span className="analyze-label">Recommended:</span>
+                          <span className="analyze-value mono">—</span>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="analyze-unavailable">Unavailable.</div>
+                    )
                   ) : (
                     <div className="analyze-unavailable">Unavailable.</div>
                   )}
@@ -356,6 +534,37 @@ export default function AnalyzeSidebar({ canonical, logical, title, period = 'bo
         )}
       </div>
     </section>
+  );
+}
+
+// --- Component-level Error Boundary wrapper ---
+export default function AnalyzeSidebar(props: Props) {
+  // Reset boundary when the big inputs change to avoid being “stuck” after a render error.
+  const resetKey =
+    JSON.stringify({
+      state: props.state ?? DEFAULT_STATE,
+      period: props.period ?? 'both',
+      canonical: (props.canonical ?? ORDER).sort(),   // stable-ish keying
+      logical: (props.logical ?? []).slice().sort(),
+    });
+
+  const Fallback = (
+    <div className="rounded-lg border p-4 text-sm">
+      <div className="font-medium mb-2">Analysis panel hit an error.</div>
+      <p className="mb-2">You can retry just this sidebar without affecting the rest of the page.</p>
+      <button
+        className="mt-1 rounded bg-black text-white px-3 py-1"
+        onClick={() => { /* handled by ErrorBoundary’s Retry */ }}
+      >
+        Retry
+      </button>
+    </div>
+  );
+
+  return (
+    <ErrorBoundary key={resetKey} fallback={Fallback}>
+      <AnalyzeSidebarInner {...props} />
+    </ErrorBoundary>
   );
 }
 

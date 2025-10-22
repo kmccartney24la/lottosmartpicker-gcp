@@ -3,7 +3,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { ActiveGame } from "./types";
-import { fetchScratchersWithCache } from "@lib/scratchers";
+import { fetchScratchersWithCache } from "packages/lib/scratchers";
 // Optional helper: prefer your existing lib if present in the repo
 // Falls back to the provided public GCS base if the helper isn't available at runtime.
 let _getPublicBaseUrl: (() => string) | undefined;
@@ -16,8 +16,8 @@ try {
 // API response can be either { games: ActiveGame[], updatedAt?: string } or an array of ActiveGame
 type ScratchersIndexPayload = { games: ActiveGame[]; updatedAt?: string } | ActiveGame[];
 
-export function useScratchersIndex(opts?: { jurisdiction?: "ga" | "ny" }) {
-  const jurisdiction: "ga" | "ny" = opts?.jurisdiction ?? "ga";
+export function useScratchersIndex(opts?: { jurisdiction?: "ga" | "ny" | "fl" | "ca"}) {
+  const jurisdiction: "ga" | "ny" | "fl" | "ca" = opts?.jurisdiction ?? "ga";
   const [raw, setRaw] = useState<ScratchersIndexPayload | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -52,7 +52,7 @@ export function useScratchersIndex(opts?: { jurisdiction?: "ga" | "ny" }) {
               throw new Error(`API ${apiUrl} returned ${apiResp.status}`);
             }
           } catch (apiErr) {
-            console.warn('[NY] API fallback -> GCS', apiErr);
+            console.warn(`[${jurisdiction.toUpperCase()}] API fallback -> GCS`, apiErr);
             const base =
               (_getPublicBaseUrl ? _getPublicBaseUrl() : undefined) ||
               process.env.NEXT_PUBLIC_PUBLIC_BASE_URL ||
@@ -93,3 +93,5 @@ export function useScratchersIndex(opts?: { jurisdiction?: "ga" | "ny" }) {
 
   return { games, updatedAt, loading };
 }
+
+

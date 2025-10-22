@@ -12,7 +12,7 @@ import {
   routeFor,
   getStoredState,
   storeState,
-} from 'lib/state';
+} from 'packages/lib/state';
 
 export default function Header() {
   const headerRef = React.useRef<HTMLElement>(null);
@@ -25,6 +25,8 @@ export default function Header() {
   const detailsRef = React.useRef<HTMLDetailsElement>(null);
   const tabDrawRef = React.useRef<HTMLAnchorElement>(null);
   const tabScratchRef = React.useRef<HTMLAnchorElement>(null);
+  // Pretty names for subtitle
+  const STATE_NAME: Record<StateKey, string> = { ga: 'Georgia', ny: 'New York', fl: 'Florida', ca: 'California' };
   const themeWrapRef = React.useRef<HTMLDivElement>(null);
   const [navItemW, setNavItemW] = React.useState<number | null>(null);
 
@@ -157,7 +159,7 @@ export default function Header() {
             </span>
             {/* Subtitle appears to the left of (i.e., before) where the badge drops under */}
             <span className="brand__subtitle" aria-live="polite" ref={titleWrapRef}>
-              {activeState === 'ny' ? 'New York' : 'Georgia'}
+              {STATE_NAME[activeState]}
             </span>
           </span>
         </Link>
@@ -185,6 +187,8 @@ export default function Header() {
               router.push(target);
             }}
           >
+            <option value="ca">CA</option>
+            <option value="fl">FL</option>
             <option value="ga">GA</option>
             <option value="ny">NY</option>
           </select>

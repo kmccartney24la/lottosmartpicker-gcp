@@ -4,34 +4,42 @@ import './Generator.css';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Info from 'src/components/Info';
 import Pill from './Pill';
+import { ErrorBoundary } from 'src/components/ErrorBoundary';
 import { HINT_EXPLAIN, classifyHint, displayHint } from 'src/components/hints';
 import EvaluateTicket from './EvaluateTicket';
 import {
   GameKey,
   LottoRow,
-  computeStats,
-  generateTicket,
+  computeStatsAsync,
+  generateTicketAsync,
   ticketHints,
   getCurrentEraConfig,
   filterRowsForCurrentEra,
   // Digits (Pick 3 / Win 4)
-  DigitRow, fetchDigitRowsFor, computeDigitStats, recommendDigitsFromStats, ticketHintsDigits,
+  fetchDigitRowsFor, computeDigitStatsAsync, recommendDigitsFromStats, ticketHintsDigits,
   // Pick 10 (10-from-80)
-  Pick10Row, fetchPick10RowsFor, computePick10Stats, generatePick10Ticket, recommendPick10FromStats, ticketHintsPick10,
+  fetchPick10RowsFor, computePick10StatsAsync, generatePick10TicketAsync, recommendPick10FromStats, ticketHintsPick10,
   // Quick Draw (Keno-style; 20-from-80 history, user selects “spots”)
-  fetchQuickDrawRowsFor, computeQuickDrawStats, recommendQuickDrawFromStats, generateQuickDrawTicket,
- } from '@lib/lotto';
- import type { LogicalGameKey } from '@lib/lotto';
+  fetchQuickDrawRowsFor, computeQuickDrawStatsAsync, recommendQuickDrawFromStats, generateQuickDrawTicketAsync,
+  // Cash Pop (single value)
+  fetchCashPopRows,
+ } from 'packages/lib/lotto';
+ import type { LogicalGameKey } from 'packages/lib/lotto';
+import {
+  resolveGameMeta, isDigitShape, usesPlayTypeTags,
+  specialToneClass, hasColoredSpecial, filterHintsForGame,
+  boxVariantLabel, straightOnlyLabel,
+  digitLogicalFor, effectivePeriod, coerceAnyPeriod,
+  qdHas3Run, qdIsTight, playTypeLabelsForDigits, isGenerationReady,
+  eraConfigFor,
+} from 'packages/lib/gameRegistry';
 
-// ---- Shape detection: only use base LogicalGameKey values (no *_rep, no *_midday/evening) ----
-function detectShape(lg?: LogicalGameKey) {
-  const isDigits = lg === 'ny_numbers' || lg === 'ny_win4';
-  const isPick10 = lg === 'ny_pick10';
-  const isQuickDraw = lg === 'ny_quick_draw';
-  const isFiveBall = !lg || (!isDigits && !isPick10 && !isQuickDraw);
-  return { isDigits, isPick10, isQuickDraw, isFiveBall };
+/** Choose whether to show FL "Combo" / NY "Combination" chips; these are bet options (not implied by digits), so keep off ticket chips. */
+function jurisdictionCoverAllLabel(_logical?: LogicalGameKey): null {
+  return null; // intentionally not tagging per-ticket to avoid implying an outcome
 }
-export default function Generator({
+
+function GeneratorInner({
   game,                 // keep: canonical rep for era/theming
   logical,              // NEW: logical game for shape detection
   rowsForGenerator,
@@ -49,10 +57,13 @@ export default function Generator({
   onActiveHints?: (labels: string[]) => void;
 }) {
     // Use logical (if provided) to determine the game shape; fall back to canonical
-  const shapeKey = logical ?? (game as unknown as LogicalGameKey);
-  
-  const { isDigits, isPick10, isQuickDraw, isFiveBall } = detectShape(logical);
-  const isNyLotto = (logical === 'ny_lotto') || (game === 'ny_lotto');
+  const meta = resolveGameMeta(game, logical);
+  const isDigits   = isDigitShape(meta.shape);
+  const isPick10   = meta.shape === 'pick10';
+  const isQuickDraw= meta.shape === 'quickdraw';
+  const isCashPop  = meta.shape === 'cashpop';
+  const isFiveBall = meta.shape === 'five' || meta.shape === 'six'; // six renders visually like five (no colored special)
+  const isNyLotto  = !!meta.isNyLotto;
 
   // Modes are inferred from sliders: alpha >= 0.5 => 'hot', else 'cold'
   const [alphaMain, setAlphaMain] = useState(0.6);
@@ -68,11 +79,18 @@ export default function Generator({
   const [ticketsDigits, setTicketsDigits] = useState<{ digits: number[] }[]>([]);
   const [ticketsP10,    setTicketsP10]    = useState<{ values: number[] }[]>([]);
   const [ticketsQD,     setTicketsQD]     = useState<{ values: number[] }[]>([]);
+  const [ticketsCP,     setTicketsCP]     = useState<{ value: number }[]>([]);
 
   // Stats caches for non–5-ball
-  const [digitStats, setDigitStats] = useState<ReturnType<typeof computeDigitStats> | null>(null);
-  const [p10Stats,   setP10Stats]   = useState<ReturnType<typeof computePick10Stats> | null>(null);
-  const [qdStats,    setQdStats]    = useState<ReturnType<typeof computeQuickDrawStats> | null>(null);
+  // Use typeof import(...) so we don't import sync functions as values
+  type DigitStatsT    = ReturnType<typeof import('packages/lib/lotto').computeDigitStats>;
+  type Pick10StatsT   = ReturnType<typeof import('packages/lib/lotto').computePick10Stats>;
+  type QuickDrawStatsT= ReturnType<typeof import('packages/lib/lotto').computeQuickDrawStats>;
+  const [digitStats, setDigitStats] = useState<DigitStatsT | null>(null);
+  const [p10Stats,   setP10Stats]   = useState<Pick10StatsT | null>(null);
+  const [qdStats,    setQdStats]    = useState<QuickDrawStatsT | null>(null);
+  // Cash Pop: keep raw frequency counts (1..15)
+  const [cpCounts,   setCpCounts]   = useState<number[] | null>(null); // length 16, index 1..15
 
   // Quick Draw: user-selectable “spots” (how many numbers to pick)
   const [qdSpots, setQdSpots] = useState<1|2|3|4|5|6|7|8|9|10>(10);
@@ -81,6 +99,11 @@ export default function Generator({
   const [showEvaluate, setShowEvaluate] = useState(false);
   // Track last applied recommendation so we don't re-apply redundantly
   const lastAppliedRef = useRef<{ game: GameKey; aMain: number; aSpec: number } | null>(null);
+  // Track previous selection and whether we should auto-regenerate after a switch
+  const prevSelectionRef = useRef<{ game: GameKey | null; logical?: LogicalGameKey | null }>({ game: null, logical: null });
+  const needsAutoRegenRef = useRef(false);
+  // Manage a single in-flight chain per selection to abort stale work
+  const inflightRef = useRef<{ ac: AbortController | null; timer: any } | null>(null);
 
   // ---- Era-aware data & stats (only for five-ball) ----
 const eraCfg = useMemo(
@@ -93,14 +116,33 @@ const rowsEra = useMemo(
   [rowsForGenerator, game, isFiveBall]
 );
 
-const stats = useMemo(
-  () => (isFiveBall && eraCfg ? computeStats(rowsEra as any, game, eraCfg) : null),
-  [rowsEra, game, eraCfg, isFiveBall]
-);
+// Five-ball stats (computed off-thread when enabled)
+const [stats, setStats] = useState<ReturnType<typeof computeStatsAsync> | null>(null);
+useEffect(() => {
+  let ac: AbortController | null = null;
+  async function go() {
+    if (!isFiveBall || !eraCfg) { setStats(null); return; }
+    ac = new AbortController();
+    try {
+      const s = await computeStatsAsync(rowsEra as any, game, {
+        mainMax: eraCfg.mainMax,
+        specialMax: eraCfg.specialMax,
+        mainPick: eraCfg.mainPick,
+      }, ac.signal);
+      setStats(s);
+    } catch {
+      // leave stats as-is on abort/failure; UI remains resilient
+    }
+  }
+  go();
+  return () => { ac?.abort(); };
+}, [isFiveBall, eraCfg?.mainMax, eraCfg?.specialMax, eraCfg?.mainPick, game, rowsEra.length]);
 
-// Only five-ball games can have a special ball
-const hasSpecial = !!(isFiveBall && eraCfg && eraCfg.specialMax > 0);
-
+// Respect registry flags (don’t infer from eraCfg):
+// - PB/MM/C4L: colored special
+// - FL LOTTO/JTP: 6 mains only (no colored special)
+// - NY Lotto: handled separately (no colored special here)
+const hasSpecial = hasColoredSpecial(meta);
 
   function applyRecommendation(rec: { recMain:{mode:'hot'|'cold';alpha:number}; recSpec:{mode:'hot'|'cold';alpha:number} }) {
     setAlphaMain(parseFloat(rec.recMain.alpha.toFixed(2)));
@@ -133,83 +175,138 @@ const hasSpecial = !!(isFiveBall && eraCfg && eraCfg.specialMax > 0);
 
   // Auto-apply for five-ball from analysis; for others, we compute local recs elsewhere
 useEffect(() => {
-  let alive = true;
+  // Abort any previous chain and clear any pending debounce
+  if (inflightRef.current?.ac) inflightRef.current.ac.abort();
+  if (inflightRef.current?.timer) clearTimeout(inflightRef.current.timer);
 
-  // Load per-shape stats (digits/pick10/quick draw)
-  (async () => {
+  const ac = new AbortController();
+  const signal = ac.signal;
+  // Debounce ~200ms to kill quick-switch churn
+  const timer = setTimeout(async () => {
+    // Helper: bail fast if aborted
+    const cancelled = () => signal.aborted;
     try {
+      // ---- Load per-shape stats (digits / pick10 / quick draw / cash pop) ----
       if (isDigits) {
-        const rows = await fetchDigitRowsFor(
-          game === 'ny_win4' ? 'ny_win4' : 'ny_numbers',
-          'both'
-        );
-        if (!alive) return;
-        setDigitStats(computeDigitStats(rows, logical === 'ny_win4' ? 4 : 3));
-      } else setDigitStats(null);
+        const lg = digitLogicalFor(game, logical) ?? 'ny_numbers';
+        const period = effectivePeriod(meta, coerceAnyPeriod(undefined));
+        const rows = await fetchDigitRowsFor(lg, period as any);
+        if (cancelled()) return;
+        const k = meta.kDigits!;
+        if (k === 3 || k === 4) {
+          const s = await computeDigitStatsAsync(rows, k, signal);
+          if (cancelled()) return;
+          setDigitStats(s);
+        } else {
+          const proxyK = (k === 2 ? 3 : 4) as 3 | 4;
+          const proxyRows = rows.map(r => ({
+            date: r.date,
+            digits: k === 2
+              ? [r.digits[0] ?? 0, r.digits[1] ?? 0, r.digits[1] ?? 0]
+              : r.digits.slice(0, 4),
+          }));
+          const s = await computeDigitStatsAsync(proxyRows as any, proxyK, signal);
+          if (cancelled()) return;
+          setDigitStats(s);
+        }
+      } else {
+        setDigitStats(null);
+      }
 
       if (isPick10) {
         const rows = await fetchPick10RowsFor('ny_pick10');
-        if (!alive) return;
-        setP10Stats(computePick10Stats(rows));
-      } else setP10Stats(null);
+        if (cancelled()) return;
+        const s = await computePick10StatsAsync(rows, signal);
+        if (cancelled()) return;
+        setP10Stats(s);
+      } else {
+        setP10Stats(null);
+      }
 
       if (isQuickDraw) {
         const rows = await fetchQuickDrawRowsFor('ny_quick_draw');
-        if (!alive) return;
-        setQdStats(computeQuickDrawStats(rows));
-      } else setQdStats(null);
-    } catch {}
-  })();
+        if (cancelled()) return;
+        const s = await computeQuickDrawStatsAsync(rows, signal);
+        if (cancelled()) return;
+        setQdStats(s);
+      } else {
+        setQdStats(null);
+      }
 
-  if (!isFiveBall) { return () => { alive = false; }; }
+      if (isCashPop) {
+        const rows = await fetchCashPopRows('all');
+        if (cancelled()) return;
+        const counts = Array(16).fill(0);
+        rows.forEach(r => { if (r.value >= 1 && r.value <= 15) counts[r.value]++; });
+        setCpCounts(counts);
+      } else {
+        setCpCounts(null);
+      }
 
-  // five-ball: wait for rows then apply analyzed recommendation
-  if (!rowsEra || rowsEra.length === 0) return () => { alive = false; };
-  (async () => {
-    const rec = analysisForGame ?? (await onEnsureRecommended());
-    if (!alive || !rec) return;
-    const aMain = Number(rec.recMain.alpha.toFixed(2));
-    const aSpec = Number(rec.recSpec.alpha.toFixed(2));
-    const last = lastAppliedRef.current;
-    if (!last || last.game !== game || last.aMain !== aMain || last.aSpec !== aSpec) {
-      setAlphaMain(aMain);
-      if (hasSpecial) setAlphaSpecial(aSpec);
-      lastAppliedRef.current = { game, aMain, aSpec };
+      // ---- Five-ball: apply analyzed recommendation once rows are present ----
+      if (isFiveBall && rowsEra && rowsEra.length > 0) {
+        const rec = analysisForGame ?? (await onEnsureRecommended());
+        if (cancelled() || !rec) return;
+        const aMain = Number(rec.recMain.alpha.toFixed(2));
+        const aSpec = Number(rec.recSpec.alpha.toFixed(2));
+        const last = lastAppliedRef.current;
+        if (!last || last.game !== game || last.aMain !== aMain || last.aSpec !== aSpec) {
+          setAlphaMain(aMain);
+          if (hasSpecial) setAlphaSpecial(aSpec);
+          lastAppliedRef.current = { game, aMain, aSpec };
+        }
+      }
+    } catch {
+      /* swallow; ErrorBoundary covers render issues; network errors just no-op on abort */
     }
-  })();
+  }, 200);
 
-  return () => { alive = false; };
-}, [game, isFiveBall, isDigits, isPick10, isQuickDraw, rowsEra.length, analysisForGame, onEnsureRecommended, hasSpecial]);
+  inflightRef.current = { ac, timer };
+  return () => {
+    ac.abort();
+    clearTimeout(timer);
+  };
+// include shape & rows length so we recalc when necessary, but keep the set small to avoid thrash
+}, [game, logical, isFiveBall, isDigits, isPick10, isQuickDraw, isCashPop, rowsEra.length, analysisForGame, onEnsureRecommended, hasSpecial, meta]);
 
-  // Quick Draw pattern heuristics (variable k)
-  function qdHas3Run(values: number[]): boolean {
-    if (values.length < 3) return false;
-    const a = [...values].sort((x,y)=>x-y);
-    for (let i=2;i<a.length;i++){
-      if (a[i-2]+2===a[i-1]+1 && a[i-1]+1===a[i]) return true;
-    }
-    return false;
-  }
-  function qdIsTight(values: number[], domainMax=80): boolean {
-    if (!values.length) return false;
-    const a = [...values].sort((x,y)=>x-y);
-    const span = a[a.length-1] - a[0];
-    // Threshold scales with k (looser for larger k, tighter for small k)
-    const k = values.length;
-    const limit = Math.ceil(domainMax / Math.max(8, k+2));
-    return span <= limit;
-  }
+// --- When the selected game changes and the user already had generated tickets,
+  //     regenerate for the newly selected game once required data is ready. ---
+  useEffect(() => {
+    const prev = prevSelectionRef.current;
+    const changed = prev.game !== game || prev.logical !== logical;
+    if (!changed) return;
+    // Always auto-regenerate after a switch (regardless of previous tickets)
+    needsAutoRegenRef.current = true;
+    // Clear any previously displayed tickets immediately to prevent stale chips/balls
+    setTickets([]);
+    setTicketsDigits([]);
+    setTicketsP10([]);
+    setTicketsQD([]);
+    setTicketsCP([]);
+    // Update previous selection snapshot
+    prevSelectionRef.current = { game, logical };
+  }, [game, logical]);
 
-  function generate(rows = rowsEra as any[]) {
+  // After a switch, wait until shape-specific data is ready, then regenerate once.
+  useEffect(() => {
+    if (!needsAutoRegenRef.current) return;
+    const ready = isGenerationReady(meta, { rowsEra, digitStats, p10Stats, qdStats, cpCounts });
+    if (!ready) return;
+    needsAutoRegenRef.current = false;
+    try { generate(); } catch {}
+  }, [meta, rowsEra.length, digitStats, p10Stats, qdStats, cpCounts]);
+
+
+  async function generate(rows = rowsEra as any[]) {
     // Clear all buckets first
-    setTickets([]); setTicketsDigits([]); setTicketsP10([]); setTicketsQD([]);
+    setTickets([]); setTicketsDigits([]); setTicketsP10([]); setTicketsQD([]); setTicketsCP([]);
 
     // DIGITS (Pick 3 / Win4)
     if (isDigits) {
       if (!digitStats) return;
       const parsed = parseInt(numInput, 10);
       const target = Number.isFinite(parsed) ? Math.max(1, Math.min(100, parsed)) : 4;
-      const k = (logical === 'ny_win4') ? 4 : 3;
+      const k = meta.kDigits ?? 3;
       const rec = recommendDigitsFromStats(digitStats);          // decide default mode/alpha
       const mode = alphaMain >= 0.5 ? 'hot' : 'cold';            // allow user override via slider
       const alpha = alphaMain ?? rec.alpha;
@@ -248,8 +345,8 @@ useEffect(() => {
         const t = drawOne();
         const key = t.digits.join('');
         if (!seen.has(key)) {
-          // “Common” filters for digits
-          if (!avoidCommon) {
+          // “Common” filters for digits (only for k=3/4 where hints are calibrated)
+          if (!avoidCommon || !(k===3 || k===4)) {
             out.push(t);
           } else {
             const hints = ticketHintsDigits(t.digits, digitStats);
@@ -263,14 +360,58 @@ useEffect(() => {
         guard++;
       }
       setTicketsDigits(out);
-      // Report active hint labels (union) to the legend
+      // PLAY-TYPE ONLY if registry says so
       if (onActiveHints) {
         const all = new Set<string>();
         for (const t of out) {
-          for (const h of ticketHintsDigits(t.digits, digitStats)) all.add(h);
+          const k = meta.kDigits!;
+          const st = straightOnlyLabel(t.digits, k);     // e.g., 777 (k=3) → “Straight”
+          const bx = boxVariantLabel(t.digits, k);       // “N-Way Box”
+          if (usesPlayTypeTags(meta)) {
+            if (st && HINT_EXPLAIN[st]) all.add(st);
+            if (bx && HINT_EXPLAIN[bx]) all.add(bx);
+          } else {
+            // (If ever needed) fallback to pattern hints
+          }
         }
         onActiveHints(Array.from(all));
       }
+      if (liveRef.current) liveRef.current.textContent = `Generated ${out.length} tickets.`;
+      return;
+    }
+
+    // CASH POP (single value)
+    if (isCashPop) {
+      if (!cpCounts) return;
+      const parsed = parseInt(numInput, 10);
+      const target = Number.isFinite(parsed) ? Math.max(1, Math.min(100, parsed)) : 4;
+      // Build weighted distribution 1..15 with alpha bias
+      const base = Array(16).fill(0).map((_,i)=> (i===0?0:1/15));
+      const total = cpCounts.reduce((a,b)=>a+b,0) || 1;
+      const freq  = cpCounts.map(c => c/total);
+      // Normalize (index 1..15), and blend with base
+      const chosen = alphaMain >= 0.5 ? freq : freq.map(p => (Math.max(...freq)-p)+1e-9);
+      const chSum = chosen.slice(1).reduce((a,b)=>a+b,0);
+      const chN   = chosen.map((p,i)=> i===0?0:p/chSum);
+      const w = chN.map((p,i)=> i===0?0: (1-alphaMain)*base[i] + alphaMain*p);
+      const wSum = w.slice(1).reduce((a,b)=>a+b,0);
+      const weights = w.map((x,i)=> i===0?0: x/wSum);
+      const draw = () => {
+        let r = Math.random(); let acc = 0;
+        for (let v=1; v<=15; v++){ acc += weights[v]; if (acc >= r) return v; }
+        return 15;
+      };
+      const out: { value:number }[] = [];
+      const seen = new Set<number>();
+      let guard = 0;
+      while (out.length < target && guard < target * 50) {
+        const v = draw();
+        // Allow duplicates (different tickets can be same number), but avoid exact repeats if avoidCommon
+        if (!avoidCommon || !seen.has(v)) out.push({ value: v });
+        seen.add(v);
+        guard++;
+      }
+      setTicketsCP(out);
       if (liveRef.current) liveRef.current.textContent = `Generated ${out.length} tickets.`;
       return;
     }
@@ -288,7 +429,7 @@ useEffect(() => {
       const seen = new Set<string>();
       let guard = 0;
       while (out.length < target && guard < target * 60) {
-        const values = generatePick10Ticket(p10Stats, { mode, alpha });
+        const values = await generatePick10TicketAsync(p10Stats, { mode, alpha });
         const key = values.join('-');
         if (!seen.has(key)) {
           if (!avoidCommon) {
@@ -328,7 +469,7 @@ useEffect(() => {
       const seen = new Set<string>();
       let guard = 0;
       while (out.length < target && guard < target * 60) {
-        const values = generateQuickDrawTicket(qdStats, qdSpots, { mode, alpha });
+        const values = await generateQuickDrawTicketAsync(qdStats, qdSpots, { mode, alpha });
         const key = values.join('-');
         if (!seen.has(key)) {
           if (!avoidCommon) {
@@ -366,7 +507,13 @@ useEffect(() => {
     const seen = new Set<string>();
     let guard = 0;
     while (out.length < target && guard < target * 50) {
-      const t = generateTicket(rows, game, { modeMain, modeSpecial, alphaMain, alphaSpecial, avoidCommon }, eraCfg) as { mains:number[]; special?:number };
+      // For six-mains-no-special (FL LOTTO/JTP), suppress special generation by overriding specialMax → 0.
+      const cfg = eraConfigFor(meta, eraCfg);
+      const t = await generateTicketAsync(
+        rows as any, game,
+        { modeMain, modeSpecial, alphaMain, alphaSpecial, avoidCommon },
+        cfg
+      ) as { mains:number[]; special?:number };
       const key = `${t.mains.join('-')}:${t.special ?? ''}`;
       if (!seen.has(key)) { seen.add(key); out.push(t); }
       guard++;
@@ -376,7 +523,10 @@ useEffect(() => {
       // compute union of hint labels across generated tickets
       const all = new Set<string>();
       for (const t of out) {
-        const hs = ticketHints(game, t.mains, t.special ?? 0, stats);
+        const hs = filterHintsForGame(
+          meta,
+          ticketHints(game, t.mains, (hasSpecial ? (t.special ?? 0) : 0), stats)
+        );
         hs.forEach(h => all.add(h));
       }
       onActiveHints(Array.from(all));
@@ -397,6 +547,8 @@ useEffect(() => {
     lines = ticketsP10.map(t => t.values.join('-')).join('\n');
   } else if (isQuickDraw) {
     lines = ticketsQD.map(t => t.values.join('-')).join('\n');
+    } else if (isCashPop) {
+    lines = ticketsCP.map(t => String(t.value)).join('\n');
   }
   try { await navigator.clipboard.writeText(lines); } catch {}
 }
@@ -415,12 +567,17 @@ useEffect(() => {
           title={
             anLoading ? 'Analyzing…' : (
               analysisForGame
-                ? `Recommended from analysis: mains ${analysisForGame.recMain.mode} (α=${analysisForGame.recMain.alpha.toFixed(2)}), ${isNyLotto ? 'bonus' : 'special'} ${analysisForGame.recSpec.mode} (α=${analysisForGame.recSpec.alpha.toFixed(2)})`
+                ? (
+                    `Recommended from analysis: mains ${analysisForGame.recMain.mode} (α=${analysisForGame.recMain.alpha.toFixed(2)})`
+                    + (hasSpecial
+                        ? `, ${isNyLotto ? 'bonus' : 'special'} ${analysisForGame.recSpec.mode} (α=${analysisForGame.recSpec.alpha.toFixed(2)})`
+                        : '')
+                  )
                 : 'Click to analyze and apply the recommended weights'
             )
           }
         >
-          Recommended
+          Recommended Weighting
         </button>
         <Info
           tip={
@@ -568,6 +725,7 @@ useEffect(() => {
           : isDigits    ? ticketsDigits.length === 0
           : isPick10    ? ticketsP10.length === 0
           : isQuickDraw ? ticketsQD.length === 0
+          : isCashPop  ? ticketsCP.length === 0
           : true
           }
           aria-label="Copy tickets to clipboard"
@@ -606,7 +764,10 @@ useEffect(() => {
 <div className="generator-results">
         {/* FIVE-BALL */}
   {isFiveBall && tickets.map((t, i) => {
-    const hints = ticketHints(game, t.mains, t.special ?? 0, stats);
+   let hints = ticketHints(game, t.mains, t.special ?? 0, stats);
+   if (!hasSpecial) {
+     hints = hints.filter(h => h !== 'Hot special' && h !== 'Cold special');
+   }
     return (
       <div key={`fb-${i}`} className="card">
         <div className="mono num-bubbles" aria-label={`Ticket ${i+1}`}>
@@ -616,15 +777,7 @@ useEffect(() => {
           {hasSpecial && (
             <>
               <span className="evaluate-separator" aria-hidden="true">|</span>
-              <span
-                className={`num-bubble ${
-                  game === 'multi_powerball' ? 'num-bubble--red'
-                  : game === 'multi_megamillions' ? 'num-bubble--blue'
-                  : game === 'multi_cash4life' ? 'num-bubble--green'
-                  : 'num-bubble--amber'
-                }`}
-                aria-label={isNyLotto ? 'Bonus' : 'Special'}
-              >
+              <span className={`num-bubble ${specialToneClass(meta)}`} aria-label="Special">
                 {t.special}
               </span>
             </>
@@ -649,14 +802,17 @@ useEffect(() => {
           <span key={`d-${idx}`} className="num-bubble">{d}</span>
         ))}
       </div>
-      {/* Hints for Digits (Pick 3 / Win 4) */}
+      {/* Hints for Digits: show play-type variants ONLY (no regular pattern hints) */}
       {digitStats && (
         <div className="chips">
-          {ticketHintsDigits(t.digits, digitStats).map(h => (
-            <Pill key={h} tone={classifyHint(h)} title={HINT_EXPLAIN[h]}>
-              {displayHint(h)}
-            </Pill>
-          ))}
+          {playTypeLabelsForDigits(t.digits, meta)
+            .filter(h => HINT_EXPLAIN[h]) // keep registry pure; UI filters to what we explain
+            .map(h => (
+              <Pill key={h} tone={classifyHint(h)} title={HINT_EXPLAIN[h]}>
+                {displayHint(h)}
+              </Pill>
+            ))
+          }
         </div>
       )}
     </div>
@@ -708,12 +864,55 @@ useEffect(() => {
     </div>
   ))}
 
+  {/* CASH POP */}
+  {isCashPop && ticketsCP.map((t, i) => (
+    <div key={`cp-${i}`} className="card">
+      <div className="mono num-bubbles" aria-label={`Ticket ${i+1}`}>
+        <span className="num-bubble">{t.value}</span>
+      </div>
+    </div>
+  ))}
+
   {/* Empty */}
   {isFiveBall && tickets.length===0 && <div className="hint">No tickets yet.</div>}
   {isDigits   && ticketsDigits.length===0 && <div className="hint">No tickets yet.</div>}
   {isPick10   && ticketsP10.length===0 && <div className="hint">No tickets yet.</div>}
   {isQuickDraw&& ticketsQD.length===0 && <div className="hint">No tickets yet.</div>}
+  {isCashPop && ticketsCP.length===0 && <div className="hint">No tickets yet.</div>}
       </div>
     </section>
+  );
+}
+
+// --- Component-level Error Boundary wrapper ---
+export default function Generator(props: {
+  game: GameKey;
+  logical?: LogicalGameKey;
+  rowsForGenerator: LottoRow[];
+  analysisForGame: { recMain:{mode:'hot'|'cold';alpha:number}; recSpec:{mode:'hot'|'cold';alpha:number} } | null;
+  anLoading: boolean;
+  onEnsureRecommended: () => Promise<{ recMain:{mode:'hot'|'cold';alpha:number}; recSpec:{mode:'hot'|'cold';alpha:number} } | null>;
+  onActiveHints?: (labels: string[]) => void;
+}) {
+  // Reset the boundary when the selected game/logical changes
+  const boundaryKey = `${props.game}::${props.logical ?? 'none'}`;
+  const Fallback = (
+    <div className="rounded-lg border p-4 text-sm">
+      <div className="font-medium mb-2">Generator had a hiccup.</div>
+      <p className="mb-2">This section failed to render. You can retry just the Generator without affecting the rest of the page.</p>
+      <button
+        className="mt-1 rounded bg-black text-white px-3 py-1"
+        // ErrorBoundary’s default fallback already resets on click,
+        // but we include this button for clarity and styling.
+        onClick={() => { /* handled inside ErrorBoundary */ }}
+      >
+        Retry
+      </button>
+    </div>
+  );
+  return (
+    <ErrorBoundary key={boundaryKey} fallback={Fallback}>
+      <GeneratorInner {...props} />
+    </ErrorBoundary>
   );
 }

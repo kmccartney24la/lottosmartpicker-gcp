@@ -7,9 +7,9 @@ import {
   rotateCsrfToken,
   validateCsrfToken,
   isSessionExpired,
-} from "./lib/session";
-import { enforceRequestSizeLimit, enforceRateLimit } from "./lib/security";
-import { logSecurityEvent, detectSuspiciousActivity } from "./lib/logger";
+} from "./packages/lib/session";
+import { enforceRequestSizeLimit, enforceRateLimit } from "./packages/lib/security";
+import { logSecurityEvent, detectSuspiciousActivity } from "./packages/lib/logger";
 
 const APP_ORIGIN = process.env.NEXT_PUBLIC_APP_ORIGIN || "https://app.lottosmartpicker.com";
 const APP_HOST = new URL(APP_ORIGIN).host;
@@ -56,7 +56,7 @@ if (host === APP_HOST && APP_HOST === "app.lottosmartpicker.com" && isHTML) {
     const p = pathname;
     const isBareDraws = p === '/' || p === '/index.html';
     const isBareScratchers = p === '/scratchers';
-    const isStatePrefixed = p.startsWith('/ga') || p.startsWith('/ny');
+    const isStatePrefixed = p.startsWith('/ga') || p.startsWith('/ny') || p.startsWith('/fl') || p.startsWith('/ca');
     const isApi = p.startsWith('/api/');
     const isStatic =
       p.startsWith('/_next/') ||
@@ -67,28 +67,28 @@ if (host === APP_HOST && APP_HOST === "app.lottosmartpicker.com" && isHTML) {
       p === '/ads.txt';
 
     // TS-safe geo inference using headers only.
-    function inferStateFromHeaders(req: NextRequest): 'ga' | 'ny' {
+    function inferStateFromHeaders(req: NextRequest): 'ga' | 'ny' | 'fl' | 'ca' {
       const up = (v: string | null) => (v || '').toUpperCase();
       // Vercel-style
       const vcCountry = up(req.headers.get('x-vercel-ip-country'));
       const vcRegion  = up(req.headers.get('x-vercel-ip-country-region'));
       // Cloudflare-style fallbacks
       const cfCountry = up(req.headers.get('cf-ipcountry'));
-      const cfRegion  = up(req.headers.get('x-vercel-ip-region')) || up(req.headers.get('x-region-code'));
+      const cfRegion  = up(req.headers.get('x-region-code')) || up(req.headers.get('x-vercel-ip-region'));
       const country = vcCountry || cfCountry;
       const region  = vcRegion  || cfRegion;
       if (country === 'US') {
         if (region === 'NY') return 'ny';
+        if (region === 'FL') return 'fl';
         if (region === 'GA') return 'ga';
+        if (region === 'CA') return 'ca'; // California
       }
       return 'ga'; // default
     }
 
     if (!isStatePrefixed && (isBareDraws || isBareScratchers) && !isApi && !isStatic) {
       const st = inferStateFromHeaders(req);
-      const target = isBareScratchers
-        ? (st === 'ny' ? '/ny/scratchers' : '/ga/scratchers')
-        : (st === 'ny' ? '/ny' : '/ga');
+      const target = isBareScratchers ? `/${st}/scratchers` : `/${st}`
       const url = req.nextUrl.clone();
       url.pathname = target;
       return NextResponse.redirect(url, 302);

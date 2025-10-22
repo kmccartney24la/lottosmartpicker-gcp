@@ -56,10 +56,15 @@ async function main() {
   const ga = await run("npx", ["tsx", "scripts/scratchers/fetch_ga_scratchers.ts", ...flags], "GA");
   const ny = await run("npx", ["tsx", "scripts/scratchers/fetch_ny_scratchers.ts", ...flags], "NY");
   const fl = await run("npx", ["tsx", "scripts/scratchers/fetch_fl_scratchers.ts", ...flags], "FL");
+  const ca = await run("npx", ["tsx", "scripts/scratchers/fetch_ca_scratchers.ts", ...flags], "CA"); // <-- NEW
 
-  console.log(`[orchestrator] results: GA=${ga.code} NY=${ny.code} FL=${fl.code}`);
+  console.log(`[orchestrator] results: GA=${ga.code} NY=${ny.code} FL=${fl.code} CA=${ca.code}`);
 
-  const hardFail = (ga.code ?? 1) !== 0 || (ny.code ?? 1) !== 0 || (fl.code ?? 1) !== 0;
+  const hardFail =
+    (ga.code ?? 1) !== 0 ||
+    (ny.code ?? 1) !== 0 ||
+    (fl.code ?? 1) !== 0 ||
+    (ca.code ?? 1) !== 0; // <-- NEW
   if (hardFail) {
     console.error("[orchestrator] one or more scrapers failed");
     process.exit(1);

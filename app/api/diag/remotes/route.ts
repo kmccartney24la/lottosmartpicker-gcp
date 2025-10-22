@@ -1,7 +1,7 @@
 // app/api/diag/remotes/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { resolveIndexUrls } from "@lib/scratchers";
-import { logSecurityEvent } from '@lib/logger';
+import { resolveIndexUrls } from "packages/lib/scratchers";
+import { logSecurityEvent } from 'packages/lib/logger';
 
 export const runtime = "nodejs";
 

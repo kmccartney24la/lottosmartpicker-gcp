@@ -42,6 +42,13 @@
   margin-bottom: var(--space-2);
 }
 
+/* Slightly soften the fixed label width on cramped viewports */
+@media (max-width: 420px) {
+  .hint-legend-item {
+    grid-template-columns: 84px 1fr;
+  }
+}
+
 .hint-legend-item:last-child {
   margin-bottom: 0;
 }
@@ -79,6 +86,9 @@
   font: inherit;
   color: inherit;
   transition: background-color 120ms ease, border-color 120ms ease, transform 120ms ease;
+  /* Override global button min-height so these can be slim (globals sets a high min) */
+  min-height: 0;
+  line-height: 1.1;
 }
 
 .legend-toggle:hover {
@@ -104,7 +114,8 @@
 .legend-toggle-label--sub {
   font-weight: 400;
   font-size: var(--text-sm);
-  color: var(--bubble-amber);
+  letter-spacing: .01em;
+  /* color set by [data-mode] below */
 }
 
 /* Caret: size + rotation when expanded */
@@ -130,4 +141,108 @@
   padding: 0;
   list-style: none;
   margin-top: var(--space-2); /* just a bit of vertical separation */
+}
+
+/* Slight vertical rhythm guard when legend appears after other cards */
+.hint-legend + .card {
+  margin-top: var(--space-2);
+}
+
+/* -------------------------------
+   Tone-matched box for the header
+   ------------------------------- */
+/* Defaults for Patterns — lean amber like your pattern tags */
+.hint-legend-common {
+  --legend-tone: var(--bubble-amber);
+}
+.hint-legend-common[data-mode="patterns"] .legend-toggle--sub,
+.hint-legend-common[data-mode="patterns"] .legend-toggle-label--sub {
+  color: var(--legend-tone);
+}
+.hint-legend-common[data-mode="patterns"] .legend-toggle--sub {
+  border-color: color-mix(in oklab, var(--legend-tone) 55%, transparent);
+  background: color-mix(in oklab, var(--legend-tone) 12%, transparent);
+}
+
+/* Play Types — style like go-toggle (use the base .legend-toggle skin) */
+.hint-legend-common[data-mode="playtypes"] .legend-toggle-label--sub {
+  color: inherit; /* same as go-toggle title color */
+}
+
+/* ---------------------------------------------
+   Slimmer “mini” toggles for grouped play types
+   --------------------------------------------- */
+/* Render the grouped parent as a CHIP-LIKE dropdown button (neutral chip look) */
+.chip-button {
+  display: inline-flex; align-items: center; gap: var(--space-2);
+  border: 1px solid var(--card-bd);                 /* chip--neutral border */
+  border-radius: 9999px;
+  padding: calc(var(--space-1) * 0.5) var(--space-2);
+  font-size: var(--text-xs);
+  min-height: 24px; /* matches .chip; stays slim even with global touch target */
+  line-height: 1.15;
+  color: var(--fg);                                     /* chip--neutral text */
+  background: color-mix(in oklab, var(--card) 60%, transparent); /* chip--neutral bg */
+  cursor: pointer;
+  margin: var(--space-1);          /* match .chip spacing so they align inline */
+  vertical-align: middle;          /* align with neighboring chips */
+}
+.chip-button .legend-toggle-caret { margin-left: .25rem; }
+.legend-toggle--mini:not(.chip-button) { padding: 0; border: none; background: transparent; } /* keep chip border */
+.chip-button__label { display: inline-block; }
+
+/* Make a chip fill its grid column (used by Box toggle) */
+.chip-button--full { width: 100%; justify-content: space-between; }
+
+/* Chip-button interactions to mirror tag behavior */
+.chip-button:hover {
+  background: color-mix(in oklab, var(--card) 70%, transparent);
+}
+.chip-button:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--bubble-amber) 30%, transparent),
+    0 0 0 4px color-mix(in srgb, var(--bubble-amber) 18%, transparent);
+}
+
+/* -----------------------------------------
+   Sub-tags open beneath (not to the right)
+   ----------------------------------------- */
+.hint-legend-item--group-vertical {
+  /* Collapse to a single column so the nested list flows BELOW the toggle */
+  grid-template-columns: 1fr;
+}
+.hint-legend-item--group-vertical .legend-toggle {
+  width: fit-content;
+}
+.hint-legend-item--group-vertical > .hint-legend-list {
+  /* Ensure the nested list takes the full width under the parent */
+  grid-column: 1 / -1;
+}
+.hint-legend-list--tiny {
+  margin-top: var(--space-2);
+  margin-left: var(--space-4);   /* comfortable indent under the parent */
+  padding-left: 0;
+  list-style: none;
+}
+
+/* Inline group: keep the two-column grid so description sits to the right */
+.hint-legend-item--group-inline {
+  /* Inherit the default two-column grid from .hint-legend-item (93px 1fr) */
+}
+.hint-legend-item--group-inline > .hint-legend-list {
+  /* When open, sub-items span across both columns below the button+description row */
+  grid-column: 1 / -1;
+}
+
+/* Utility: force a nested list to span both columns in any layout */
+.hint-legend-list--span {
+  grid-column: 1 / -1;
+}
+
+/* Small screens: inline group collapses nicely like standard items */
+@media (max-width: var(--breakpoint-mobile)) {
+  .hint-legend-item--group-inline .chip-button--full {
+    width: 100%;
+  }
 }

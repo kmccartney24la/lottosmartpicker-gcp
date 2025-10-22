@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useRef } from 'react';
-import { GameKey, isInDrawWindowNYFor } from '@lib/lotto';
+import { GameKey, isInDrawWindowFor } from 'packages/lib/lotto';
 
 /**
  * Auto-refresh strategy:
@@ -25,12 +25,12 @@ export function useAutoRefresh(enabled: boolean, game: GameKey, reload: () => vo
       clearAll();
 
       // Inside draw window: refresh repeatedly & fast
-      if (isInDrawWindowNYFor(game)) {
+      if (isInDrawWindowFor(game)) {
         // immediate refresh on enter
         reload();
         intervalRef.current = window.setInterval(() => {
           // If we leave the window, reschedule the light checker
-          if (!isInDrawWindowNYFor(game)) {
+          if (!isInDrawWindowFor(game)) {
             schedule();
             return;
           }
