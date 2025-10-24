@@ -1,0 +1,52 @@
+{
+  "name": "@lsp/lib",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "exports": {
+    ".":             { "types": "./dist/index.d.ts",        "import": "./dist/index.js",        "default": "./dist/index.js" },
+    "./index":       { "types": "./dist/index.d.ts",        "import": "./dist/index.js",        "default": "./dist/index.js" },
+    "./workers/workerBridge": {
+      "types": "./dist/workers/workerBridge.d.ts",
+      "import": "./dist/workers/workerBridge.js",
+      "default": "./dist/workers/workerBridge.js"
+    },
+    "./lotto":       { "types": "./dist/lotto.d.ts",        "import": "./dist/lotto.js",        "default": "./dist/lotto.js" },
+    "./gameRegistry":{ "types": "./dist/gameRegistry.d.ts", "import": "./dist/gameRegistry.js", "default": "./dist/gameRegistry.js" },
+    "./breakpoints": { "types": "./dist/breakpoints.d.ts",  "import": "./dist/breakpoints.js",  "default": "./dist/breakpoints.js" },
+    "./gcs":         { "types": "./dist/gcs.d.ts",          "import": "./dist/gcs.js",          "default": "./dist/gcs.js" },
+    "./gcs-public":  { "types": "./dist/gcs-public.d.ts",   "import": "./dist/gcs-public.js",   "default": "./dist/gcs-public.js" },
+    "./csv":         { "types": "./dist/csv.d.ts",          "import": "./dist/csv.js",          "default": "./dist/csv.js" },
+    "./scratchers":  { "types": "./dist/scratchers.d.ts",   "import": "./dist/scratchers.js",   "default": "./dist/scratchers.js" },
+    "./state":       { "types": "./dist/state.d.ts",        "import": "./dist/state.js",        "default": "./dist/state.js" },
+    "./react": {
+      "types": "./dist/react/index.d.ts",
+      "import": "./dist/react/index.js"
+    },
+    "./react/breakpoints": {
+      "types": "./dist/react/breakpoints.d.ts",
+      "import": "./dist/react/breakpoints.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "sideEffects": false,
+  "peerDependencies": {
+    "react": ">=18"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.26",
+    "typescript": "^5.6.3"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.888.0",
+    "@google-cloud/storage": "^7.17.1",
+    "zod": "^4.1.12"
+  }
+}

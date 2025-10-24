@@ -7,9 +7,9 @@ import {
   rotateCsrfToken,
   validateCsrfToken,
   isSessionExpired,
-} from "./packages/lib/session";
-import { enforceRequestSizeLimit, enforceRateLimit } from "./packages/lib/security";
-import { logSecurityEvent, detectSuspiciousActivity } from "./packages/lib/logger";
+} from "./@lsp/lib/session";
+import { enforceRequestSizeLimit, enforceRateLimit } from "./@lsp/lib/security";
+import { logSecurityEvent, detectSuspiciousActivity } from "./@lsp/lib/logger";
 
 const APP_ORIGIN = process.env.NEXT_PUBLIC_APP_ORIGIN || "https://app.lottosmartpicker.com";
 const APP_HOST = new URL(APP_ORIGIN).host;

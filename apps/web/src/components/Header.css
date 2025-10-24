@@ -1,0 +1,999 @@
+/* ===========================
+   src/components/Header.css
+   =========================== */
+/* Header-scoped enhancements (additive). We DO NOT overwrite globals.css.
+   Only add pseudo/child rules or new classes. */
+
+/* Inner layout remains within the global max-width from globals.css */
+.site-header{
+  position: static;        /* don't follow on scroll */
+  top: auto;
+  backdrop-filter: none;   /* optional: match the static style */
+  z-index: var(--z-header);
+  /* SAFETY: if this token isn't defined elsewhere, calc() would drop the rule */
+  --header-right-fudge: 0px;              /* how much to shave off the default gutter on the right */
+  --header-left-fudge:  var(--header-right-fudge); /* mirror by default; tweak independently if needed */
+  --header-edge-pad:    calc(var(--stack-gap) - var(--header-right-fudge));
+  --header-edge-pad-l:  calc(var(--stack-gap) - var(--header-left-fudge));
+  /* micro-adjust the right edge alignment without touching globals */
+  /* unify control sizing across tabs & Theme */
+  --header-ctrl-h: var(--touch-target-min);
+  --header-ctrl-radius: 8px;
+  /* populated by ResizeObserver in Header.tsx */
+  --header-total-h: auto;
+  /* ensure we always have a square token like hamburger, even on desktop */
+  /* square baseline like hamburger; we’ll allow a small width boost for caret */
+  --nav-square: calc(var(--header-ctrl-h) - 6px);
+  /* a touch wider than the hamburger so GA/NY doesn't collide with the caret */
+  --state-w: calc(var(--nav-square) + 24px);;
+}
+
+/* Make wrapper full-bleed; we'll align the INNER rows instead (matches .rails-center) */
+.site-header.site-header--static{
+  max-width: none;
+  padding-inline: 0;
+}
+
+/* Rows */
+.site-header__inner{
+  /* Keep the global 2-col layout: brand | tabs+theme  */
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: var(--space-3);
+  /* Now the INNER matches .rails-center exactly */
+  max-width: var(--center-max);
+  margin-inline: auto;
+  padding-inline: var(--stack-gap);  /* ← same gutters as .rails-center */
+  width: 100%;
+  /* allow children to shrink without forcing horizontal scroll */
+  min-width: 0;
+  /* make sure the right column (tabs+theme) hugs the right edge */
+  > .nav-inline,
+  > .tabbar { justify-self: end; }
+}
+
+/* Title row — left-align with content (badge still anchors to title’s right) */
+.header-row--title { justify-items: start; position: relative; }
+.brand__link{
+  display:inline-flex;
+  /* Align to the title’s cap height rather than full row height */
+  align-items: center;
+  gap: var(--space-3);
+  color:inherit;
+  text-decoration:none;
+  /* Ensure currentColor matches the title ink (theme-aware) */
+  color: var(--ink-strong);
+}
+.brand__title{ margin:0; font-weight:800; letter-spacing:.01em; color: var(--ink-strong); text-align:center; }
+.brand__title--xl{ font-size: clamp(var(--text-2xl), 1.2rem + 1.2vw, 60px); }
+
+/* Title area: stack vertically (title+badge on top, subtitle below) */
+/* 1) Keep the title+badge on row 1, subtitle on row 2 */
+.brand__title-wrap{
+  display: inline-grid;
+  grid-template-columns: auto;
+  grid-template-rows: auto auto;
+  align-items: start;
+  justify-items: start;
+  row-gap: 0.25rem;
+  position: relative;
+  /* ensure no accidental clipping from ancestors */
+  overflow: visible;
+  /* token: fixed space between subtitle right edge and badge left edge */
+  --subtitle-gap: 18px;
+}
+
+/* Anchor for the absolutely-positioned badge */
+.brand__title-box{
+  position: relative;
+  display: inline-block;
+}
+
+/* 2) Single, authoritative subtitle rule
+      (beats earlier globals and prevents the later reset from re-clipping) */
+.site-header .brand__title-wrap > .brand__subtitle{
+  grid-row: 2;
+  grid-column: 1;
+  display: block;
+  /* Prevent descender clipping (Georgia "g") without altering header height */
+  line-height: 1.2;
+  /* Never clip text from ancestors on WebKit/GPU edges */
+  overflow: visible;
+  /* Smooth scale with the badge (and thus the title) */
+  font-size: calc(var(--badge-h) * 0.95);
+  color: var(--muted-strong);
+  /* Make the subtitle box end at the badge's left edge; JS sets the width. */
+  inline-size: var(--subtitle-area-w, auto);
+  max-inline-size: var(--subtitle-area-w, none);
+  /* Right-align text so its right edge lands a fixed gap before the badge */
+  text-align: end;               /* logical "right" */
+  padding-inline-end: var(--subtitle-gap);
+  /* Gentle breathing room; avoids layout shift */
+  margin-top: 0.05rem;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow-x: hidden;
+  /* Nudge GPU text rasterization to avoid subpixel cropping on Safari */
+  transform: translateZ(0);
+}
+
+/* ---------------- Brand logo (mask-first) ---------------- */
+/* Local sizing tokens so we don't touch globals */
+.site-header{
+  /* size tokens (required) */
+  --brand-cap: clamp(20px, 0.9rem + 0.6vw, 28px);
+  --brand-cap-max: 96px; /* allow taller cap if desired */
+  /* mask asset (your new compact mark) */
+  --brand-mask: url("/brand/logo-mark.svg");
+  /* dedicated color for the logo only (can be themed) */
+  --brand-logo-color: var(--ink-strong);
+  /* Badge sizing token so subtitle can scale with it */
+  --badge-h: 18px;
+}
+
+/* Masked logo uses currentColor so it adapts to any theme */
+.brand__logo{
+  flex: 0 0 auto;
+ display: inline-block;
+  /* Make the logo as tall as the full header (if known), else fall back. */
+  block-size: min(var(--header-total-h, var(--brand-cap)), var(--brand-cap-max));
+  aspect-ratio: 1 / 1;          /* keep square */
+  inline-size: auto;
+  background-color: var(--brand-logo-color);
+  /* Use your compact mark; tight viewBox = crisp at small sizes */
+  -webkit-mask-image: var(--brand-mask);
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  -webkit-mask-size: contain;
+          mask-image: var(--brand-mask);
+          mask-repeat: no-repeat;
+          mask-position: center;
+          mask-size: contain;
+}
+@media (min-width: 1280px){
+  .brand__logo{ max-block-size: var(--brand-cap-max); }
+}
+
+/* Visibility outline for contrast themes where solid fills may blend */
+:root[data-theme="contrast"] .brand__logo{
+  box-shadow: 0 0 0 1px currentColor inset;
+}
+
+/* Top-align the logo box with the title cap line */
+.brand__link{ 
+  position: relative;
+  align-items: flex-start;        /* top-align children */
+}
+.brand__logo,
+.brand__logo--img{
+  /* remove vertical centering; no negative margins */
+  margin-block: 0;
+  align-self: flex-start;
+}
+/* Keep the decorative image fallback in lockstep */
+
+/* Fallback image is VISIBLE by default to avoid invisible-logo edge cases */
+.brand__logo--img{
+  display: inline-block;
+  flex: 0 0 auto;
+  block-size: min(var(--header-total-h, var(--brand-cap)), var(--brand-cap-max));
+  aspect-ratio: 1 / 1;
+  inline-size: auto;
+  object-fit: contain;
+}
+
+/* Colored logo mode: keep the image, ignore the mask span */
+.site-header .brand__logo { display: none !important; }
+html[data-mask-ok="1"] .brand__logo--img { display: inline-block; } /* ensure it stays visible */
+
+
+.title-badge{
+  position:absolute;
+  right: 0;                            /* ← align to the title’s right edge */
+  top: calc(100% + 6px);
+  height: var(--badge-h);
+  width: calc(var(--badge-h) * 8.8889);/* ~160px when --badge-h is 18px */
+  display: grid;
+  grid-template-columns: 3fr 2fr;      /* 3:2 ratio (filled : outline) */
+  column-gap: clamp(4px, 0.4vw + 3px, 8px);
+}
+.title-badge::before,
+.title-badge::after{
+  content:"";
+  border-radius: 4px;
+}
+.title-badge::before{                 /* filled */
+  background: var(--muted-strong);
+}
+.title-badge::after{                  /* outline only */
+  border: 2px solid var(--muted-strong);
+  background: transparent;
+}
+
+/* Larger title & badge on desktop (≥1024px) */
+@media (min-width: 1024px) {
+  /* Increase specificity to ensure this wins over earlier/base rules */
+  .site-header .brand__title--xl{
+    /* bump max size and growth rate */
+    /* scale back further by lowering growth + cap */
+    font-size: clamp(1.875rem, 1rem + 1.1vw, 58px) !important;
+  }
+  /* Scale badge (and therefore subtitle) with larger title cap */
+  .site-header{ --badge-h: 17.4px; }  /* mirrors previous 58/60 scaling */
+  .title-badge::before, .title-badge::after{ border-radius: 6px; }
+}
+
+/* Smaller badge on very narrow screens to leave room for controls */
+@media (max-width: 420px) {
+  .site-header{ --badge-h: 10px; }    /* badge + subtitle shrink together */
+  .title-badge::after{
+    border-width: 2px;         /* keep outline visibility at smaller size */
+  }
+  /* Hide the "Theme" word label; keep the SR-only label for a11y */
+  .site-header .theme-wrap .theme-word{
+    display: none;
+  }
+}
+
+/* Playslip strip — tabs on the right, Theme even further right */
+/* Playslip strip — deterministic 3-col grid: [state] [tabs] [right ctrls] */
+.header-row--strip{
+  display: grid;
+  /* middle column may truly shrink now (fixes narrow-screen overflow) */
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: end;                      /* bottom-align tabs & selects */
+  column-gap: var(--space-3);
+  min-width: 0;
+  padding: var(--space-2) 0;
+  position: relative;
+  /* Symmetric edge buffers: state (left) mirrors theme (right) */
+  padding-inline-start: var(--header-edge-pad-l);
+  padding-inline-end:   var(--header-edge-pad);
+  /* make column placement unambiguous regardless of source order/historic rules */
+  grid-auto-flow: column;
+}
+
+/* --- State switcher (left column) --- */
+.state-wrap{
+  grid-column: 1;                        /* LOCK left lane */
+  display: inline-flex;
+  align-items: end;
+  height: var(--nav-square);
+  width: var(--state-w);
+  place-self: end start; /* bottom-left of its grid cell */
+}
+.state-select{
+  /* Keep native caret for best a11y/UA behavior */
+  appearance: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: var(--nav-square);
+  width: var(--state-w);
+  min-height: 0;
+  min-width: 0;
+  box-sizing: border-box;
+  border-radius: 8px;
+  border: 1px solid var(--card-bd);
+  background: var(--card);
+  color: var(--fg);
+  /* Match tab typography */
+  font-family: inherit;
+  font-size: var(--text-sm);
+  font-weight: 700;
+  letter-spacing: .01em;
+  line-height: 1.15;
+  text-align: center;                  /* center visible text */
+  text-align-last: center;             /* center selected value (supported browsers) */
+  /* leave space for the native caret so letters don't sit under it */
+  padding-inline: 0.25rem 1.4rem;
+  padding-block: 0;                      /* true square */
+  cursor: pointer;
+}
+.state-select:focus-visible{
+  outline: 3px solid rgba(37,99,235,.5);
+  outline-offset: 2px;
+}
+
+/* Middle column: tabs — align them to the RIGHT edge of the middle column */
+.nav-inline{ justify-self: end; }      /* tabs hug the divider with right column */
+
+/* Container to align Theme + Hamburger on the right */
+.right-ctrls{
+  grid-column: 3;                        /* LOCK right lane */
+  display: inline-flex;
+  align-items: end;
+  gap: var(--space-2);
+  justify-self: end;    /* right column — far right */
+  min-width: 0;
+}
+
+/* Inline nav — NO scrollbar; wraps; align right as a group */
+.nav-inline {
+  display: none; /* shown ≥768px */
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;        /* tabs may wrap internally */
+  flex: 1 1 auto;         /* take remaining row space */
+  min-width: 0;           /* allow shrinking so Theme stays on the row */
+  overflow: visible; /* prevent scrollbars */
+  /* GRID placement (middle) + align to the right of its cell */
+  grid-column: 2;                        /* LOCK middle lane */
+  justify-self: end;                     /* hug right edge of middle column */
+}
+
+/* Mobile nav (hamburger + sheet) */
+.nav-menu {
+  position: relative;
+  display: none; /* hidden on ≥tablet; shown on mobile */
+}
+.nav-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;                   /* goal: ≥32px click targets */
+  min-width: 32px;
+  border: 1px solid var(--card-bd);
+  border-radius: 8px;
+  background: var(--card);
+  padding: var(--space-1) var(--space-2);
+  cursor: pointer;
+  box-sizing: border-box;
+}
+.nav-trigger:focus-visible {
+  outline: 3px solid rgba(37,99,235,.5);
+  outline-offset: 2px;
+}
+.nav-trigger__icon { line-height: 1; font-size: 18px; }
+
+/* <= Mobile: the drawer/sheet */
+.nav-menu[open] > .nav-sheet {
+  transform: translateY(0);
+  opacity: 1;
+  pointer-events: auto;
+}
+.nav-sheet {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  min-width: 220px;
+  background: var(--card);
+  color: var(--fg);
+  border: 1px solid var(--focus-ring);
+  border-radius: 12px;
+  padding: var(--space-2);
+  box-shadow: 0 12px 28px rgba(0,0,0,.25);
+  transform: translateY(-6px);
+  opacity: 0;
+  pointer-events: none;
+  transition: transform .15s ease, opacity .15s ease;
+}
+.sheet-link {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+  padding: var(--space-2) var(--space-3);
+  border-radius: 8px;
+  min-height: 32px;
+}
+.sheet-link[aria-current="page"] {
+  background: color-mix(in oklab, var(--accent) 12%, transparent);
+  color: var(--fg);
+}
+.sheet-link:focus-visible {
+  outline: 3px solid rgba(37,99,235,.5);
+  outline-offset: 2px;
+}
+
+/* ---------- Tabs use global .chip; we extend to be thinner rectangles ---------- */
+.chip--nav{
+  border-radius: var(--header-ctrl-radius);
+}
+.chip--thin{
+  padding: var(--space-1) var(--space-3);    /* thinner rectangles (ticket cue) */
+  min-height: var(--header-ctrl-h);          /* thinner than default 44px */
+  line-height: 1.15;
+  box-sizing: border-box;
+  inline-size: var(--navItemW, auto);        /* same width as Theme */
+  width: var(--navItemW, auto);
+  justify-content: center;
+}
+
+/* Ensure nav chips keep shape/placement even if base .chip rules load later */
+.site-header .nav-inline .chip.chip--nav,
+.site-header .nav-inline .tab.chip--nav,
+.site-header .nav-inline .chip.chip--nav.chip--thin,
+.site-header .nav-inline .tab.chip--nav.chip--thin,
+.site-header .tabbar .chip.chip--nav,
+.site-header .tabbar .tab.chip--nav,
+.site-header .tabbar .chip.chip--nav.chip--thin,
+.site-header .tabbar .tab.chip--nav.chip--thin {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--header-ctrl-h);
+  border-radius: var(--header-ctrl-radius);
+  padding: var(--space-1) var(--space-3);
+  margin: 0; /* neutralize global chip margins in header */
+}
+
+/* Tabs as links should behave like chips visually */
+.site-header .tab,
+.site-header .tabbar a,
+.site-header .nav-inline a {
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ===========================================================
+   HARD header-only overrides so tabs aren't pill-shaped.
+   We scope to header containers and use !important to beat
+   base `.chip { border-radius: 999px }` and min-height.
+   =========================================================== */
+/* Keep the right group bottom-aligned with Theme select */
+.site-header .nav-inline,
+.site-header .tabbar,
+.site-header .theme-wrap {
+  align-items: flex-end;
+}
+
+/* Rectangle chips (header tabs) — force shape & size */
+.site-header .nav-inline .chip,
+.site-header .tabbar .chip,
+.site-header .nav-inline .tab,
+.site-header .tabbar .tab {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  height: var(--header-ctrl-h) !important;
+  min-height: var(--header-ctrl-h) !important;
+  padding: var(--space-1) var(--space-3) !important;
+  border-radius: var(--header-ctrl-radius) !important; /* ← beat pill radius */
+  margin: 0 !important; /* neutralize global .chip outer margins */
+  line-height: 1.15;
+}
+
+/* --- Theme select popup legibility (desktop & mobile overlay) --- */
+/* Target the actual overlay <select> we position inside the label */
+.site-header .theme-wrap > label select,
+.site-header .theme-wrap select{
+  background-color: var(--card);
+  color: var(--fg);
+  border-color: var(--card-bd);
+}
+
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme]) .site-header .theme-wrap > label select,
+  :root:not([data-theme]) .site-header .theme-wrap select{
+    color-scheme: dark !important;
+    background-color: color-mix(in oklab, var(--card) 85%, #000) !important;
+    color: var(--fg) !important;
+    border-color: color-mix(in oklab, var(--card-bd) 75%, #000) !important;
+  }
+  :root:not([data-theme]) .site-header .theme-wrap option{
+    background-color: color-mix(in oklab, var(--card) 85%, #000) !important;
+    color: var(--fg) !important;
+  }
+}
+:root[data-theme="dark"] .site-header .theme-wrap > label select,
+:root[data-theme="dark"] .site-header .theme-wrap select{
+  color-scheme: dark !important;
+  background-color: color-mix(in oklab, var(--card) 85%, #000) !important;
+  color: var(--fg) !important;
+  border-color: color-mix(in oklab, var(--card-bd) 75%, #000) !important;
+}
+:root[data-theme="dark"] .site-header .theme-wrap option{
+  background-color: color-mix(in oklab, var(--card) 85%, #000) !important;
+  color: var(--fg) !important;
+}
+/* High-contrast: prefer dark chrome; avoid pure-white hovers/outlines */
+:root[data-theme="contrast"] .site-header .theme-wrap > label select,
+:root[data-theme="contrast"] .site-header .theme-wrap select{
+  color-scheme: dark !important;
+  background-color: #000 !important;
+  color: #fff !important;
+  border-color: #666 !important; /* softer than pure white */
+}
+:root[data-theme="contrast"] .site-header .theme-wrap option{
+  background-color: #000 !important;
+  color: #fff !important;
+}
+/* Focus ring tuned for visibility without blowing out text */
+.site-header .theme-wrap select:focus-visible{
+  outline: 2px solid color-mix(in oklab, var(--accent) 70%, transparent);
+  outline-offset: 2px;
+}
+:root[data-theme="contrast"] .site-header .theme-wrap select:focus-visible{
+  outline: 2px solid var(--accent); /* cyan on black instead of white */
+}
+@media (forced-colors: active){
+  /* Defer to OS in Windows HC; just ensure a visible ring */
+  .site-header .theme-wrap select:focus-visible{
+    outline: 2px solid AccentColor;
+  }
+}
+
+/* Theme select: ensure identical vertical rhythm */
+.site-header .theme-wrap select {
+  height: var(--header-ctrl-h);
+  min-height: var(--header-ctrl-h);
+  align-self: flex-end; /* bottom align inside strip */
+}
+
+/* Desktop: keep ThemeSwitcher (label+select) as a single rectangle aligned with tabs */
+.site-header .theme-wrap > label{
+  display: inline-flex;
+  align-items: stretch;
+  height: var(--header-ctrl-h);
+  inline-size: var(--navItemW, auto);
+  width: var(--navItemW, auto);
+  box-sizing: border-box;
+}
+/* Hide the visible "Theme" word inside ThemeSwitcher on desktop header */
+.site-header .theme-wrap > label > span:first-child{
+  position: absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0;
+}
+
+/* Tabs as links should behave like chips visually */
+.tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+}
+
+.tab__label { white-space: nowrap; }
+
+/* Strong, theme-agnostic active state (works in light, dark, contrast) */
+.tab[aria-current="page"]{
+  /* Tint with accent but keep the card surface readable */
+  background: color-mix(in oklab, var(--card) 80%, var(--accent) 20%);
+  border-color: color-mix(in oklab, var(--accent) 60%, var(--focus-ring));
+  color: var(--bg);
+  /* Subtle inset ring for additional non-color affordance */
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--accent) 55%, transparent) inset;
+  font-weight: 700;
+}
+@media (hover:hover){
+  .tab[aria-current="page"]:hover{
+    background: color-mix(in oklab, var(--card) 75%, var(--accent) 25%);
+  }
+}
+@media (forced-colors: active){
+  .tab[aria-current="page"]{
+    border-color: AccentColor;
+    outline: 2px solid AccentColor;
+    outline-offset: 2px;
+  }
+}
+
+/* Theme (right side) */
+.theme-wrap{
+  /* Give the wrapper the SAME height as tabs; let the select fill it */
+  display:inline-flex;
+  align-items:stretch;                  /* child stretches to wrapper height */
+  order: 2;
+  height: var(--header-ctrl-h);        /* follow global (≙ tabs) */
+  align-self: flex-end;                 /* bottom-align in the strip */
+}
+.theme-wrap select{
+  /* Fill wrapper; keep global select styles intact */
+  height: 100%;
+  min-height: 0;                        /* wrapper already sets height */
+  box-sizing: border-box;
+  border-radius: var(--header-ctrl-radius);
+  line-height: 1.15;
+  /* Trim vertical padding so visual height == tabs; keep horizontal comfort */
+  padding-block: 0;
+  padding-inline: var(--space-3);
+  /* Width parity with tabs (optional, your JS can set --navItemW) */
+  inline-size: var(--navItemW, auto);
+  width: var(--navItemW, auto);
+}
+
+/* Theme mini UI parts (default hidden; enabled on mobile when hamburger shows) */
+.theme-word { display: none; }
+.theme-swatch { display: none; }
+.theme-wrap .theme-native { height: 100%; min-height: var(--header-ctrl-h); }
+
+/* ---------- Responsive behavior ---------- */
+
+/* Tablet & up: show inline tabs, hide hamburger */
+@media (min-width: 768px) {
+  .nav-menu { display: none; }
+  .nav-inline { display: inline-flex; }
+  /* optional: keep a little visual breathing room between tabs and right ctrls */
+  .right-ctrls{ margin-left: var(--space-2); }
+}
+
+/* Mobile: shrink paddings, show hamburger, hide inline tabs row */
+@media (max-width: 767.98px) {
+  .header-row--strip{
+    min-width: 0;
+    /* slight cushion below controls so they don't sit flush */
+    --strip-bottom-pad: 6px;
+    padding-block: 0 var(--strip-bottom-pad);
+  } /* no extra header thickness elsewhere */
+  /* Slightly smaller control squares while keeping header height the same */
+  /* Keep mirrored edge buffers on the strip at mobile too */
+  .header-row--strip{
+    padding-inline-start: max(10px, calc(var(--stack-gap) - 8px));
+    padding-inline-end:   max(10px, calc(var(--stack-gap) - 8px));
+  }
+  
+  .site-header{ --nav-square: calc(var(--header-ctrl-h) - 6px); }
+  /* On mobile tabs are hidden; ensure theme/hamburger stay to the right */
+  .right-ctrls{ margin-left: auto; }
+  .nav-inline { display: none; } /* tabs move into the sheet */
+
+  /* Right side becomes a vertical stack: Theme (top) over Hamburger (bottom) */
+  .right-ctrls{
+    margin-left: auto;
+    flex-direction: row;
+    align-items: flex-end; /* bottoms aligned */
+    gap: var(--space-2);
+  }
+
+  /* Unify square sizing for both swatch and hamburger */
+  /* Match the desktop control height so bottoms align perfectly */
+  .nav-menu { display: inline-block; order: 0; } /* hamburger on the left */
+  .nav-trigger{
+    width: var(--nav-square);
+    height: var(--nav-square);
+    padding: 0;               /* make it a true square */
+    display: inline-flex;
+    align-self: flex-end;     /* ensure hamburger bottoms-out with the row */
+    box-sizing: border-box;   /* match select’s sizing model */
+  }
+
+  /* Theme square block (word above, square same size as hamburger) */
+  .theme-wrap{
+    order: 1; /* theme on the right of hamburger */
+    z-index: 5100;                    /* over hamburger (which is z-index:5000) */
+    margin-left: 0;
+    position: relative;         /* anchor the floating label */
+    display: grid;              /* single-row grid so height == square */
+    align-items: end;           /* bottom-align the square with hamburger */
+    justify-items: center;
+    width: var(--nav-square);   /* same width as hamburger */
+    height: var(--nav-square);  /* same height as hamburger (no extra row height) */
+    gap: 0;
+    overflow: visible;          /* ensure the floating label isn't clipped */
+  }
+  /* Theme wrapper can shrink, but never exceed its desktop width */
+  .site-header .theme-wrap{
+    flex: 0 1 auto;
+    min-width: 0;
+    max-inline-size: var(--navItemW, 180px);
+  }
+  /* Mobile presentation: show word above without affecting layout height */
+  .theme-word{
+    display: block;
+    position: absolute;
+    bottom: calc(100% + 4px);   /* float above the square */
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: var(--text-xs);
+    line-height: 1;
+    opacity: .85;
+    pointer-events: none;
+  }
+  /* Ensure we beat any base display:none */
+  .site-header .theme-wrap .theme-swatch{
+    display: block !important;        /* reliably overrides base hidden state */
+    width: var(--nav-square);
+    height: var(--nav-square);
+    /* Boost outline contrast so it's visible on all themes */
+    border: 1px solid color-mix(in oklab, var(--card-bd) 70%, var(--bg));
+    box-shadow: 0 0 0 1px color-mix(in oklab, var(--card-bd) 60%, transparent) inset;
+    border-radius: 8px;
+    position: relative;
+    background: var(--card);
+    z-index: 0;                 /* paints under the invisible select */
+    line-height: 0;             /* no stray line height */
+    overflow: hidden;           /* keep the inner circle clipped cleanly */
+  }
+
+  /* Circle split vertically by main/accent of current theme */
+  .theme-swatch::before{
+    content: "";
+    position: absolute;
+    inset: 5px;
+    background: conic-gradient(from 90deg, var(--bg) 0 50%, var(--accent) 0 100%);
+    -webkit-mask: radial-gradient(circle at 50% 50%, #000 70%, transparent 71%);
+            mask: radial-gradient(circle at 50% 50%, #000 70%, transparent 71%);
+    border-radius: 999px;
+  }
+
+   /* Outline ring around the theme circle using the current foreground color */
+  .theme-swatch::after{
+    content: "";
+    position: absolute;
+    inset: 5px;                    /* match the circle inset */
+    border: 0.25px solid var(--fg);   /* ring color follows theme foreground */
+    border-radius: 999px;          /* perfect circle */
+    pointer-events: none;          /* don't intercept taps */
+  }
+
+  /* Make the ThemeSwitcher label an invisible overlay, so it doesn't occupy the grid cell */
+  .site-header .theme-wrap > label{
+    position: absolute !important;
+    inset: 0 !important;
+    z-index: 2 !important;      /* above swatch */
+    opacity: 0 !important;      /* hide visual label entirely */
+    pointer-events: auto !important; /* still receives taps to open dropdown */
+  }
+  /* Hide the inner "Theme" text that ThemeSwitcher renders (we have our own .theme-word) */
+  .site-header .theme-wrap > label > span:first-child{
+    position: absolute; width:1px; height:1px; padding:0; margin:-1px;
+    overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0;
+  }
+  /* Ensure the native select fills the overlay label */
+  .site-header .theme-wrap > label select{
+    position: absolute !important;
+    inset: 0 !important;
+    height: 100% !important;
+    width: 100% !important;
+    opacity: 0 !important;      /* hide but keep interactive */
+    background: transparent !important;
+    cursor: pointer;
+  }
+
+  /* Backstop: if ThemeSwitcher didn't render a wrapping label, target the control directly */
+  .site-header .theme-wrap :is(select, button, [role="combobox"]),
+  .theme-wrap .theme-native{
+    position: absolute !important;
+    inset: 0 !important;
+    height: 100% !important;
+    inline-size: 100% !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    pointer-events: auto;
+    /* Make the native control invisible but clickable over the swatch */
+    opacity: 0 !important;
+    background: transparent !important;
+    z-index: 2 !important;   /* sits above .theme-swatch (which is z-index:0) */
+  }
+  /* Some selects use the compact-control min-width; allow smaller on mobile */
+  .site-header :is(select, [role="combobox"]).compact-control{ min-width: 0 !important; }
+
+  /* Make gutters a tad tighter so content breathes on 320–360px phones */
+  .site-header__inner{ padding-inline: max(12px, calc(var(--stack-gap) - 6px)); }
+
+  /* Scale the big title more aggressively so it won’t collide with controls */
+  .site-header .brand__title--xl{
+    font-size: clamp(1.25rem, 1.05rem + 2.5vw, 1.75rem) !important;
+  }
+  /* Slightly smaller badge → subtitle scales with it by design */
+  .site-header{ --badge-h: 12px; }
+
+  /* Allow subtitle to wrap when space gets tight (instead of hard ellipsis) */
+  .site-header .brand__title-wrap > .brand__subtitle{
+    white-space: normal;
+    text-wrap: balance;
+  }
+
+  /* Sheet should never overflow viewport on tiny phones */
+  .nav-sheet{ max-width: calc(100vw - 16px); }
+}
+
+/* 512px and down: start gentle downscaling together */
+@media (max-width: 512px){
+  /* Make the middle column truly shrinky */
+  .header-row--strip{ grid-template-columns: auto minmax(0,1fr) auto; }
+  /* Slightly smaller badge → subtitle follows (it’s tied to --badge-h) */
+  .site-header{ --badge-h: 11px; }
+  /* Title clamp a bit tighter */
+  .site-header .brand__title--xl{
+    font-size: clamp(1.10rem, 0.90rem + 2.2vw, 1.55rem) !important;
+  }
+  /* Pull the subtitle closer to the badge and narrow the badge’s footprint */
+  .site-header .brand__title-wrap{ --subtitle-gap: 12px; }
+  .title-badge{
+    width: calc(var(--badge-h) * 7.6);   /* down from ~8.89× */
+    column-gap: clamp(3px, 0.35vw + 2px, 6px);
+  }
+}
+
+/* 489px and down: apply a firmer squeeze (your pain point) */
+@media (max-width: 489px){
+  .site-header{ --badge-h: 10px; }
+  .site-header .brand__title--xl{
+    font-size: clamp(1.00rem, 0.86rem + 2.0vw, 1.42rem) !important;
+  }
+  /* Keep everything measurable and shrinkable */
+  .brand__title-wrap,
+  .brand__title-box{ min-width: 0; max-inline-size: 100%; }
+  /* Tighten the badge just a hair more and scoot the subtitle */
+  .site-header .brand__title-wrap{ --subtitle-gap: 10px; }
+  .title-badge{
+    width: calc(var(--badge-h) * 7.2);
+    column-gap: clamp(2px, 0.3vw + 2px, 5px);
+  }
+  /* Allow subtitle to wrap if absolutely necessary instead of clipping */
+  .site-header .brand__title-wrap > .brand__subtitle{
+    white-space: normal;
+    text-wrap: balance;
+  }
+}
+
+/* 470px and down: last-resort guard to avoid right-edge clipping entirely */
+@media (max-width: 470px){
+  .site-header{ --badge-h: 9px; }
+  .title-badge{ width: calc(var(--badge-h) * 6.9); }
+  .site-header .brand__title--xl{
+    font-size: clamp(0.95rem, 0.82rem + 1.9vw, 1.35rem) !important;
+  }
+}
+
+
+/* 448px; and down already squeezed above; continue gently */
+@media (max-width: 448px){
+  .site-header{ --badge-h: 9.6px; }
+  .title-badge{ width: calc(var(--badge-h) * 6.8); column-gap: clamp(2px, 0.3vw + 2px, 5px); }
+  .site-header .brand__title--xl{
+    font-size: clamp(0.98rem, 0.84rem + 1.9vw, 1.34rem) !important;
+  }
+  .site-header .brand__title-wrap{ --subtitle-gap: 9px; }
+}
+
+/* iPhone “414” class widths */
+@media (max-width: 414px){
+  .site-header{ --badge-h: 9.2px; }
+  .title-badge{ width: calc(var(--badge-h) * 6.6); }
+  .site-header .brand__title--xl{
+    font-size: clamp(0.96rem, 0.82rem + 1.85vw, 1.30rem) !important;
+  }
+}
+
+/* 390px tier (Pixel/modern small) */
+@media (max-width: 390px){
+  .site-header{ --badge-h: 8.8px; }
+  .title-badge{ width: calc(var(--badge-h) * 6.4); }
+  .site-header .brand__title--xl{
+    font-size: clamp(0.94rem, 0.80rem + 1.8vw, 1.26rem) !important;
+  }
+  /* Make sure shrink can actually happen */
+  .brand__title-wrap, .brand__title-box{ min-width: 0; max-inline-size: 100%; }
+}
+
+/* 375px tier (classic iPhone width) */
+@media (max-width: 375px){
+  .site-header{ --badge-h: 8.4px; }
+  .title-badge{ width: calc(var(--badge-h) * 6.2); }
+  .site-header .brand__title--xl{
+    font-size: clamp(0.92rem, 0.78rem + 1.75vw, 1.22rem) !important;
+  }
+  .site-header .brand__title-wrap{ --subtitle-gap: 8px; }
+  /* Allow graceful wrap instead of right-edge clip */
+  .site-header .brand__title-wrap > .brand__subtitle{
+    white-space: normal;
+    text-wrap: balance;
+  }
+}
+
+/* 360px and BELOW: keep scaling, keep subtitle visible (override any earlier hide) */
+@media (max-width: 360px){
+  .site-header{ --badge-h: 8px; }
+  .title-badge{ width: calc(var(--badge-h) * 6.0); }
+  .site-header .brand__title--xl{
+    font-size: clamp(0.90rem, 0.76rem + 1.7vw, 1.18rem) !important;
+  }
+  /* Ensure subtitle stays on (beats older guard) */
+  .site-header .brand__title-wrap > .brand__subtitle{
+    display: block !important;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  /* Slightly tighter inner gutters on very small phones */
+  .site-header__inner{ padding-inline: max(10px, calc(var(--stack-gap) - 8px)); }
+}
+
+/* Extreme fallback for ultra-narrow devices (optional) */
+@media (max-width: 320px){
+  .site-header{ --badge-h: 7.5px; }
+  .title-badge{ width: calc(var(--badge-h) * 5.8); }
+  .site-header .brand__title--xl{
+    font-size: clamp(0.86rem, 0.74rem + 1.6vw, 1.12rem) !important;
+  }
+}
+
+@media (forced-colors: active){
+  /* Use system accent for visibility; let OS manage popup colors */
+  .site-header .theme-wrap select:focus-visible{
+    outline: 2px solid AccentColor;
+    outline-offset: 2px;
+  }
+}
+
+/* Landscape on small screens: slightly tighter but keep 32px targets */
+@media (orientation: landscape) and (max-width: 1023.98px) {
+}
+
+/* ---------- Very narrow screens: keep header thin without overlap ---------- */
+/* Keep Theme visible in-row now; keep sheet theme hidden */
+.theme-in-sheet { display: none; }
+
+/* Full-bleed divider under the playslip strip (to edges at any width) */
+.header-row--strip::after{
+  content:"";
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: -1px;
+  width: 100vw;
+  height: 1px;
+  background: var(--card-bd);
+}
+
+/* Elevate hamburger sheet above everything */
+.nav-menu{ position: relative; z-index: 5000; }
+.nav-sheet{
+  z-index: 6000;
+}
+
+/* Tabs should look like app UI, not default links */
+.tab{
+  font-size: var(--text-sm);
+  font-weight: 700; /* bolder, closer to title/button style */
+  letter-spacing: .01em;
+  color: var(--fg);
+}
+
+/* Make header tabs use UI colors, not global link :hover/:visited */
+.site-header :is(.nav-inline a, .tabbar a, .tab) {
+  color: var(--fg) !important;
+  text-decoration: none !important;
+}
+.site-header :is(.nav-inline a, .tabbar a, .tab):visited {
+  color: var(--fg) !important;       /* beat a:visited purple */
+  text-decoration: none !important;
+}
+.site-header :is(.nav-inline a, .tabbar a, .tab):hover {
+  color: var(--fg) !important;        /* keep chip look; no link blue */
+  text-decoration: none !important;
+}
+
+/* Mobile sheet menu items should also ignore global link underline/colors */
+.nav-sheet .sheet-link,
+.nav-sheet .sheet-link:visited,
+.nav-sheet .sheet-link:hover {
+  color: var(--fg) !important;
+  text-decoration: none !important;
+}
+
+/* Only the logo color changes; title stays on --ink-strong */
+:root[data-theme="light"] .site-header { --brand-logo-color: var(--accent); }
+:root[data-theme="dark"]  .site-header { --brand-logo-color: var(--accent); }
+/* Example contrast choice—white for max legibility */
+:root[data-theme="contrast"] .site-header { --brand-logo-color: var(--accent); }
+
+/* System theme (no data-theme attr) */
+:root:not([data-theme]) .site-header { --brand-logo-color: var(--accent); } /* default */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) .site-header { --brand-logo-color: var(--accent); }
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) .site-header { --brand-logo-color: var(--accent); }
+}
+
+/* OS High-Contrast mode safeguard (Windows/others) */
+@media (forced-colors: active) {
+  .site-header { --brand-logo-color: CanvasText; } /* uses system text color */
+}
+
+/* —— Header-local tokens for smoother tuning —— */
+.site-header{
+/* size tokens (required) */
+  --brand-cap: clamp(20px, 0.9rem + 0.6vw, 28px);
+  --brand-cap-max: 96px; /* allow taller cap if desired */
+  --brand-mask: url("/brand/logo-mark.svg");
+  --brand-logo-color: var(--ink-strong);
+  --badge-h: 18px;
+  
+}

@@ -1,0 +1,495 @@
+/* apps/web/app/scratchers.css */
+@import 'styles/media.css';
+
+/* ======================================================================
+   app/scratchers/scratchers.css
+   ----------------------------------------------------------------------
+   Purpose:
+   • All Scratchers page–specific rules
+   • Scoped via [data-page="scratchers"]
+   • Layered into @layer pages to win over globals
+   ====================================================================== */
+
+@layer pages {
+  /* Small top alignment nudge so center matches ad rails on desktop/wide */
+  .scratchers-shell { --align-rails-nudge: var(--space-4); }
+  /* Container-driven orchestration root */
+  .scratchers-shell{
+    container-type: inline-size;
+    container-name: scratchers-shell;
+    /* Tunable thresholds (JS reads these) */
+    --th-desktop: 1700px;
+    --th-laptop: 1385px;
+    --th-column: 1200px;
+    --th-drawer:  900px;
+    --th-cards:    768px;
+  }
+  main.layout-rails[data-page="scratchers"] {
+    --rail-gap: var(--space-4);
+    --section-gap: var(--space-6);
+    --grid-gap: var(--space-4);
+    --card-pad-x: var(--space-4);
+    --card-pad-y: var(--space-4);
+
+    max-width: none;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    /* Prevent intrinsic children from shrinking the center */
+    /* (Guard for tables, grids, long words, etc.) */
+    min-width: 0; /* ensure shell never min-content clamps */
+  }
+
+  /* ─────────────────────────────────────────────
+     Attribute-driven ad rail modes
+     desktop: both rails / laptop: right only / column: stacked
+     ───────────────────────────────────────────── */
+  .scratchers-shell[data-ad-mode="desktop"] .rail--left { display: block; }
+  .scratchers-shell[data-ad-mode="desktop"] .rail--right{ display: block; }
+
+  .scratchers-shell[data-ad-mode="laptop"] .rail--left { display: none; }
+  .scratchers-shell[data-ad-mode="laptop"] .rail--right{ display: block; }
+
+  /* ─────────────────────────────────────────────────────────────
+      LAPTOP MODE: explicit two-column grid [ center | right ]
+      Ensures the right rail stays beside the content (not stacked).
+      Uses minmax(0,1fr) so the center can actually shrink without
+      creating horizontal overflow that would flip to column mode.
+      ───────────────────────────────────────────────────────────── */
+   .scratchers-shell[data-ad-mode="laptop"] main.layout-rails[data-page="scratchers"]{
+     display: grid;
+     grid-template-columns: minmax(0, 1fr) var(--rail-w, 336px);
+     column-gap: var(--rail-gap);
+     grid-template-areas: "center right";
+     align-items: start;
+   }
+   .scratchers-shell[data-ad-mode="laptop"] main.layout-rails[data-page="scratchers"] .rails-center{
+     grid-area: center;
+     min-width: 0;            /* critical: avoid min-content blowups */
+     overflow-x: hidden;      /* prevents phantom overflow readings */
+   }
+   .scratchers-shell[data-ad-mode="laptop"] main.layout-rails[data-page="scratchers"] .rail--right{
+     grid-area: right;
+     width: var(--rail-w, 336px);
+     justify-self: end;
+   }
+
+   /* Nudge center up slightly when in explicit laptop (2-col) mode */
+   .scratchers-shell[data-ad-mode="laptop"]
+   main.layout-rails[data-page="scratchers"]
+   .layout-grid.sidebar-content{
+     margin-top: calc(var(--align-rails-nudge, 0px) * -1);
+   }
+
+   /* Safety: all direct children may shrink */
+   .scratchers-shell[data-ad-mode="laptop"] main.layout-rails[data-page="scratchers"] > *{
+     min-width: 0;
+   }
+ 
+   /* ─────────────────────────────────────────────────────────────
+      TIGHT BAND TUNING: 1536–1684
+      Free up ~60–70px in the center by (a) using a 300px right rail,
+      and (b) narrowing the sidebar track + gap slightly.
+      This prevents overflow, so the observer keeps 'laptop' mode.
+      ───────────────────────────────────────────────────────────── */
+   @media (min-width: 1536px) and (max-width: 1684px){
+     .scratchers-shell[data-ad-mode="laptop"]{
+       --rail-w: 300px; /* commonly used 300-wide units (300x600/250) */
+     }
+     .scratchers-shell[data-ad-mode="laptop"] main.layout-rails[data-page="scratchers"]
+     .layout-grid.sidebar-content.use-sidebar{
+       grid-template-columns: 240px minmax(0, 1fr) !important;
+       column-gap: var(--space-4) !important;
+     }
+   }
+
+   /* ─────────────────────────────────────────────────────────────
+     WIDE BREAKPOINT SAFEGUARD:
+     Ensure laptop mode remains a 2-column grid even under --bp-wide,
+     so the center track does NOT collapse to the 3-col template.
+     Also hard-hide the left rail to free the space.
+     ───────────────────────────────────────────────────────────── */
+  @media (--bp-wide){
+    .scratchers-shell[data-ad-mode="laptop"] main.layout-rails[data-page="scratchers"]{
+      display: grid !important;
+      grid-template-columns: minmax(0, 1fr) var(--rail-w, 336px) !important;
+      grid-template-areas: "center right" !important;
+      column-gap: var(--rail-gap) !important;
+      justify-content: stretch !important;
+    }
+    .scratchers-shell[data-ad-mode="laptop"] main.layout-rails[data-page="scratchers"] > .rails-center{
+      grid-area: center;
+      min-width: 0 !important;
+      overflow-x: hidden;
+    }
+    .scratchers-shell[data-ad-mode="laptop"] main.layout-rails[data-page="scratchers"] > .rail--right{
+      grid-area: right;
+      width: var(--rail-w, 336px);
+      justify-self: end;
+    }
+    .scratchers-shell[data-ad-mode="laptop"] main.layout-rails[data-page="scratchers"] > *{
+      min-width: 0 !important;
+    }
+    .scratchers-shell[data-ad-mode="laptop"] .rail--left{ display: none !important; }
+  }
+
+  /* ─────────────────────────────────────────────────────────────
+     Tablet band (1024–1384): Use the existing center in-flow ad
+     as the horizontal band below the table; hide BOTH rail bands.
+     ───────────────────────────────────────────────────────────── */
+  .scratchers-shell[data-ad-mode="column"][data-band="tablet"] .rail--left,
+  .scratchers-shell[data-ad-mode="column"][data-band="tablet"] .rail--right {
+    display: none !important; /* ensure later generic .rail{display:block} can't override */
+  }
+  /* ensure the center ad reads as the "band" and stays centered */
+  .scratchers-shell[data-ad-mode="column"][data-band="tablet"] .rails-center .ad-slot--rect-280 {
+    display: block !important; /* beat global desktop hide */
+    visibility: visible !important;
+    margin-inline: auto;
+    margin-block: var(--space-4);
+    /* if your center clamp restricts width, this keeps it visually aligned;
+       remove if your ad already sizes itself appropriately */
+    max-width: var(--center-max, 100%);
+  }
+
+  .scratchers-shell[data-ad-mode="column"] .layout-rails{
+    grid-template-columns: 1fr !important;
+  }
+  /* Put center first, then rails as full-width rows beneath it (explicit rows) */
+  .scratchers-shell[data-ad-mode="column"] .rails-center { grid-column: 1 / -1; grid-row: 1; }
+  .scratchers-shell[data-ad-mode="column"] .rail{
+    grid-column: 1 / -1;
+    display: block;
+  }
+  .scratchers-shell[data-ad-mode="column"] .rail--left  { grid-row: 2; }
+  .scratchers-shell[data-ad-mode="column"] .rail--right { grid-row: 3; }
+  .scratchers-shell[data-ad-mode="column"] .rail--left,
+  .scratchers-shell[data-ad-mode="column"] .rail--right {
+    justify-self: stretch;
+  }
+  /* Make each rail act like a centered, full-width ad band (no new classes) */
+   .scratchers-shell[data-ad-mode="column"] .rail .rail__inner{
+     display: flex;
+     justify-content: center;       /* center the fixed-width ad rectangles */
+     align-items: center;
+     gap: var(--rail-gap);
+     padding-block: var(--space-3);
+     max-width: min(var(--center-max), 96vw); /* visually aligns with center */
+     margin-inline: auto;
+   }
+
+   /* (removed) 1024–1384 right-rail horizontal layout — we now prefer the single in-flow center ad */
+
+  /* Filters panel vs drawer (visibility only; drawer positioning remains below) */
+  .scratchers-shell[data-filters="panel"]  .layout-grid.sidebar-content.use-sidebar .filters-panel{ display:block; }
+  .scratchers-shell[data-filters="drawer"] .layout-grid.sidebar-content.use-sidebar .filters-panel{ display:none;  }
+
+  /* --- MOBILE/TABLET: collapse rails entirely, let center breathe --- */
+  @media (--bp-mobile), (--bp-tablet) {
+    main.layout-rails[data-page="scratchers"] {
+      display: grid;
+      grid-template-columns: 1fr !important;
+      grid-template-areas: "center" !important;
+      column-gap: 0;
+    }
+    main.layout-rails[data-page="scratchers"] .rail,
+    main.layout-rails[data-page="scratchers"] .rail-left,
+    main.layout-rails[data-page="scratchers"] .rail-right {
+      display: none !important;
+    }
+    /* Ensure the middle track can expand and not min-content collapse */
+    main.layout-rails[data-page="scratchers"] .rails-center,
+    main.layout-rails[data-page="scratchers"] .center-clamp {
+      min-width: 0 !important;
+      max-width: none;
+    }
+    /* Inner grid: single column below desktop (filters drawer + table) */
+    main.layout-rails[data-page="scratchers"] .layout-grid.sidebar-content {
+      grid-template-columns: 1fr !important;
+      column-gap: var(--grid-gap);
+      min-width: 0;
+    }
+  }
+
+  /* SUB-DESKTOP: phone only (≤767.98px).
+     On tablet, .tbody-scroll is the sole vertical scroll host (component CSS). */
+  @media (max-width: 767.98px) {
+    /* Shell collapses to a single flexible track that ignores min-content pressure */
+    main.layout-rails[data-page="scratchers"]{
+      display: grid;
+      column-gap: 0;
+      grid-template-columns: minmax(0, 1fr) !important;
+      grid-template-areas: "center" !important;
+    }
+
+    /* Correctly hide rails (double-hyphen variants too) */
+    main.layout-rails[data-page="scratchers"] .rail,
+    main.layout-rails[data-page="scratchers"] .rail--left,
+    main.layout-rails[data-page="scratchers"] .rail--right{
+      display: none !important;
+    }
+
+    /* Prevent clamp from re-introducing min-content shrink */
+    main.layout-rails[data-page="scratchers"] .rails-center,
+    main.layout-rails[data-page="scratchers"] .center-clamp{
+      max-width: none;
+      width: 100%;          /* NEW: ensure full inline size */
+      min-width: 0 !important;
+    }
+
+    /* Inner grid: one fully flexible track; guard against min-content collapse */
+    main.layout-rails[data-page="scratchers"] .layout-grid.sidebar-content{
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) !important;
+      column-gap: var(--grid-gap);
+      width: 100%;
+      min-width: 0;
+      /* IMPORTANT: let the grid container expose its inline size */
+      overflow: visible; /* was hidden */
+      justify-content: stretch;
+      align-content: start;
+      grid-auto-columns: minmax(0,1fr);
+    }
+
+    /* Make sure grid children can actually stretch and don’t impose min-content */
+    main.layout-rails[data-page="scratchers"] .layout-grid.sidebar-content > *{
+      min-width: 0;     /* critical for grid/flex items */
+      width: 100%;      /* claim the track */
+      justify-self: stretch;
+      align-self: start;
+    }
+
+    /* On phones, the card may act as the scroll host when marked. */
+    main.layout-rails[data-page="scratchers"] .layout-grid.sidebar-content > .card[data-scroll-host="true"]{
+      max-width: 100%;
+      min-width: 0;
+      overflow-x: auto;
+      overflow-y: auto;          /* vertical scroll lives on the card */
+      contain: inline-size;
+      -webkit-overflow-scrolling: touch;
+    }
+    /* When card is the scroller on phones, prevent inner tbody from scrolling */
+    main.layout-rails[data-page="scratchers"] .layout-grid.sidebar-content > .card[data-scroll-host="true"] .scratchers-table tbody{
+      max-height: none !important;
+      overflow: visible !important;
+    }
+  }
+
+  /* Tablet (768–1023.98px): layout rows tweak remains; scrolling handled in component CSS */
+  @media (min-width: 768px) and (max-width: 1023.98px) {
+    /* Nuke any global center clamp so the track can fill the grid */
+    main.layout-rails[data-page="scratchers"] .rails-center,
+    main.layout-rails[data-page="scratchers"] .center-clamp{
+      max-width: none !important;
+      width: 100% !important;
+      margin: 0 !important;
+      padding-inline: 0 !important;
+      min-width: 0 !important;
+    }
+    main.layout-rails[data-page="scratchers"] .layout-grid.sidebar-content{
+      grid-template-columns: 1fr !important;
+      min-width: 0;
+    }
+    main.layout-rails[data-page="scratchers"] .layout-grid.sidebar-content.use-sidebar{
+      grid-template-rows: auto minmax(0,1fr) !important;
+    }
+    main.layout-rails[data-page="scratchers"] .layout-grid.sidebar-content.use-drawer{
+      grid-template-rows: minmax(0,1fr) !important;
+    }
+    /* Explicitly avoid outer scroll on tablet */
+    main.layout-rails[data-page="scratchers"] .layout-grid.sidebar-content > .card{
+      overflow-y: visible !important;
+      overflow-x: visible !important;
+      height: auto !important;
+      contain: none !important;
+      isolation: auto !important;
+    }
+  
+    /* Also make sure the table wrapper itself isn't turned into a scroller. */
+    [data-page="scratchers"] .scratchers-table{
+      overflow: visible !important;
+      height: auto !important;
+    }
+  }
+
+  main.layout-rails[data-page="scratchers"] :where(.card) {
+    padding: var(--card-pad-y) var(--card-pad-x);
+  }
+
+  main.layout-rails[data-page="scratchers"] :where(h1,h2,h3,h4,h5,h6) {
+    margin-block: 0;
+  }
+
+  main.layout-rails[data-page="scratchers"] :where(h2,h3) + * {
+    margin-top: var(--space-3);
+  }
+
+  main.layout-rails[data-page="scratchers"] .section + .section {
+    margin-top: var(--section-gap);
+  }
+
+  main.layout-rails[data-page="scratchers"] :where(.vstack) > * + * {
+    margin-top: var(--stack-gap);
+  }
+
+  /* Table container behavior */
+  main.layout-rails[data-page="scratchers"] .card :where(table, .table) {
+    width: 100%;
+  }
+
+  /* Page shell columns */
+  @media (--bp-desktop-only) {
+    main.layout-rails[data-page="scratchers"] {
+      grid-template-columns:
+        minmax(0, calc(100% - var(--rail-w) - var(--rail-gap)))
+        var(--rail-w);
+      column-gap: var(--rail-gap);
+      justify-content: stretch;
+    }
+    /* Attribute overrides take precedence; keep defaults otherwise */
+    main.layout-rails[data-page="scratchers"] > .rail--left { display: var(--rail-left-default, none); }
+    main.layout-rails[data-page="scratchers"] > .rail--right{ display: var(--rail-right-default, block); }
+  }
+  @media (--bp-wide) {
+    main.layout-rails[data-page="scratchers"] {
+      grid-template-columns:
+        var(--rail-w)
+        minmax(0, calc(100% - (2 * var(--rail-w)) - (2 * var(--rail-gap))))
+        var(--rail-w);
+      column-gap: var(--rail-gap);
+      justify-content: stretch;
+    }
+    main.layout-rails[data-page="scratchers"] > .rail { display: block; }
+  }
+  /* Nudge center up when rails are visible on desktop/wide */
+  @media (--bp-desktop) {
+    main.layout-rails[data-page="scratchers"] .layout-grid.sidebar-content{
+      margin-top: calc(var(--align-rails-nudge, 0px) * -1);
+    }
+  }
+  main.layout-rails[data-page="scratchers"] .rail--left  { justify-self: start; }
+  main.layout-rails[data-page="scratchers"] .rail--right { justify-self: end; }
+
+  /* When the shell forces column mode, stretch rails under center */
+  .scratchers-shell[data-ad-mode="column"] main.layout-rails[data-page="scratchers"] .rail--left,
+  .scratchers-shell[data-ad-mode="column"] main.layout-rails[data-page="scratchers"] .rail--right { justify-self: stretch; }
+
+  /* Kill center clamp so content fills */
+  @media (--bp-desktop) {
+    main.layout-rails[data-page="scratchers"] .rails-center,
+    main.layout-rails[data-page="scratchers"] .center-clamp {
+      max-width: none !important;
+      width: 100% !important;
+      padding-inline: 0 !important;
+      margin: 0 !important;
+      min-width: 0;
+    }
+  }
+
+  /* Inner grid: filters vs. table */
+  main.layout-rails[data-page="scratchers"] .layout-grid.sidebar-content {
+    width: 100%;
+    row-gap: var(--space-4);
+  }
+  /* Below desktop, force the inner grid to one column */
+  @media (--bp-mobile), (--bp-tablet) {
+    main.layout-rails[data-page="scratchers"] .layout-grid.sidebar-content {
+      grid-template-columns: 1fr !important;
+    }
+  }
+  @media (--bp-desktop) {
+    main.layout-rails[data-page="scratchers"] .layout-grid.sidebar-content.use-sidebar {
+      grid-template-columns: 260px minmax(0, 1fr) !important;
+      column-gap: var(--space-6) !important;
+    }
+    main.layout-rails[data-page="scratchers"] .layout-grid.sidebar-content > * {
+      min-width: 0;
+      width: 100%;
+      margin: 0 !important;
+      max-width: none !important;
+    }
+  }
+
+  /* Table scroll inside card */
+  main.layout-rails[data-page="scratchers"] .layout-grid.sidebar-content > .card {
+    overflow-x: auto;
+  }
+  main.layout-rails[data-page="scratchers"] .layout-grid.sidebar-content > .card :where(table, .table) {
+    width: 100%;
+    min-width: 720px;
+  }
+
+  /* Kill stray gutters */
+  @media (--bp-desktop) {
+    main.layout-rails[data-page="scratchers"] .rails-center,
+    main.layout-rails[data-page="scratchers"] .center-clamp {
+      padding-left: 0 !important;
+      padding-right: 0 !important;
+    }
+  }
+
+  /* Ad slots hug edges */
+  main.layout-rails[data-page="scratchers"] .rail--left  .ad-slot { margin-left: 0; margin-right: auto; }
+  main.layout-rails[data-page="scratchers"] .rail--right .ad-slot { margin-left: auto; margin-right: 0; }
+
+  /* Safety: prevent shrink from nested grids */
+  [data-page="scratchers"] .scratchers-table,
+  [data-page="scratchers"] .scratchers-table * {
+    min-width: 0;
+  }
+
+  /* Filters drawer (mobile only) */
+  .filters-panel.mobile-drawer {
+    position: fixed;
+    top: 0;
+    width: min(420px, 90vw);
+    height: 100vh;
+    z-index: 110;
+    background: var(--card);
+    background-image:
+      linear-gradient(var(--grid-line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+    background-size: 100% 28px, 36px 100%;
+    background-position: 0 0, 0 0;
+    transition: transform .25s ease;
+    overflow-y: auto;
+    padding: var(--space-4);
+    max-width: none;
+  }
+  .filters-panel.mobile-drawer.left {
+    left: 0;
+    border-right: 1px solid var(--card-bd);
+    box-shadow: 8px 0 24px rgba(0,0,0,.25);
+    transform: translateX(-100%);
+  }
+  .filters-panel.mobile-drawer.right {
+    right: 0;
+    border-left: 1px solid var(--card-bd);
+    box-shadow: -8px 0 24px rgba(0,0,0,.25);
+    transform: translateX(100%);
+  }
+  .filters-panel.mobile-drawer.open {
+    transform: translateX(0);
+  }
+
+  /* Drawer/sidebar visibility toggles (from original) */
+  .layout-grid.sidebar-content.use-drawer .filters-panel:not(.mobile-drawer) { display: none !important; }
+  .layout-grid.sidebar-content.use-sidebar .filters-panel.mobile-drawer { display: none !important; }
+  .filters-panel.mobile-drawer { display: block; }
+
+  /* ─────────────────────────────────────────────
+     Attribute → drawer open trigger (JS controls 'open')
+     The panel button lives in the table toolbar; it should only appear
+     when filters are a drawer (handled inside ScratchersTable.css).
+     ───────────────────────────────────────────── */
+  .scratchers-shell[data-filters="panel"]  .filters-panel.mobile-drawer{ display: none !important; }
+  .scratchers-shell[data-filters="drawer"] .filters-panel.mobile-drawer{ display: block !important; }
+
+  /* Guarantee no horizontal overflow in the center track */
+  .scratchers-shell .rails-center,
+  .scratchers-shell .center-clamp,
+  .scratchers-shell .layout-grid.sidebar-content,
+  .scratchers-shell .layout-grid.sidebar-content > *{
+    min-width: 0;
+  }
+}

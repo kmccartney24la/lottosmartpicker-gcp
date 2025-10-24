@@ -1,0 +1,19 @@
+{
+  "name": "@lsp/scripts",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@lsp/lib": "1.0.0",
+    "cheerio": "^1.1.2",
+    "mri": "^1.2.0",
+    "pdfjs-dist": "^4.10.38",
+    "playwright": "^1.49.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  }
+}

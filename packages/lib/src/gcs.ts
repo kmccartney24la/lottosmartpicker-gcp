@@ -30,7 +30,7 @@ export function deriveBucketFromBaseUrl(): string {
   ).trim();
 
   const m = base.match(/^https?:\/\/(?:storage\.googleapis\.com)\/([^/?#]+)/i);
-  return m ? m[1] : "lottosmartpicker-data";
+  return m?.[1] ?? 'lottosmartpicker-data';
 }
 
 /** Build a public URL for an object path. */

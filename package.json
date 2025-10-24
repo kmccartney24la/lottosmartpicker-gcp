@@ -1,56 +1,29 @@
 {
-  "name": "lottosmartpicker",
-  "version": "1.0.0",
+  "name": "lottosmartpicker-monorepo",
   "private": true,
-  "scripts": {
-    "clean": "node -e \"import('node:fs/promises').then(fs=>fs.rm('dist',{recursive:true,force:true})).then(()=>import('node:fs/promises')).then(fs=>fs.rm('lib',{recursive:true,force:true})).catch(()=>{});\"",
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "build:lib": "tsc -p tsconfig.lib.json",
-    "build:scripts": "tsc -p tsconfig.scripts.json",
-    "build:all": "npm run build:lib && npm run build:scripts",
-    "scratchers:all": "tsx scripts/scratchers/run_all.ts --concurrency 6",
-    "scratchers:dry": "tsx scripts/scratchers/run_all.ts --concurrency 4 --dry-run"
-  },
+  "type": "module",
+  "version": "1.0.0",
+  "packageManager": "npm@10.9.4",
   "engines": {
     "node": ">=20"
   },
-  "dependencies": {
-    "@aws-sdk/client-s3": "^3.888.0",
-    "@google-cloud/storage": "^7.17.1",
-    "clsx": "^2.1.1",
-    "cheerio": "^1.1.2",
-    "mri": "^1.2.0",
-    "next": "15.5.3",
-    "p-limit": "^3.1.0",
-    "pdf-parse": "^2.3.12",
-    "pdfjs-dist": "^5.4.296",
-    "playwright": "^1.55.0",
-    "react": "18.3.1",
-    "react-dom": "18.3.1",
-    "undici": "^7.16.0",
-    "zod": "^4.1.11"
+  "workspaces": {
+    "packages": [
+      "apps/*",
+      "packages/*"
+    ]
   },
-  "type": "module",
+  "scripts": {
+    "root:clean": "node ./scripts-clean.js",
+    "build": "npm run -w @lsp/lib build && npm run -w @lsp/scripts build && npm run -w @lsp/web build",
+    "dev": "npm run -w @lsp/web dev",
+    "build:lib": "npm run -w @lsp/lib build",
+    "build:scripts": "npm run -w @lsp/scripts build",
+    "build:web": "npm run -w @lsp/web build",
+    "start": "npm run -w @lsp/web start"
+  },
   "devDependencies": {
-    "@types/node": "^24.9.0",
-    "@types/react": "18.3.1",
-    "@types/react-dom": "18.3.1",
-    "png-to-ico": "^3.0.1",
-    "postcss-import": "^16.1.1",
-    "postcss-preset-env": "^9.5.0",
-    "sharp": "^0.34.4",
-    "ts-node": "^10.9.2",
-    "tsx": "^4.20.6",
-    "typescript": "^5.9.3"
-  },
-  "description": "This repo deploys a Next.js app to Cloud Run, serves data via GCS + Cloud CDN on\r `data.lottosmartpicker.com`, and runs two Cloud Run Jobs (CSV updater + GA scratchers scraper).\r Prod and staging are separate GCP projects (mirror setup).",
-  "main": "server.js",
-  "directories": {
-    "lib": "lib"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC"
+    "@types/node": "^20.19.23",
+    "typescript": "^5.6.3"
+  }
 }

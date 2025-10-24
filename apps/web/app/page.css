@@ -1,0 +1,181 @@
+/* app/page.css */
+@import './styles/media.css';  /* bring @custom-media aliases into scope */
+/* Header row: equal columns, top-aligned, wrap when Game select hits its comfy min width */
+.header-controls { align-items: flex-start; }
+.header-controls .game-select-card,
+.header-controls .latest-and-actions {
+  flex: 1 1 360px;           /* split row; wraps below ~720px */
+  min-width: 280px;          /* enough to avoid select truncation */
+}
+/* Latest card fills its column */
+.header-controls .latest-and-actions > .selected-latest { width: 100%; }
+
+/* On very narrow screens, let each block take full width (the flex-wrap on .controls handles stacking) */
+@media (--bp-mobile) {
+  .header-controls .game-select-card,
+  .header-controls .latest-and-actions {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+}
+
+/* --------------------------------------------------------------
+   Align the top panel (game switcher + latest draw) with ad rails
+   by shifting the center column down slightly.
+   Adjust the offset as needed to match the rails' top inset.
+-------------------------------------------------------------- */
+.layout-rails .rails-center .center-clamp {
+  padding-top: var(--space-4);
+}
+
+@layer pages {
+
+   /* Give only the game-select card an accented surface */
+  .header-controls .game-select-card {
+    --card: var(--card-emphasis);
+    --card-bd: var(--card-emphasis-bd);
+    /* no shadows, no glow */
+    box-shadow: none;
+  }
+  
+  /* Reserve space only between the title and the first control, so the title doesn't move */
+  .header-controls .game-select-card[data-has-period="true"],
+  .header-controls .game-select-card.game-select-card--has-period {
+    --period-reserve: calc(var(--touch-target-min, 40px));
+  }
+  /* The card is a grid; margins on grid children don't collapse — perfect for this spacer */
+  .header-controls .game-select-card[data-has-period="true"] > .game-select-label + *,
+  .header-controls .game-select-card.game-select-card--has-period > .game-select-label + * {
+    margin-top: var(--period-reserve);
+  }
+  @media (--bp-mobile) {
+    .header-controls .game-select-card[data-has-period="true"],
+    .header-controls .game-select-card.game-select-card--has-period {
+      --period-reserve: calc(var(--touch-target-comfortable, 44px));
+    }
+  }
+
+  .header-controls {
+    display: grid;                      /* override .controls flex */
+    grid-template-columns: 1fr 1fr;     /* two equal columns */
+    gap: var(--space-3);
+    align-items: stretch;               /* both columns fill the row height */
+  }
+  @media (--bp-mobile) {
+    .header-controls {
+      grid-template-columns: 1fr;       /* stack on mobile */
+    }
+  }
+
+  /* Make each column’s content fill the grid cell height */
+  .header-controls .game-select-card,
+  .header-controls .latest-and-actions {
+    height: 100%;
+  }
+  /* Latest card wrapper already uses flex; ensure the inner card fills it */
+  .header-controls .latest-and-actions {
+    display: flex;
+  }
+  .header-controls .latest-and-actions > .selected-latest {
+    width: 100%;
+    height: 100%;
+  }
+
+  /* Reserve space inside any card that hosts a top-right control
+      so absolute insets measure from the same padding edge. */
+    .card--reserve-topright {
+      padding-inline-end: calc(var(--space-4) + var(--touch-target-min) + var(--space-2));
+    }
+    @media (--bp-mobile) {
+      .card--reserve-topright {
+        padding-inline-end: calc(var(--space-3) + var(--touch-target-comfortable) + var(--space-1));
+      }
+    }
+
+    /* Game switcher: anchor the draw-time dropdown in the card’s top-right */
+    .game-select-card {
+      position: relative; /* create containing block for the anchor */
+      /* Match SelectedLatest’s right gutter so the inset measures from the same padding edge */
+      padding-inline-end: calc(var(--space-4) + var(--touch-target-min) + var(--space-2));
+    }
+
+    @media (--bp-mobile) {
+      .game-select-card {
+        /* Mirror SelectedLatest’s mobile gutter */
+        padding-inline-end: calc(var(--space-3) + var(--touch-target-comfortable) + var(--space-1));
+      }
+    }
+
+    .game-select-period-anchor {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
+    /* Keep the select compact so it feels like a “small control” */
+    .game-select-period {
+      min-width: 140px;
+    }
+
+      /* Shared absolute top-right anchor for any control inside a card */
+    .card-topright-anchor {
+      position: absolute;
+      inset-block-start: var(--anchor-inset-block, var(--space-4));
+      inset-inline-end: var(--anchor-inset-inline, var(--space-4));
+      z-index: 3;
+    }
+
+    /* Mobile tweak: slightly tighter inset */
+    @media (--bp-mobile) {
+      .card-topright-anchor {
+        inset-block-start: var(--anchor-inset-block, var(--space-3));
+        inset-inline-end: var(--anchor-inset-inline, var(--space-3));
+      }
+    }
+
+    /* Normalize controls placed inside the anchor: kill global .controls .btn margins */
+    .card-topright-anchor :is(.btn, button, select, input) {
+      margin: 0;
+    }
+
+  /* Auto-grow only when a period switcher is present */
+  .game-select-card { --topright-reserve: 0px; padding-top: var(--space-4); }
+  @media (--bp-mobile) { .game-select-card { padding-top: var(--space-3); } }
+  .game-select-card[data-has-period="true"] {
+    --topright-reserve: calc(var(--touch-target-min, 40px) + var(--space-2));
+    padding-top: calc(var(--space-4) + var(--topright-reserve));
+    min-height: calc(var(--touch-target-min, 40px) + var(--space-3) + var(--topright-reserve));
+  }
+  @media (--bp-mobile) {
+    .game-select-card[data-has-period="true"] {
+      --topright-reserve: calc(var(--touch-target-comfortable, 44px) + var(--space-1));
+      padding-top: calc(var(--space-3) + var(--topright-reserve));
+      min-height: calc(var(--touch-target-comfortable, 44px) + var(--space-2) + var(--topright-reserve));
+    }
+  }
+
+  /* 2) Make the two header cards the same height */
+  .header-controls { align-items: stretch; } /* was flex-start */
+  .header-controls .game-select-card,
+  .header-controls .latest-and-actions {
+    height: 100%;
+  }
+
+    /* Period switcher padding (relative to its card edges) */
+  .game-select-card .card-topright-anchor.game-select-period-anchor {
+    /* Increase top + right offsets from the card’s padding edge */
+    --anchor-inset-block:  calc(var(--space-4) + 2px);  /* top */
+    --anchor-inset-inline: calc(var(--space-4) + 4px);  /* right */
+  }
+
+  /* Optional: slightly tighter on mobile */
+  @media (--bp-mobile) {
+    .game-select-card .card-topright-anchor.game-select-period-anchor {
+      --anchor-inset-block:  calc(var(--space-3) + 1px);
+      --anchor-inset-inline: calc(var(--space-3) + 2px);
+    }
+  }
+
+    .selected-latest { position: relative; }
+
+}

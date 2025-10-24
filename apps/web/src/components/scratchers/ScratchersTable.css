@@ -1,0 +1,1121 @@
+/* ===========================
+   src/components/scratchers/ScratchersTable.css
+   =========================== */
+/* 1) Visibility & layout switches */
+.scratchers-table {
+  width: 100%;
+  position: relative;
+  z-index: 1;
+  min-width: 0; /* Prevent overflow in grid */
+  font-variant-numeric: tabular-nums lining-nums;
+  max-width: 100%; /* never exceed its card */
+  /* Phone-friendly stbar height (32px controls + 12px pad bottom) */
+  --stbar-h: calc(32px + var(--stbar-pad-bottom, 12px));
+  /* Ensure the under-toolbar gap works even without page attr */
+  --stbar-sep: var(--space-1, 4px);
+  /* NEW: unified bleed used by the sticky header backing to cover gutters/rounding */
+  --stbar-bleed-inline: 12px; /* wide enough to cover scrollbar-gutter on tablet */
+  --stbar-bleed-top: 6px;     /* protects against “top shave” under rounded cards */
+  --thead-h: 40px;
+}
+
+/* Sticky thin header sizing tokens (fallbacks) */
+[data-page="scratchers"] .scratchers-table{
+  --stbar-h: 44px;
+  --stbar-border: 1px;
+  /* NEW: single source of truth for toolbar spacing */
+  --stbar-gap: var(--space-2, 8px);
+  /* NEW: consistent visual separation below the thin toolbar */
+  --stbar-sep: var(--space-1, 4px);
+  /* ↓ Align toolbar buttons with Filters Reset (32px tall) */
+  --stbar-pad-top: 9px;                 /* raises/lower controls block */
+  /* Maintain original below:above ratio (~3:1), but clamp to avoid an over-tall bar */
+  --stbar-space-ratio: 3;                /* original design: ~12px bottom vs 4px top */
+  --stbar-pad-bottom: clamp(8px, calc(var(--stbar-pad-top) * var(--stbar-space-ratio)), 18px);
+  /* Lock final bar height to controls + padding so sticky math stays true */
+  --stbar-h: calc(32px + var(--stbar-pad-top) + var(--stbar-pad-bottom));
+}
+
+.desktop-only { display: block; }
+table.desktop-only { display: table; }
+.mobile-only  { display: none; }
+
+/* 2) Row hover affordance */
+table.compact .row:hover {
+ background: linear-gradient(
+    to right, color-mix(in oklab, var(--muted) 22%, transparent), transparent);
+  box-shadow: inset 3px 0 0 0 var(--accent);
+}
+
+/* ─────────────────────────────────────────────
+    Filters & ads orchestration (attribute-driven)
+    NOTE: These selectors are intentionally loose to work with the
+    existing page structure without renaming classes.
+    ───────────────────────────────────────────── */
+ 
+ /* Filters: panel vs drawer */
+ .scratchers-shell[data-filters="panel"]  .filters-panel{ display: block; position: static; inset: auto; }
+ .scratchers-shell[data-filters="drawer"] .filters-panel{ display: none; }
+ 
+ /* The Filters button in the toolbar is ONLY visible in drawer mode */
+ .scratchers-table .stbar .filters-btn{ display: none; }
+ .scratchers-shell[data-filters="drawer"] .scratchers-table .stbar .filters-btn{ display: inline-flex; }
+ 
+ /* Ads: desktop = both rails, laptop = right only, column = stack below content */
+ /* We scope to anything that looks like the rails layout inside the shell */
+ .scratchers-shell[data-ad-mode="desktop"] .layout-rails > .rail{ display: block; }
+ .scratchers-shell[data-ad-mode="desktop"] .layout-rails > .rail--left{ display: block; }
+ .scratchers-shell[data-ad-mode="desktop"] .layout-rails > .rail--right{ display: block; }
+ 
+ .scratchers-shell[data-ad-mode="laptop"] .layout-rails > .rail--left{ display: none; }
+ .scratchers-shell[data-ad-mode="laptop"] .layout-rails > .rail--right{ display: block; }
+ 
+ /* Column mode: let ads stack under the center column. The exact grid
+    is defined by globals, so we make the rails full-width rows. */
+ .scratchers-shell[data-ad-mode="column"] .layout-rails{
+   grid-template-columns: 1fr !important;
+ }
+ .scratchers-shell[data-ad-mode="column"] .layout-rails > .rail{
+   display: block;
+   grid-column: 1 / -1;
+ }
+ 
+ /* Sticky toolbar polish for mobile/cards so select popovers aren’t clipped */
+ .scratchers-table .stbar{
+   overflow: visible;
+   clip-path: inset(-100vmax -100vmax 0 -100vmax);
+ }
+
+/* 3) Images (thumb, full, controls, badges) */
+.thumb-wrap{
+  position: relative;
+  display: inline-block;
+  line-height: 0; /* prevent inline gaps around images/buttons */
+}
+
+.thumb{
+  width:56px;
+  height:40px;                 /* short strip shows top of image */
+  border-radius:6px;
+  border:1px solid var(--card-bd);
+  object-fit:cover;
+  object-position:top center;
+  display:block;
+  background:var(--card);
+}
+
+.thumb-full{
+  width: 180px;          /* desktop/table */
+  height: auto;
+  max-width: 100%;       /* never force the column to grow (prevents overflow) */
+  object-fit: contain;
+  object-position: center;
+  border-radius: 6px;
+  border: 1px solid var(--card-bd);
+  background: var(--card);
+}
+
+.thumb-controls{
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin-bottom: var(--space-1);
+  gap: var(--space-1);
+}
+
+.thumb-arrow{
+  border: 1px solid var(--card-bd);
+  background: var(--card);
+  color: var(--fg);
+  font-size: var(--text-xs);
+  line-height: 1;
+  padding: var(--space-2) var(--space-3);
+  border-radius: 999px;
+  cursor: pointer;
+  min-width: 32px;
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.thumb-arrow:hover {
+  background: var(--accent);
+  color: var(--accent-contrast);
+  transform: translateY(-1px);
+}
+
+.thumb-arrow:focus-visible{
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Enhanced touch targets on mobile */
+@media (max-width: 817.98px) {
+  .thumb-arrow {
+    min-width: var(--touch-target-min);
+    min-height: var(--touch-target-min);
+    padding: var(--space-3) var(--space-4);
+    font-size: var(--text-sm);
+  }
+}
+
+.thumb-badge{
+  font-size:10px;
+  padding:2px 6px;
+  border-radius:999px;
+  background:color-mix(in oklab, var(--card) 70%, transparent);
+  border:1px solid var(--card-bd);
+  display:inline-block;
+  margin-top:4px;
+}
+
+/* Expanded mode: overlay label (TL) + arrows (TR) on top of image */
+.scratchers-table.mode-expanded .thumb-wrap .thumb-badge{
+  position: absolute;
+  top: 4px; left: 4px;
+  margin: 0;               /* override inline placement margin */
+  z-index: 2;
+}
+.scratchers-table.mode-expanded .thumb-wrap .thumb-controls{
+  position: absolute;
+  top: 4px; right: 4px;
+  margin: 0;               /* remove pre-image margin */
+  z-index: 2;
+}
+.scratchers-table.mode-expanded .thumb-controls .thumb-arrow{
+  padding: 4px 8px;        /* slightly larger hit target */
+  font-size: 12px;
+}
+
+.scratchers-table .mobile-card .thumb-badge{ margin-top:2px; }
+
+/* 4) Tiny meter (percentage bar) */
+.meter {
+  --meter-h: 6px;
+  --meter-bg: color-mix(in oklab, var(--muted) 22%, transparent);
+  --meter-fill: var(--accent);
+  position: relative;
+  height: var(--meter-h);
+  margin-top: 4px;
+  border-radius: 999px;
+  background: var(--meter-bg);
+  overflow: hidden;
+}
+.meter > span {
+  display: block;
+  height: 100%;
+  width: 0%;
+  background: var(--meter-fill);
+  border-radius: inherit;
+  transition: width .25s ease;
+}
+
+/* 5) Skeleton loading */
+.scratchers-skel .skeleton-line {
+  height: 12px;
+  border-radius: 6px;
+  background: linear-gradient(90deg,
+    color-mix(in oklab, var(--muted) 18%, transparent),
+    color-mix(in oklab, var(--muted) 32%, transparent),
+    color-mix(in oklab, var(--muted) 18%, transparent));
+  background-size: 200% 100%;
+  animation: shimmer 1.1s infinite linear;
+  margin: 6px 0;
+}
+skeleton .meter { background: color-mix(in oklab, var(--muted) 18%, transparent); }
+.skeleton .skeleton-fill {
+  display: block; height: 100%;
+  background: color-mix(in oklab, var(--muted) 45%, transparent);
+}
+.skeleton .skeleton-pill {
+  display: inline-block; width: 54px; height: 18px; border-radius: 999px;
+  background: color-mix(in oklab, var(--muted) 25%, transparent);
+}
+.w-30{width:30%}.w-40{width:40%}.w-50{width:50%}.w-60{width:60%}.w-70{width:70%}.w-80{width:80%}
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* 6) Mobile stacked cards */
+.scratchers-table .mobile-card {
+  background: var(--card);
+  border: 1px solid var(--card-bd);
+  border-radius: var(--radius-card, 14px);
+  padding: 12px 12px 10px;
+  margin-bottom: var(--stack-gap, 12px);
+  /* printed slip vibe */
+  background-image:
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+  background-size: 100% 28px, 36px 100%;
+  background-position: 0 0, 0 0;
+  box-shadow: 0 1px 0 color-mix(in oklab, var(--bubble-amber) 4%, transparent) inset;
+}
+.scratchers-table .mobile-card .line1 {
+  display: flex; align-items: center; justify-content: space-between; gap:8px;
+}
+.scratchers-table .mobile-card .name {
+  font-weight: 700; line-height: 1.2;
+}
+.scratchers-table .mobile-card .line2,
+.scratchers-table .mobile-card .line3,
+.scratchers-table .mobile-card .line4,
+.scratchers-table .mobile-card .line5 {
+  margin-top: 4px;
+}
+.scratchers-table .mobile-card .line2,
+.scratchers-table .mobile-card .line3,
+.scratchers-table .mobile-card .line4 {
+  font-size: 0.92em;
+}
+.scratchers-table .mobile-card .line3 .hint { color: var(--muted); }
+.scratchers-table .mobile-card .line4 .counts { display:block; margin-bottom: 4px; }
+
+/* 7) Mode overrides (sizes & visibility) */
+.scratchers-table.mode-detailed table.compact th,
+.scratchers-table.mode-detailed table.compact td { font-size: 13px; }
+.scratchers-table.mode-expanded table.compact th,
+.scratchers-table.mode-expanded table.compact td { font-size: 16px; }
+table.compact th, table.compact td { font-variant-numeric: tabular-nums; }
+
+.scratchers-table.mode-detailed .thumb-controls{ display: none; }
+.scratchers-table.mode-detailed .thumb-badge{ display: none; }
+
+/* 8) Lightbox (Detailed mode uses .thumb-open) */
+.thumb-open{
+  border: 0;
+  background: transparent;
+  padding: var(--space-1);
+  cursor: pointer;
+  border-radius: 6px;
+  transition: all 0.15s ease;
+  min-width: var(--touch-target-min);
+  min-height: var(--touch-target-min);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.thumb-open:hover {
+  background: color-mix(in oklab, var(--accent) 12%, transparent);
+  transform: scale(1.02);
+}
+
+.thumb-open:focus-visible{
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.lightbox-overlay{
+  position:fixed; inset:0; background:color-mix(in oklab, var(--fg) 55%, transparent);
+  backdrop-filter:saturate(80%) blur(1px);
+  z-index: 10000; /* above sticky header/toolbars */
+  display:grid; place-items:center;
+}
+.lightbox{
+  width:min(920px,92vw); max-height:90vh;
+  background:var(--card); color:var(--fg);
+  border:1px solid var(--card-bd); border-radius:var(--radius-card);
+  box-shadow:0 20px 60px color-mix(in oklab, var(--fg) 40%, transparent);
+  display:grid; grid-template-rows:auto 1fr auto; overflow:hidden;
+}
+.lightbox-header{ display:flex; align-items:center; justify-content:space-between; gap:12px;
+  padding:10px 12px; border-bottom:1px solid var(--card-bd);
+}
+.lightbox-header h2{ font-size:14px; margin:0; font-weight:700; line-height:1.2; }
+.lightbox-body{ display:grid; place-items:center; padding:10px 12px; }
+.lightbox-img{
+  max-width:100%; max-height:72vh; border-radius:8px;
+  border:1px solid var(--card-bd); background:var(--card);
+}
+.lightbox-controls{
+  display:flex; gap:8px; justify-content:center; align-items:center;
+  padding:10px 12px 14px; border-top:1px solid var(--card-bd);
+}
+
+/* 9) Media queries (mobile + reduced motion) */
+@media (max-width: 817.98px) {
+  .desktop-only, table.desktop-only { display: none !important; }
+  .mobile-only  { display: block; }
+
+  /* Mobile component sizing */
+  .scratchers-table .mobile-card .thumb-full{ width: 96px; }
+
+  /* Title row packing on mobile */
+  .scratchers-table .mobile-card .line1 .title-wrap{
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-width: 0;
+  }
+  .scratchers-table .mobile-card .line1 .title-wrap .thumb{
+    width: 44px;
+    height: 32px;
+    border-radius: 5px;
+  }
+
+  /* Mode font sizing on mobile */
+  .scratchers-table.mode-detailed .mobile-card { font-size: 0.98rem; }
+  .scratchers-table.mode-expanded .mobile-card { font-size: 1.06rem; }
+  
+  /* Touch-friendly controls spacing */
+  .controls {
+    gap: var(--touch-spacing-mobile);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .meter > span { transition: none; }
+  .scratchers-skel .skeleton-line { animation: none; }
+  .lightbox-overlay{ backdrop-filter:none; }
+}
+
+.table-header h2 {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: 600;
+}
+
+/* ─────────────────────────────────────────────
+   Scrollable table container (all breakpoints)
+   ───────────────────────────────────────────── */
+[data-page="scratchers"] .scratchers-table{
+  /* Header (toolbar + thead) is OUTSIDE the scroller now */
+  overflow: visible;
+  border-radius: var(--radius-card, 16px);
+  position: relative;
+  /* Default header metrics */
+  --thead-h: 40px; /* used in tbody max-height calc; tweak if your head row is taller */
+}
+
+/* ─────────────────────────────────────────────
+   Canonical thin header (single base block)
+   ───────────────────────────────────────────── */
+[data-page="scratchers"] .scratchers-table .stbar,
+.scratchers-table.has-stbar .stbar{
+  position: sticky;
+  position: -webkit-sticky;     /* iPad Safari */
+  top: env(safe-area-inset-top, 0); /* avoid top shave on iOS/iPadOS */
+  z-index: calc(var(--z-header, 300) + 5); /* stay above any scrollbars */
+  display: flex;
+  align-items: center;
+  gap: var(--stbar-gap);
+  justify-content: flex-start;   /* prevent any space-between from globals */
+  flex-wrap: nowrap;        /* keep items on one line */
+  white-space: nowrap;      /* toolbar items don’t wrap */
+  min-width: 0;             /* allow children to shrink */
+  min-height: var(--stbar-h);
+  height: var(--stbar-h);   /* fixed height */
+  box-sizing: border-box;   /* center items reliably with fixed height */
+  /* Controls vertical position + separator spacing are token-driven */
+  padding: var(--stbar-pad-top) 4px var(--stbar-pad-bottom);
+  background: var(--card);
+  border-bottom: var(--stbar-border) solid var(--card-bd);
+  /* Let native <select> dropdowns escape the toolbar’s box */
+  overflow: visible;
+  /* Allow painting ABOVE rounded top edge to avoid “shaved” toolbar */
+  clip-path: inset(-100vmax -100vmax 0 -100vmax);
+  /* Match the host card’s rounding so the top edge looks continuous */
+  border-top-left-radius: inherit;
+  border-top-right-radius: inherit;
+  /* Fix subtle subpixel “sliver” at edges on iOS/Chrome */
+  transform: translateZ(0);
+  isolation: isolate; /*  ensure overlay scrollbars from tbody cannot paint over */
+  contain: paint; /* force its own paint layer so overlay scrollbars can't overdraw */
+}
+/* Full-bleed background sheet so no side gap shows while scrolling */
+[data-page="scratchers"] .scratchers-table .stbar::before{
+  content:"";
+  position:absolute; inset:0;
+  /* extend a bit past rounded corners to cover subpixel gaps */
+  /* widen to fully mask side slivers and add a small top bleed for iOS rounding */
+  left: calc(-1 * var(--stbar-bleed-inline));
+  right: calc(-1 * var(--stbar-bleed-inline));
+  top: calc(-1 * var(--stbar-bleed-top));
+  background: var(--card);
+  z-index:-1;               /* sit behind controls, inside stbar */
+  border-top-left-radius: inherit;
+  border-top-right-radius: inherit;
+}
+/* Ensure header bar area exists even if no rows render yet */
+[data-page="scratchers"] .scratchers-table,
+.scratchers-table.has-stbar{ position: relative; min-height: var(--stbar-h); }
+/* Single spacer helper */
+/* Final: kill phantom right gap — spacer must not flex (applies with or without page attr) */
+[data-page="scratchers"] .scratchers-table .stbar .spacer,
+.scratchers-table.has-stbar .stbar .spacer{
+  display: none !important;     /* justified: defeats any earlier flex:1 rule */
+}
+/* Left cluster: Filters (implicit order 0) → Mode switcher; Odds toggle anchors far right */
+.scratchers-table .stbar .mode-switcher{ order: 1; }
+.scratchers-table .stbar .odds-toggle{ order: 999; margin-left: auto !important; }
+
+/* Hide legacy table header (single rule) */
+[data-page="scratchers"] .table-header{ display: none !important; }
+
+[data-page="scratchers"] .scratchers-table table{
+  table-layout: fixed;
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  margin: 0;
+}
+
+/* thead is INSIDE the scrollport and sticks to the top of it */
+[data-page="scratchers"] .scratchers-table .tbody-scroll thead th{
+  position: sticky;
+  top: 0; /* sticky within the scroll host (.tbody-scroll) */
+  z-index: calc(var(--z-header, 300) + 4);
+  background: var(--card);
+  box-shadow: 0 1px 0 var(--card-bd) inset;
+}
+
+[data-page="scratchers"] .scratchers-table .tbody-scroll{
+  position: relative;
+  overflow-y: auto;            /* single scroll host */
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-gutter: stable;    /* classic vs overlay safe */
+  contain: paint;
+  max-height: calc(72dvh - var(--stbar-h) - var(--stbar-border));
+}
+[data-page="scratchers"] .scratchers-table .tbody-scroll > table{
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+/* Ensure the card wrapper doesn't clip the sticky toolbar at the top corners,
+   BUT don't disable scrolling when the card is the designated scroll host. */
+[data-page="scratchers"] .layout-grid.sidebar-content > .card{
+  overflow: visible !important; /* NEW: tbody is the only vertical scroll host on desktop */
+}
+
+/* Eliminate any accidental gap between toolbar and table block */
+[data-page="scratchers"] .scratchers-table .stbar + table,
+.scratchers-table .stbar + table{
+  margin-top: 0 !important;
+}
+
+[data-page="scratchers"] .scratchers-table table.compact th{
+  white-space: nowrap;       /* prevent header text from forcing width */
+  text-overflow: ellipsis;
+  overflow: hidden;
+}
+[data-page="scratchers"] .scratchers-table .col-name{ white-space: normal; }
+
+/* Prevent image cell from forcing horizontal overflow */
+[data-page="scratchers"] .scratchers-table .col-image{ overflow: hidden; }
+
+/* ─────────────────────────────────────────────
+   Unified column widths via variables (applies to TH and TD)
+   Keeps headers aligned with body cells even with block thead/tbody.
+   ───────────────────────────────────────────── */
+/* Defaults for COMPACT (no image) */
+[data-page="scratchers"] .scratchers-table{
+  --w-image: 0%;
+  --w-name:  38%;
+  --w-game:  10%;
+  --w-price: 10%;
+  --w-odds:  18%;
+  --w-top:   12%;
+  --w-left:  12%;
+}
+/* Detailed (small thumb) */
+[data-page="scratchers"] .scratchers-table.mode-detailed{
+  --w-image: 10%;
+  --w-name:  30%;
+  --w-game:   8%;
+  --w-price:  8%;
+  --w-odds:  16%;
+  --w-top:   14%;
+  --w-left:  14%;
+}
+/* Expanded (large image) */
+[data-page="scratchers"] .scratchers-table.mode-expanded{
+  --w-image: 12%;
+  --w-name:  28%;
+  --w-game:   8%;
+  --w-price:  8%;
+  --w-odds:  16%;
+  --w-top:   14%;
+  --w-left:  14%;
+}
+/* Enforce widths on both header and body cells (beats Tailwind w-* on TH) */
+[data-page="scratchers"] .scratchers-table table.compact :is(th,td).col-image{ width: var(--w-image) !important; }
+[data-page="scratchers"] .scratchers-table table.compact :is(th,td).col-name { width: var(--w-name)  !important; }
+[data-page="scratchers"] .scratchers-table table.compact :is(th,td).col-game { width: var(--w-game)  !important; }
+[data-page="scratchers"] .scratchers-table table.compact :is(th,td).col-price{ width: var(--w-price) !important; }
+[data-page="scratchers"] .scratchers-table table.compact :is(th,td).col-odds { width: var(--w-odds)  !important; }
+[data-page="scratchers"] .scratchers-table table.compact :is(th,td).col-top  { width: var(--w-top)   !important; }
+[data-page="scratchers"] .scratchers-table table.compact :is(th,td).col-left { width: var(--w-left)  !important; }
+
+/* Prevent image cell from exceeding its column at tricky mid-widths */
+[data-page="scratchers"] .scratchers-table.mode-expanded .col-image img.thumb-full{
+  max-width: 100%;
+}
+
+/* ─────────────────────────────────────────────
+   Bottom shadow when more rows are available
+   ───────────────────────────────────────────── */
+[data-page="scratchers"] .scratchers-table{
+  position: relative; /* anchor pseudo elements */
+}
+/* bottom fade */
+[data-page="scratchers"] .scratchers-table::after{
+  content: "";
+  position: sticky;         /* sticks to the bottom inside the scrollbox */
+  bottom: 0;
+  display: block;
+  height: 24px;
+  pointer-events: none;
+  /* gradient uses page tokens; adjust if your theme differs */
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    color-mix(in oklab, var(--fg) 18%, transparent));
+  opacity: 0;
+  transition: opacity 160ms ease;
+  /* stretch full width (sticky block needs explicit width) */
+  width: 100%;
+}
+/* only show when container reports more content below */
+[data-page="scratchers"] .scratchers-table[data-shadow-bottom="true"]::after{
+  opacity: 1;
+}
+
+/* Allow inner scroll areas to actually scroll inside grid/flex parents */
+[data-page="scratchers"] .layout-grid.sidebar-content,
+[data-page="scratchers"] .layout-grid.sidebar-content > .card,
+[data-page="scratchers"] .layout-grid.sidebar-content > .card > *{
+  min-height: 0 !important;
+}
+
+/* ─────────────────────────────────────────────
+   Adaptive table via container queries
+   ───────────────────────────────────────────── */
+
+/* Make the table a query container */
+[data-page="scratchers"] .scratchers-table{
+  container-type: inline-size;
+  container-name: scratchers;
+}
+
+/* Base cell overflow rules (no overlap) */
+[data-page="scratchers"] .scratchers-table table.compact th,
+[data-page="scratchers"] .scratchers-table table.compact td{
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Let the name wrap up to two lines for readability */
+[data-page="scratchers"] .scratchers-table .col-name .title{
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  line-height: 1.25;
+}
+
+/* Hide the compact meta line by default (we reveal it when columns hide) */
+[data-page="scratchers"] .scratchers-table .row-meta{ display:none; }
+
+/* ── Condensed table: medium container widths (~tablet-ish & small desktop) ──
+   Priority order: Name > Odds > Left > Top > Price > Game# > Image
+   Tweak thresholds to taste based on your fonts. */
+
+/* Stage 1 (<=1000px): keep Image in detailed/expanded and size col >= image */
+@container scratchers (max-width: 1000px){
+  /* image sizes for medium panes */
+  [data-page="scratchers"] .scratchers-table.mode-detailed  .thumb{ width: 56px; height: 40px; }
+  [data-page="scratchers"] .scratchers-table.mode-expanded .thumb-full{ width: 160px; }
+  /* column must be >= image; add a bit of breathing room */
+  [data-page="scratchers"] .scratchers-table.mode-detailed  .col-image{
+    display: table-cell !important;
+    min-width: 72px; width: 72px !important;
+  }
+  [data-page="scratchers"] .scratchers-table.mode-expanded .col-image{
+    display: table-cell !important;
+    min-width: 176px; width: 176px !important; /* 160 image + ~16 gutter */
+  }
+  /* clamp long names to avoid overlap */
+  [data-page="scratchers"] .scratchers-table .col-name .title{
+    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
+  }
+  /* keep numeric cols single-line with ellipsis */
+  [data-page="scratchers"] .scratchers-table .col-odds,
+  [data-page="scratchers"] .scratchers-table .col-left,
+  [data-page="scratchers"] .scratchers-table .col-top,
+  [data-page="scratchers"] .scratchers-table .col-price,
+  [data-page="scratchers"] .scratchers-table .col-game{
+    white-space: nowrap; text-overflow: ellipsis; overflow: hidden; font-size: .95em;
+  }
+  /* only show meta when columns hide (later stages) */
+  [data-page="scratchers"] .scratchers-table .row-meta{ display: none; }
+}
+
+/* Stage 2 (<=900px): hide Game# + Price; surface them under the Name */
+@container scratchers (max-width: 900px){
+  [data-page="scratchers"] .scratchers-table .col-game,
+  [data-page="scratchers"] .scratchers-table .col-price{ display: none; }
+  [data-page="scratchers"] .scratchers-table .row-meta{
+    display:block; margin-top: 2px; color: var(--muted);
+  }
+}
+
+/* Stage 3 (<=820px): if still tight, hide Top prize (keep % left + odds) */
+@container scratchers (max-width: 818px){
+  [data-page="scratchers"] .scratchers-table .col-top{ display: none; }
+}
+
+/* Only in *compact* mode at very tight widths: drop the image for room */
+@container scratchers (max-width: 818px){
+  [data-page="scratchers"] .scratchers-table.mode-compact .col-image{ display: none; }
+  [data-page="scratchers"] .scratchers-table.mode-detailed .col-image{ display: none; }
+}
+
+/* Mild zebra striping only when condensed (<=1000px) for scanability */
+@container scratchers (max-width: 1000px){
+  [data-page="scratchers"] .scratchers-table table.compact tbody tr:nth-child(even){
+    background: color-mix(in oklab, var(--card) 92%, black 8%);
+  }
+}
+
+/* ── Mobile cards polish: remove busy grid background for clarity ── */
+@media (max-width: 1023.98px){
+  [data-page="scratchers"] .scratchers-table .mobile-card{
+    background-image: none; /* calmer, less cluttered */
+    max-width: 100%;
+    width: 100%;
+  }
+}
+
+/* ─────────────────────────────────────────────
+    Container-driven compaction BEFORE overflow
+    Priority order (don’t break header/body alignment):
+    Name > Odds > Left > Top > Price > Game# > Image
+    ───────────────────────────────────────────── */
+ 
+/* 1) Mid-desktop (<=1700px): drop Top prize into meta */
+@container scratchers (max-width: 1700px){
+  [data-page="scratchers"] .scratchers-table .col-top{ display: none; }
+  [data-page="scratchers"] .scratchers-table .row-meta{ display: block; }
+}
+
+/* 2) Tighter (<=980px): only then hide the small image in Detailed
+   Loosened from 1120px → 980px so thumbnails remain visible in mid-desktop
+   bands where the card track is ~1,000–1,120px due to rails + sidebar. */
+ @container scratchers (max-width: 980px){
+   [data-page="scratchers"] .scratchers-table.mode-detailed .col-image{ display: none; }
+ }
+ /* Between ~1121–1385px keep the image but make it a narrow fixed track */
+ @container scratchers (min-width: 1121px) and (max-width: 1385px){
+   [data-page="scratchers"] .scratchers-table.mode-detailed .col-image{
+     display: table-cell !important;
+     min-width: 56px; width: 56px !important; /* true thumbnail */
+   }
+   [data-page="scratchers"] .scratchers-table.mode-detailed .thumb{ width: 56px; height: 40px; }
+ }
+
+/* 3) Column squeeze (<=980px): Expanded image may need to go too
+   Loosened from 1100px → 980px to keep full images visible in laptop/desktop bands. */
+@container scratchers (max-width: 980px){
+  [data-page="scratchers"] .scratchers-table.mode-expanded .col-image{ display: none; }
+}
+
+/* 3b) Narrow container but still table view (<=1000px):
+   avoid a hard 176px min track that could trigger overflow; allow smaller image. */
+@container scratchers (max-width: 1000px){
+  [data-page="scratchers"] .scratchers-table.mode-expanded .col-image{
+    min-width: 120px !important;
+    width: auto !important;
+  }
+  [data-page="scratchers"] .scratchers-table.mode-expanded .thumb-full{
+    width: 100px; /* matches the guard-band floor already used below 1180px */
+  }
+}
+
+/* Guard band for wide-but-tight shells (~1702→1180) — shrink Expanded image
+    progressively instead of hiding it, so we avoid overflow (and keep laptop mode). */
+ @container scratchers (max-width: 1702px){
+   [data-page="scratchers"] .scratchers-table.mode-expanded .thumb-full{
+     width: 150px; max-width: 100%; height: auto; display: block;
+   }
+   [data-page="scratchers"] .scratchers-table :is(th,td).col-image{ overflow: hidden; text-overflow: clip; }
+ }
+ @container scratchers (max-width: 1600px){
+   [data-page="scratchers"] .scratchers-table.mode-expanded .thumb-full{ width: 140px; }
+ }
+ @container scratchers (max-width: 1450px){
+   [data-page="scratchers"] .scratchers-table.mode-expanded .thumb-full{ width: 130px; }
+ }
+ @container scratchers (max-width: 1360px){
+   [data-page="scratchers"] .scratchers-table.mode-expanded .thumb-full{ width: 120px; }
+ }
+ @container scratchers (max-width: 1280px){
+   [data-page="scratchers"] .scratchers-table.mode-expanded .thumb-full{ width: 110px; }
+ }
+ @container scratchers (max-width: 1180px){
+   [data-page="scratchers"] .scratchers-table.mode-expanded .thumb-full{ width: 100px; }
+ }
+
+/* ─────────────────────────────────────────────
+   MOBILE: when cards are shown (<=817.98px), make the ROOT the scroller again
+   so the list is contained and the header remains pinned.
+   ───────────────────────────────────────────── */
+@media (max-width: 817.98px){
+  /* Keep the HEADER outside the scroll area on phones:
+     the LIST (mobile-only) becomes the scroll host, not the root */
+  [data-page="scratchers"] .scratchers-table{
+    overflow: visible;          /* header sits in a non-scrolling layer */
+    height: auto;
+    /* slightly more top pad to prevent control “shave” */
+    --stbar-pad-top: 8px;
+    --stbar-pad-bottom: 12px;
+    --stbar-h: calc(32px + var(--stbar-pad-top) + var(--stbar-pad-bottom));
+  }
+  /* Card list = independent scroll box under the sticky header */
+  [data-page="scratchers"] .scratchers-table .mobile-only{
+    max-width: 100%;
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+    /* The list height excludes the sticky header height */
+    max-height: calc(72svh - var(--stbar-h) - var(--stbar-border));
+    scrollbar-gutter: stable both-edges;
+  }
+  /* No table body in card layout; ensure any stray tbody never becomes the scroller */
+  [data-page="scratchers"] .scratchers-table tbody{
+    overflow: visible !important;
+    max-height: none !important;
+  }
+}
+
+/* ─────────────────────────────────────────────
+   TABLET-ONLY (818px–1023.98px): keep header separate,
+   tbody is the sole scrollbox; prevent side “sliver” and top shave
+   ───────────────────────────────────────────── */
+@media (min-width: 818px) and (max-width: 1023.98px){
+  /* Header sits in non-scrolling layer; give a touch more top pad */
+  [data-page="scratchers"] .scratchers-table{
+    /* make sure the root never becomes the vertical scroller in tablet band */
+    overflow: visible !important;
+    overscroll-behavior: contain; /* stop wheel on header from scrolling the page */
+    --stbar-pad-top: 8px;
+    --stbar-pad-bottom: 12px;
+    --stbar-h: calc(32px + var(--stbar-pad-top) + var(--stbar-pad-bottom));
+    /* In tablet, side gutters are most visible; slightly increase the bleed */
+    --stbar-bleed-inline: 14px;
+  }
+  /* Ensure the parent card doesn’t steal scroll responsibility in this band */
+  [data-page="scratchers"] .layout-grid.sidebar-content > .card{
+    /* the card itself must never own the scroll in this band */
+    overflow: visible !important;
+  }
+  /* Full-bleed header backing + own layer to kill side slivers during scroll */
+  [data-page="scratchers"] .scratchers-table .stbar{
+    z-index: calc(var(--z-header, 300) + 5);
+    transform: translateZ(0);
+    isolation: isolate; /* guarantees stbar’s layer sits above overlay scrollbars */
+    overscroll-behavior: contain; /* wheel over toolbar shouldn't scroll page */
+  }
+  [data-page="scratchers"] .scratchers-table .stbar::before{
+    content:"";
+    position:absolute; inset:0;
+    left: calc(-1 * var(--stbar-bleed-inline));
+    right: calc(-1 * var(--stbar-bleed-inline));
+    top: calc(-1 * var(--stbar-bleed-top));
+    background: var(--card);
+    z-index:-1;
+    border-top-left-radius: inherit;
+    border-top-right-radius: inherit;
+  }
+  /* Keep the legacy “mobile-only” container from becoming a scroll host here */
+  [data-page="scratchers"] .scratchers-table .mobile-only{
+    overflow: visible !important;
+    max-height: none !important;
+  }
+
+  /* Prevent accidental page scroll when wheeling over the table */
+  [data-page="scratchers"] .scratchers-table .tbody-scroll{ overscroll-behavior: contain; }
+}
+
+/* ─────────────────────────────────────────────
+   True 2-column cards for detailed/expanded (mobile & portrait tablet)
+   ───────────────────────────────────────────── */
+@media (max-width: 1023.98px){
+  /* Enable when the card itself is wide enough; aligns with when table view stops */
+  [data-page="scratchers"] .scratchers-table.mode-detailed  .mobile-card.twocol,
+  [data-page="scratchers"] .scratchers-table.mode-expanded .mobile-card.twocol{
+    container-type: inline-size;
+    container-name: mcard;
+  }
+
+  /* Prefer container query so this reacts to actual card width */
+  @container mcard (min-width: 480px){
+    [data-page="scratchers"] .scratchers-table .mobile-card.twocol{
+      display: grid;
+      grid-template-columns: var(--mc-media,110px) 1fr;
+      column-gap: 12px;
+      align-items: start;
+    }
+    .mobile-card.twocol .media{ grid-column: 1; }
+    .mobile-card.twocol .info{  grid-column: 2; display: grid; row-gap: 4px; }
+
+    /* Tight vertical rhythm in info column */
+    .mobile-card.twocol .info .line1{ display:flex; align-items: baseline; justify-content: space-between; gap: 8px; margin: 0; }
+    .mobile-card.twocol .info .name{ margin: 0; line-height: 1.2; }
+    .mobile-card.twocol .info .line2,
+    .mobile-card.twocol .info .line3,
+    .mobile-card.twocol .info .line4,
+    .mobile-card.twocol .info .line5{ margin: 0; }  /* remove 4px top margins */
+
+    /* Thumb sizing for this layout */
+    .mobile-card.twocol .thumb-full{ width: 100px; }
+    .mobile-card.twocol .thumb{ width: 64px; height: 44px; }
+  }
+
+  /* Viewport fallback if container queries aren't available */
+  @media (min-width: 480px){
+    [data-page="scratchers"] .scratchers-table.mode-detailed  .mobile-card.twocol,
+    [data-page="scratchers"] .scratchers-table.mode-expanded .mobile-card.twocol{
+      display: grid;
+      grid-template-columns: var(--mc-media,110px) 1fr;
+      column-gap: 12px;
+      align-items: start;
+    }
+    .mobile-card.twocol .media{ grid-column: 1; }
+    .mobile-card.twocol .info{  grid-column: 2; display: grid; row-gap: 4px; }
+    .mobile-card.twocol .info .line1{ display:flex; align-items: baseline; justify-content: space-between; gap: 8px; margin: 0; }
+    .mobile-card.twocol .info .line2,
+    .mobile-card.twocol .info .line3,
+    .mobile-card.twocol .info .line4,
+    .mobile-card.twocol .info .line5{ margin: 0; }
+    .mobile-card.twocol .thumb-full{ width: 100px; }
+    .mobile-card.twocol .thumb{ width: 64px; height: 44px; }
+  }
+
+  /* IMPORTANT: neutralize older padding-left hack when twocol is active */
+  .mobile-card.twocol .line2,
+  .mobile-card.twocol .line3,
+  .mobile-card.twocol .line4,
+  .mobile-card.twocol .line5{ padding-left: 0 !important; }
+
+  /* Keep lifecycle chip aligned at top-right in the info column */
+  .mobile-card.twocol .line1 > .chip.lifecycle{ margin-left: auto; }
+}
+
+/* Extra-tight spacing for 2-col cards */
+@media (max-width: 1023.98px){
+  .mobile-card.twocol .info{
+    row-gap: 2px; /* was 4px */
+  }
+  .mobile-card.twocol .info .line1{
+    align-items: center; /* baseline → center to avoid extra vertical slack */
+    gap: 6px;
+  }
+  .mobile-card.twocol .info .name{
+    margin: 0;
+    line-height: 1.15; /* slightly tighter */
+  }
+  .mobile-card.twocol .info .line2,
+  .mobile-card.twocol .info .line3,
+  .mobile-card.twocol .info .line4,
+  .mobile-card.twocol .info .line5{
+    margin: 0;
+  }
+}
+
+/* Ensure media column is at least as wide as the image in 2-col cards */
+@media (max-width: 1023.98px){
+  /* Tie the image width to a single token the grid also uses */
+  [data-page="scratchers"] .scratchers-table .mobile-card.twocol{
+    --mc-media: 120px; /* default for narrow cards */
+  }
+
+  /* Expanded mode: give images more room so they never overlap the info */
+  [data-page="scratchers"] .scratchers-table.mode-expanded .mobile-card.twocol{
+    --mc-media: 140px; /* safe default */
+  }
+
+  /* As cards get wider, bump media width a bit more */
+  @container mcard (min-width: 640px){
+    [data-page="scratchers"] .scratchers-table.mode-expanded .mobile-card.twocol{
+      --mc-media: 160px;
+    }
+  }
+
+  /* Make the grid’s left track match the image width exactly */
+  [data-page="scratchers"] .scratchers-table .mobile-card.twocol{
+    grid-template-columns: var(--mc-media) 1fr;
+  }
+
+  /* Lock the media box and the image to that width (high specificity beats earlier mobile rules) */
+  [data-page="scratchers"] .scratchers-table .mobile-card.twocol .media{
+    width: var(--mc-media);
+    min-width: var(--mc-media);
+  }
+  [data-page="scratchers"] .scratchers-table .mobile-card.twocol .thumb-full{
+    width: var(--mc-media);
+    max-width: 100%;
+    height: auto;
+  }
+
+   /* Detailed = true thumbnail (fixed small), not a scaled full image */
+  [data-page="scratchers"] .scratchers-table.mode-detailed .mobile-card.twocol .thumb{
+    width: 64px;
+    height: 44px;
+  }
+}
+
+/* Toolbar buttons (Filters, Odds) — single source of truth */
+[data-page="scratchers"] .scratchers-table .stbar .btn{
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--card);
+  color: var(--fg);
+  border: 1px solid var(--card-bd);
+  border-radius: 8px;
+  padding: 6px 10px;
+  height: 32px;
+  font-size: 12px;
+  line-height: 1.1;
+  cursor: pointer;
+  white-space: normal;         /* labels may wrap if needed */
+  overflow-wrap: anywhere;
+  text-align: center;
+}
+
+/* Filters button visibility is container-width driven */
+[data-page="scratchers"] .scratchers-table .stbar .btn:focus-visible{
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Accent variant (make Filters / Show Tickets-Odds visually distinct) */
+[data-page="scratchers"] .scratchers-table .stbar .btn.btn-primary{
+  background: var(--accent);
+  color: var(--accent-contrast);
+  border-color: transparent;
+}
+
+[data-page="scratchers"] .scratchers-table .stbar .btn[disabled]{
+  opacity: .6; cursor: not-allowed;
+}
+
+/* Slightly tighter on very small phones (use the variable) */
+@media (max-width: 380px){
+  /* Ultra-small phones: include TOP pad in the fixed toolbar height */
+  [data-page="scratchers"] .scratchers-table{
+    --stbar-pad-top: 8px;  /* keep buttons from clipping */
+    --stbar-pad-bottom: 12px;
+    --stbar-h: calc(32px + var(--stbar-pad-top) + var(--stbar-pad-bottom));
+  }
+  [data-page="scratchers"] .scratchers-table .stbar{
+    padding: var(--stbar-pad-top) 6px var(--stbar-pad-bottom);
+  }
+}
+
+/* Keep controls single-line on tablet/desktop */
+@media (min-width: 818px){
+  [data-page="scratchers"] .scratchers-table .stbar :is(.btn, .mode-switcher){
+    white-space: nowrap;
+  }
+}
+
+.scratchers-table .stbar .btn:hover{
+  background: rgba(255,255,255,0.04);
+}
+.scratchers-table .stbar .btn:active{
+  transform: translateY(0.5px);
+}
+
+/* ─────────────────────────────────────────────
+   Safety net: only allow the mode switcher inside .stbar on /scratchers
+   (prevents any legacy/mobile toolbars from showing a duplicate)
+   ───────────────────────────────────────────── */
+ [data-page="scratchers"] [aria-label="View mode"] { display: none !important; }
+ [data-page="scratchers"] .scratchers-table .stbar [aria-label="View mode"] {
+   display: inline-flex !important;
+   align-items: center;
+ }
+
+ /* ─────────────────────────────────────────────
+   Odds toggle — always in DOM, visible only in Expanded
+   Also allow its label to wrap on narrow widths
+   ───────────────────────────────────────────── */
+.scratchers-table .stbar .odds-toggle{
+  display: none;                 /* default: hidden */
+  /* keep wrapping/centering consistent when shown in Expanded mode */
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: center;
+  align-items: center;
+  justify-content: center;
+}
+.scratchers-table.mode-expanded .stbar .odds-toggle{
+  display: inline-flex;          /* show only in Expanded mode */
+}
+
+/* Allow control internals to wrap if needed; bar itself stays single-line */
+.scratchers-table .stbar .btn,
+.scratchers-table .stbar .mode-switcher{ white-space: normal; }
+
+/* Mode switcher sizing: shrink-wrap to content */
+[data-page="scratchers"] .scratchers-table .stbar .mode-switcher{
+  /* allow shrink, but give more breathing room for longer labels */
+  flex: 0 1 280px;          /* basis≈desktop natural width */
+  min-width: 0;
+  max-width: 280px;
+  width: auto;
+  margin-left: 0 !important;    /* permanently on the LEFT */
+  margin-right: 0;              /* eliminate stray right margins */
+  display: inline-flex;         /* ensure its child centers vertically */
+  align-items: center;
+}
+/* remove default margins on inner control that can fake a right gap */
+[data-page="scratchers"] .scratchers-table .stbar .mode-switcher select{
+  margin: 0;
+}
+
+/* On very tight viewports, allow a softer cap instead of clipping the label */
+@media (max-width: 380px){
+  .scratchers-table .stbar .mode-switcher{ max-width: 60vw; }
+}
+
+/* Ensure the underlying <select> or button inside follows the same rule */
+.scratchers-table .stbar .mode-switcher :is(select, button) {
+  width: auto !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+}
+
+/* (duplicate right-align rule removed; canonical rule above uses !important) */
+
+/* Wider default cap so long labels don't collide with the caret */
+.scratchers-table .stbar .mode-switcher{ max-width: 260px; }
+/* Reserve extra space on the *end* for the caret glyph */
+.scratchers-table .stbar .mode-switcher :is(select, button, [role="combobox"]){
+  /* keep left padding compact, add caret space on the right */
+  padding-inline: var(--space-2) calc(2.25rem + var(--space-2));
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  height: 32px;            /* match .btn height */
+  line-height: normal;
+  padding-block: 0;
+}
+/* Match the globals chevron position so text never sits underneath it */
+[data-page="scratchers"] .scratchers-table .stbar .mode-switcher select{
+  background-position: right 10px center; /* align with globals.css */
+  min-width: 160px !important;            /* avoid ultra-narrow selects */
+}
+
+/* Override global compact-control min width so it can actually shrink here */
+[data-page="scratchers"] .scratchers-table .stbar select.compact-control{ min-width: 0 !important; }

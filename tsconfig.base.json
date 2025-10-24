@@ -1,14 +1,12 @@
-// tsconfig.base.json
 {
   "compilerOptions": {
     "target": "ES2022",
-    "lib": ["dom", "dom.iterable", "esnext"],
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "skipLibCheck": true,
-    "strict": false,
+    "strict": true,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
     "incremental": true,
-
-    "baseUrl": ".",
+    "baseUrl": "."
   }
 }
