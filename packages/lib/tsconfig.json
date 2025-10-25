@@ -13,7 +13,7 @@
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "skipLibCheck": true,
-    "types": ["node"]
+    "types": ["node", "react"]
   },
   "include": ["src/**/*.ts"],
   "exclude": ["src/**/__tests__/**"]

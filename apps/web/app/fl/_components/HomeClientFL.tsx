@@ -81,13 +81,15 @@ const REP_FOR_LOGICAL: Record<FlLogicalKey, GameKey> = {
 export default function HomeClientFL() {
   const [logical, setLogical] = useState<LogicalGameKey>('multi_powerball');
   const [period, setPeriod] = useState<Period>('both'); // includes 'all' and 5-part dayparts per lotto.ts
-  const [rows, setRows] = useState<LottoRow[]>([]);
+  // Keep ALL rows for generator/analysis
+  const [rowsAll, setRowsAll] = useState<LottoRow[]>([]);
   const [sortDir, setSortDir] = useState<'desc'|'asc'>('desc');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [compact, setCompact] = useState<boolean>(true);
   const [showPast, setShowPast] = useState<boolean>(false);
   const [payload, setPayload] = useState<PastDrawsPayload | undefined>(undefined);
+  const UI_CAP = 2000; // hard cap for what the sidebar should render
   const isMobile = useIsMobile();
   const drawerMode = isMobile;
 
@@ -103,24 +105,26 @@ export default function HomeClientFL() {
     try {
       setLoading(true); setError(null);
       const data = await fetchLogicalRows({ logical, period });
-      setRows(data);
+      setRowsAll(data); // keep full for generator/analysis
       // Build a shape-aware payload for digit games & Cash Pop
       // so PastDrawsSidebar renders the correct bubbles.
       if (logical === 'fl_pick2' || logical === 'fl_pick3' || logical === 'fl_pick4' || logical === 'fl_pick5') {
         const k = logical === 'fl_pick5' ? 5 : logical === 'fl_pick4' ? 4 : logical === 'fl_pick3' ? 3 : 2;
         const per: 'midday'|'evening'|'both' = (period === 'midday' || period === 'evening') ? period : 'both';
         const digitRows = await fetchDigitRowsFor(logical, per);
+        const ui = digitRows.slice(0, UI_CAP);
         setPayload({
           kind: 'digits_fb',
           k,
-          rows: digitRows.map(r => ({ date: r.date, digits: r.digits, fb: r.fb })),
+          rows: ui.map(r => ({ date: r.date, digits: r.digits, fb: r.fb })),
         });
       } else if (logical === 'fl_cashpop') {
         const per = (period === 'morning' || period === 'matinee' || period === 'afternoon' || period === 'evening' || period === 'latenight') ? period : 'all';
         const cp = await fetchCashPopRows(per);
+        const ui = cp.slice(0, UI_CAP);
         setPayload({
           kind: 'cashpop',
-          rows: cp.map(r => ({ date: r.date, value: r.value })),
+          rows: ui.map(r => ({ date: r.date, value: r.value })),
         });
       } else {
         // Five-ball canonical games (PB/MM/C4L/Fantasy5): let sidebar use pageRows
@@ -129,7 +133,7 @@ export default function HomeClientFL() {
     } catch (e: any) {
       console.error('FL load() failed:', e);
       setError(e?.message || String(e));
-      setRows([]);
+      setRowsAll([]);
       setPayload(undefined);
     } finally {
       setLoading(false);
@@ -141,15 +145,28 @@ export default function HomeClientFL() {
   // Sorting & paging
   const [page, setPage] = useState(1);
   const pageSize = 25;
-  const sortedRows = useMemo(() => {
-    const arr = [...rows];
+  const sortedRowsAll = useMemo(() => {
+    const arr = [...rowsAll];
     arr.sort((a,b) => sortDir === 'desc'
       ? (a.date < b.date ? 1 : a.date > b.date ? -1 : 0)
       : (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
     return arr;
-  }, [rows, sortDir]);
-  const pageCount = Math.max(1, Math.ceil(sortedRows.length / pageSize));
-  const pageRows = useMemo(() => sortedRows.slice((page - 1) * pageSize, page * pageSize), [sortedRows, page]);
+  }, [rowsAll, sortDir]);
+  // For legacy five-ball path (no payload), cap UI rows derived from ALL rows
+  const rowsUI = useMemo(() => sortedRowsAll.slice(0, UI_CAP), [sortedRowsAll]);
+  // Effective counts for the sidebar footer:
+  // - If payload provided (digits/cashpop), base on payload.rows (already capped).
+  // - Else base on rowsUI (capped legacy five-ball).
+  const uiTotal = useMemo(() => {
+    if (payload && 'rows' in payload) return (payload.rows as any[]).length;
+    return rowsUI.length;
+  }, [payload, rowsUI.length]);
+  const pageCount = Math.max(1, Math.ceil(uiTotal / pageSize));
+  const pageRows = useMemo(() => {
+    const source = (payload && 'rows' in payload) ? (payload.rows as any[]) : rowsUI;
+    const start = (page - 1) * pageSize;
+    return source.slice(start, start + pageSize) as any;
+  }, [payload, rowsUI, page]);
 
   // Analysis cache keyed by representative canonical GameKey
   const [analysisByRep, setAnalysisByRep] =
@@ -158,10 +175,10 @@ export default function HomeClientFL() {
   const ensureRecommendedForSelected = useCallback(async () => {
     const existing = analysisByRep[repGame];
     if (existing) return { recMain: existing.recMain, recSpec: existing.recSpec };
-    const a = await analyzeGameAsync(rows, repGame);
+    const a = await analyzeGameAsync(rowsAll, repGame);
     setAnalysisByRep(prev => ({ ...prev, [repGame]: a }));
     return { recMain: a.recMain, recSpec: a.recSpec };
-  }, [analysisByRep, repGame, rows]);
+  }, [analysisByRep, repGame, rowsAll]);
 
   const openPastDraws = useCallback(() => { setShowPast(true); }, []);
   const periodSupport = GAME_OPTIONS.find(g => g.key === (logical as FlLogicalKey))?.supportsPeriod ?? 'none';
@@ -278,18 +295,18 @@ export default function HomeClientFL() {
                   <Generator
                     game={repGame}
                     logical={logical}
-                    rowsForGenerator={rows}
+                    rowsForGenerator={rowsAll}  // full rows for generator/analysis
                     analysisForGame={analysisByRep[repGame] ?? null}
                     anLoading={loading}
                     onEnsureRecommended={async () => {
                       const era = getCurrentEraConfig(repGame);
-                      return analyzeGameAsync(rows, repGame);
+                      return analyzeGameAsync(rowsAll, repGame);
                     }}
                   />
                   </ErrorBoundary>
                 </div>
                 <div className="ad-slot ad-slot--rect-280" aria-label="Advertisement">
-                  {!loading && rows.length > 0 ? <AdsLot /> : null}
+                  {!loading && rowsAll.length > 0 ? <AdsLot /> : null}
                 </div>
               </section>
 
@@ -331,7 +348,7 @@ export default function HomeClientFL() {
               page={page}
               pageCount={pageCount}
               setPage={setPage}
-              total={sortedRows.length}
+              total={uiTotal}         
               side="right"
               game={repGame}
               logical={logical}

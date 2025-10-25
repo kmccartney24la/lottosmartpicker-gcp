@@ -13,6 +13,14 @@ type DatasetCfg = {
     specialOptional?: boolean;
 };
 declare const DATASETS: Record<string, DatasetCfg>;
-export declare function buildSocrataCsvFlexible(gameKey: keyof typeof DATASETS, token?: string): Promise<string>;
+export type SocrataLimitOpts = {
+    mode: "lastN";
+    n: number;
+} | {
+    mode: "since";
+    sinceISO: string;
+};
+export declare function buildSocrataCsvFlexible(gameKey: keyof typeof DATASETS, token?: string, limitOpts?: SocrataLimitOpts): Promise<string>;
 export declare const buildSocrataCsv: typeof buildSocrataCsvFlexible;
+export declare function buildQuickDrawRecentCsv40k(token?: string): Promise<string>;
 export {};

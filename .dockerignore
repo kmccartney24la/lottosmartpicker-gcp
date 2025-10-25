@@ -9,6 +9,10 @@ cloudbuild*.yaml
 public/data
 **/*.log
 **/*.tmp
+**/node_modules
+**/.next
+**/dist
+**/.cache
 
 # allow these (do NOT ignore them)
 !package.json
@@ -17,3 +21,7 @@ public/data
 !tsconfig.scripts.json
 !scripts/**
 !public/**
+!cloudbuild-app.yaml
+!Dockerfile
+!apps/**/package.json
+!packages/**/package.json

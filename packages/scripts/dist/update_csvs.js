@@ -1,4 +1,4 @@
-// scripts/update_csvs.ts
+// packages/lib/scripts/update_csvs.ts
 // Compile with tsconfig.scripts.json (NodeNext). Run the emitted JS: dist/scripts/update_csvs.js
 import * as fs from "node:fs/promises";
 import * as fsSync from "node:fs";
@@ -23,7 +23,12 @@ import { buildCaliforniaDaily3Update } from "./sources/ca/ca_daily3.js";
 import { buildCaliforniaDaily4Update } from "./sources/ca/ca_daily4.js";
 import { buildCaliforniaSuperLottoPlusUpdate } from "./sources/ca/ca_superlotto_plus.js";
 import { buildCaliforniaFantasy5Update } from "./sources/ca/ca_fantasy5.js";
-import { buildSocrataCsv } from "./builders/socrata.js";
+import { buildSocrataCsv, 
+// limit-aware helpers for NY Quick Draw
+buildQuickDrawRecentCsv40k, } from "./builders/socrata.js";
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
+// now you can use: require('node:fs'), require.resolve('some-pkg'), etc.
 // ---------- socrata job matrix ----------
 // Keys must exist in scripts/builders/socrata.ts DATASETS.
 // Each entry produces one CSV in GCS.
@@ -112,7 +117,16 @@ export async function main() {
             throw new Error("[update-csvs] Missing NY_SOCRATA_APP_TOKEN/SOCRATA_APP_TOKEN while SKIP_SOCRATA=0");
         }
         await Promise.all(SOCRATA_JOBS.map(async ({ key, objectPath }) => {
-            const csv = await buildSocrataCsv(key, socrataToken);
+            let csv;
+            // SPECIAL CASE: limit NY Quick Draw to a manageable recent slice (last 40,000)
+            if (key === "ny_quick_draw") {
+                console.log(`[update-csvs] NY Quick Draw via lastN=40000`);
+                csv = await buildQuickDrawRecentCsv40k(socrataToken);
+            }
+            else {
+                // All other Socrata datasets fetch full history as before
+                csv = await buildSocrataCsv(key, socrataToken);
+            }
             await maybeUploadCsv({ bucketName: bucket, objectPath, fullCsv: csv });
         }));
     }

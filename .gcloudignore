@@ -1,0 +1,14 @@
+# Keep the repo lean in the upload, but DO include the lockfile & manifests.
+.git
+**/node_modules
+**/.next
+**/dist
+**/.cache
+
+# DO NOT ignore lockfiles or manifests:
+!package.json
+!package-lock.json
+!apps/**/package.json
+!packages/**/package.json
+!cloudbuild-app.yaml
+!Dockerfile

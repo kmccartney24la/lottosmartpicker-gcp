@@ -33,6 +33,7 @@ export function useDrawerSwipe(opts: Options) {
   const startRef = React.useRef({ x: 0, y: 0 });
   const lastRef = React.useRef({ x: 0, y: 0 });
   const axisLockRef = React.useRef<'x' | 'y' | null>(null);
+  const rafRef = React.useRef<number | null>(null);
 
   const setTransform = (tx: number, ty = 0) => {
     const el = hostRef.current;
@@ -51,7 +52,42 @@ export function useDrawerSwipe(opts: Options) {
     el.addEventListener('transitionend', done);
   };
 
+  // Snap instantly to origin (no animation) and remove inline styles.
+  const resetTransformNow = () => {
+    const el = hostRef.current;
+    if (!el) return;
+    el.style.transition = 'none';
+    el.style.transform = '';
+    // Give layout a tick, then drop the transition override
+    requestAnimationFrame(() => {
+      if (!hostRef.current) return;
+      hostRef.current.style.transition = '';
+    });
+  };
+
+  // Compute the full offscreen travel distance (drawer width/height).
+  const offscreenDistance = () => {
+    const el = hostRef.current;
+    if (!el) return 320;
+    return axis === 'x' ? el.clientWidth : el.clientHeight;
+  };
+
   const signForClose = side === 'right' || side === 'bottom' ? +1 : -1;
+
+  // When `open` flips:
+  //  • on open: ensure we start at a clean origin (no leftover transform)
+  //  • on close: also clean any inline transform so the hidden state is consistent
+  React.useEffect(() => {
+    const el = hostRef.current;
+    if (!el) return;
+    // Only normalize to origin when we OPEN the drawer.
+    // On close, leave the element offscreen until it unmounts / loses the "open" class.
+    if (open) resetTransformNow();
+    if (rafRef.current != null) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
+  }, [open]);
 
   const onTouchStart: React.TouchEventHandler<HTMLElement> = (e) => {
     if (!open) return;
@@ -67,7 +103,10 @@ export function useDrawerSwipe(opts: Options) {
     setDragging(true);
 
     const el = hostRef.current;
-    if (el) el.style.transition = 'none';
+    if (el) {
+      el.style.transition = 'none';
+      el.style.willChange = 'transform';
+    }
   };
 
   const onTouchMove: React.TouchEventHandler<HTMLElement> = (e) => {
@@ -94,6 +133,7 @@ export function useDrawerSwipe(opts: Options) {
     let projected = axis === 'x' ? dx : dy;
     projected *= signForClose; // >0 means toward close
     if (projected <= 0) {
+      // Moving away from the close direction → keep at origin while dragging
       setTransform(0, 0);
       return;
     }
@@ -122,9 +162,7 @@ export function useDrawerSwipe(opts: Options) {
     setDragging(false);
 
     const el = hostRef.current;
-    const size = el
-      ? axis === 'x' ? el.clientWidth : el.clientHeight
-      : 320;
+    const size = offscreenDistance();
 
     const dx = lastRef.current.x - startRef.current.x;
     const dy = lastRef.current.y - startRef.current.y;
@@ -134,13 +172,26 @@ export function useDrawerSwipe(opts: Options) {
     const shouldClose = traveled > size * thresholdRatio;
 
     if (shouldClose) {
-      // Nudge then close
-      if (axis === 'x') setTransform((Math.max(traveled, size * thresholdRatio) + 40) * signForClose, 0);
-      else setTransform(0, (Math.max(traveled, size * thresholdRatio) + 40) * signForClose);
-      requestAnimationFrame(onClose);
+      /// Animate the rest of the way fully offscreen, then fire onClose and reset.
+      const target = (size + 24) * signForClose; // small overshoot for a clean exit
+      if (el) {
+        el.style.transition = 'transform 180ms ease-out';
+      }
+      if (axis === 'x') setTransform(target, 0);
+      else setTransform(0, target);
+      const finish = () => {
+        el?.removeEventListener('transitionend', finish);
+        // Fire onClose() and DO NOT reset transform here — avoids the brief snap-back.
+        onClose();
+        // The next time it opens, the effect on `open` will call resetTransformNow().
+      };
+      el?.addEventListener('transitionend', finish);
     } else {
       clearTransform();
     }
+
+    // cleanup will-change after gesture ends
+    if (el) el.style.willChange = '';
   };
 
   const attachRef = (el: HTMLElement | null) => {

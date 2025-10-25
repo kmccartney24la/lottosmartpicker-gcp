@@ -4,6 +4,9 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ActiveGame } from "./types";
 import { fetchScratchersWithCache } from "@lsp/lib/scratchers";
+// now you can use: require('node:fs'), require.resolve('some-pkg'), etc.
+
+
 // Optional helper: prefer your existing lib if present in the repo
 // Falls back to the provided public GCS base if the helper isn't available at runtime.
 let _getPublicBaseUrl: (() => string) | undefined;

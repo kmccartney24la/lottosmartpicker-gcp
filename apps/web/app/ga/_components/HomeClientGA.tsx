@@ -34,7 +34,7 @@ const GAME_OPTIONS: { key: CanonicalDrawGame; label: string }[] = [
 export default function HomeClient() {
   // Narrow state so SelectedLatest/GameOverview accept it without cast
   const [game, setGame] = useState<CanonicalDrawGame>('multi_powerball');
-  const [rows, setRows] = useState<LottoRow[]>([]);
+  const [rowsAll, setRowsAll] = useState<LottoRow[]>([]);
   const [sortDir, setSortDir] = useState<'desc'|'asc'>('desc');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -44,18 +44,22 @@ export default function HomeClient() {
   const drawerMode = isMobile;
   const [page, setPage] = useState(1);
   const pageSize = 25;
+  const UI_CAP = 2000; // hard cap for what the sidebar should render
   const [analysisByGame, setAnalysisByGame] =
     useState<Partial<Record<CanonicalDrawGame, any>>>({});
 
-  const sortedRows = useMemo(() => {
-    const arr = [...rows];
+  // Sort full dataset for deterministic paging, then cap for UI
+  const sortedRowsAll = useMemo(() => {
+    const arr = [...rowsAll];
     arr.sort((a,b) => sortDir === 'desc'
       ? (a.date < b.date ? 1 : a.date > b.date ? -1 : 0)
       : (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
     return arr;
-  }, [rows, sortDir]);
-  const pageCount = Math.max(1, Math.ceil(sortedRows.length / pageSize));
-  const pageRows = useMemo(() => sortedRows.slice((page - 1) * pageSize, page * pageSize), [sortedRows, page]);
+  }, [rowsAll, sortDir]);
+  const rowsUI = useMemo(() => sortedRowsAll.slice(0, UI_CAP), [sortedRowsAll]);
+  const uiTotal = rowsUI.length;
+  const pageCount = Math.max(1, Math.ceil(uiTotal / pageSize));
+  const pageRows = useMemo(() => rowsUI.slice((page - 1) * pageSize, page * pageSize), [rowsUI, page]);
 
   // Shape-aware payload for the PastDrawsSidebar (canonical five-ball only in this client)
   const payload: PastDrawsPayload = useMemo(() => ({
@@ -64,19 +68,19 @@ export default function HomeClient() {
     game,
   }), [pageRows, game]);
 
-  const rowsForGenerator = rows;
+  const rowsForGenerator = rowsAll; // generator/analysis use full dataset
 
   const load = useCallback(async () => {
     try {
       setLoading(true); setError(null);
       const sinceEra = getCurrentEraConfig(game).start;
       const data = await fetchRowsWithCache({ game, since: sinceEra });
-      setRows(data);
+      setRowsAll(data); // keep full for generator/analysis
       setPage(1);
     } catch (e: any) {
       console.error('load() failed:', e);
       setError(e?.message || String(e));
-      setRows([]);
+      setRowsAll([]);
     } finally {
       setLoading(false);
     }
@@ -86,10 +90,10 @@ export default function HomeClient() {
   const ensureRecommendedForSelected = useCallback(async () => {
     const existing = analysisByGame[game];
     if (existing) return { recMain: existing.recMain, recSpec: existing.recSpec };
-    const a = await analyzeGameAsync(rows, game);
+    const a = await analyzeGameAsync(rowsAll, game);
     setAnalysisByGame(prev => ({ ...prev, [game]: a }));
     return { recMain: a.recMain, recSpec: a.recSpec };
-  }, [analysisByGame, game, rows]);
+  }, [analysisByGame, game, rowsAll]);
 
   const openPastDraws = useCallback(() => { setShowPast(true); }, []);
 
@@ -165,7 +169,7 @@ export default function HomeClient() {
                   </ErrorBoundary>
                 </div>
                 <div className="ad-slot ad-slot--rect-280" aria-label="Advertisement">
-                  {!loading && rows.length > 0 ? <AdsLot /> : null}
+                  {!loading && rowsAll.length > 0 ? <AdsLot /> : null}
                 </div>
               </section>
               <section className="vstack vstack--4">
@@ -199,7 +203,7 @@ export default function HomeClient() {
               page={page}
               pageCount={pageCount}
               setPage={setPage}
-              total={sortedRows.length}
+              total={uiTotal}             
               side="right"
               game={game}
               payload={payload}

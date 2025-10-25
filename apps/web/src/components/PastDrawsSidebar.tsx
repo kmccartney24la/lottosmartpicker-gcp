@@ -311,6 +311,13 @@ function PastDrawsSidebarInner({
     );
   }, [viewRows, effectiveSortDir]);
 
+  // Soft render guard: never render more than N rows to avoid jank/crashes.
+ // Keep this generous; parent should still paginate/cap at fetch time.
+ const MAX_RENDER_ROWS = 2000; // tune to taste
+ const rowsToRender = sortedViewRows.length > MAX_RENDER_ROWS
+   ? sortedViewRows.slice(0, MAX_RENDER_ROWS)
+   : sortedViewRows;
+
   const headerLabel =
     viewRows[0]?.label || sidebarHeaderLabel(meta, inferredMode);
 
@@ -391,7 +398,14 @@ function PastDrawsSidebarInner({
                 {viewRows.length === 0 && (
                   <tr><td colSpan={2} className="hint">No rows.</td></tr>
                 )}
-                {sortedViewRows.map((r, idx) => {
+                {sortedViewRows.length > rowsToRender.length && (
+                 <tr>
+                   <td colSpan={2} className="hint">
+                     Showing the most recent {rowsToRender.length.toLocaleString()} rows for performance.
+                   </td>
+                 </tr>
+               )}
+                {rowsToRender.map((r, idx) => {
                   const showSep = r.sep && typeof r.special !== 'undefined';
                   const specialTitle = r.specialLabel || 'Special';
                   const specialClass = r.specialClass || 'num-bubble--amber';

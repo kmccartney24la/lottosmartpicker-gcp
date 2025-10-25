@@ -53,8 +53,8 @@ steps:
         for p in \
           /app/public \
           /app/lib \
-          /app/dist/lib/gcs.mjs \
-          /app/dist/lib/csv.mjs \
+          /app/dist/lib/gcs.js \
+          /app/dist/lib/csv.js \
           /app/dist/scripts/scratchers/fetch_ga_scratchers.js \
           /app/dist/scripts/scratchers/fetch_ny_scratchers.js \
           /app/dist/scripts/scratchers/run_all.js \

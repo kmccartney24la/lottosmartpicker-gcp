@@ -10,7 +10,6 @@ import {
   stateFromPath,
   sectionFromPath,
   routeFor,
-  getStoredState,
   storeState,
 } from '@lsp/lib';
 
@@ -39,12 +38,10 @@ export default function Header() {
     } catch {}
   }, []);
 
-  // On mount, prefer stored state ONLY for where tabs/links point to (URL still wins for content)
+  // Keep activeState in sync with the URL at all times
   React.useEffect(() => {
-    const stored = getStoredState(activeState);
-    if (stored !== activeState) setActiveState(stored);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    setActiveState(stateFromPath(pathname || '/'));
+  }, [pathname]);
 
   // Derived hrefs for tabs / menu (based on the switcher-selected state)
   const hrefDraws = routeFor(activeState, 'draws');

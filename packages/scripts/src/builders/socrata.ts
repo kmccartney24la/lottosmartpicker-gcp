@@ -1,4 +1,4 @@
-// scripts/builders/socrata.ts
+// packages/scripts/src/builders/socrata.ts
 import { fetch as undiciFetch } from "undici";
 import { toCanonicalCsv, toFlexibleCsv } from "@lsp/lib/csv";
 
@@ -15,6 +15,12 @@ type DatasetCfg = {
   minMainCount?: number;
   /** If true and no special is found, we still emit the row without special. */
   specialOptional?: boolean;
+  /** Additional raw columns to select and pass through (e.g., draw_number, draw_time). */
+  extraFields?: string[];
+  /** Optional explicit Socrata $order value (e.g., "draw_date DESC, draw_number DESC"). */
+  orderBy?: string;
+  /** Optional explicit Socrata $limit override. */
+  limit?: number;
 };
 
 // Make the key type extensible so you can add NY keys easily
@@ -32,7 +38,22 @@ const DATASETS: Record<string, DatasetCfg> = {
   ny_take5_evening:   { id: "dg63-4siq", dateField: "draw_date", winningField: "evening_winning_numbers", minMainCount: 5, specialOptional: true },
   ny_nylotto: { id: "6nbc-h7bj", dateField: "draw_date", winningField: "winning_numbers", specialField: "bonus", minMainCount: 6 },
   ny_pick10:         { id: "bycu-cw7c", dateField: "draw_date", winningField: "winning_numbers", minMainCount: 20, specialOptional: true }, 
-  ny_quick_draw:   { id: "7sqk-ycpk", dateField: "draw_date", winningField: "winning_numbers", minMainCount: 20, specialField: "money_dots_winning_number" },
+  /** NY Quick Draw — many draws per day. We want the most recent 50,000 rows. */
+  ny_quick_draw: {
+    id: "7sqk-ycpk",
+    dateField: "draw_date",
+    winningField: "winning_numbers",
+    minMainCount: 20,
+    // Do NOT include the Extra multiplier ("Extra"/"extra_multiplier") — we don't need it.
+    // Pull these extra columns for the CSV:
+    extraFields: ["draw_number", "draw_time"],
+    // Newest first, then latest draw_number within a day:
+    orderBy: "draw_date DESC, draw_number DESC",
+    // Exactly 50k newest rows:
+    limit: 50000,
+    // No special ball for Quick Draw:
+    specialOptional: true,
+  },
 };
 
 
@@ -83,11 +104,14 @@ export async function buildSocrataCsvFlexible(
   const select = new Set<string>([cfg.dateField]);
   (Array.isArray(cfg.winningField) ? cfg.winningField : [cfg.winningField]).forEach(f => select.add(f));
   if (cfg.specialField) select.add(cfg.specialField);
+  // Include any extra passthrough fields (e.g., draw_number, draw_time)
+  (cfg.extraFields ?? []).forEach(f => select.add(f));
 
   const params = new URLSearchParams({
     $select: Array.from(select).join(","),
-    $order: `${cfg.dateField} ASC`,
-    $limit: "50000",
+    // Default to newest-first so *.latest.csv is truly "latest"
+    $order: cfg.orderBy ?? `${cfg.dateField} DESC`,
+    $limit: String(cfg.limit ?? 50000),
   });
   const url = `${SOCRATA_BASE}/${cfg.id}.json?${params}`;
 
@@ -97,6 +121,14 @@ export async function buildSocrataCsvFlexible(
   const json = (await res.json()) as Array<Record<string, unknown>>;
 
   const rowsFlex: Array<{ draw_date: string; nums: number[]; special?: number }> = [];
+  // Quick Draw passthrough holders (only populated for ny_quick_draw)
+  const rowsQD: Array<{
+    draw_date: string;
+    draw_number: string | number | undefined;
+    draw_time: string | undefined;
+    nums: number[];
+  }> = [];
+
   for (const r of json) {
     const rawDate = r[cfg.dateField] as string | undefined;
     const date = rawDate ? new Date(rawDate) : new Date(NaN);
@@ -123,7 +155,42 @@ export async function buildSocrataCsvFlexible(
     const needsSpecial = mainMin === 5 && cfg.specialOptional !== true;
     if (needsSpecial && special == null) continue;
 
-    rowsFlex.push({ draw_date: iso, nums: nums.slice(0, mainMin), special });
+    if (gameKey === "ny_quick_draw") {
+      rowsQD.push({
+        draw_date: iso,
+        draw_number: (r as any)["draw_number"],
+        draw_time: (r as any)["draw_time"] as string | undefined,
+        nums: nums.slice(0, mainMin),
+      });
+    } else {
+      rowsFlex.push({ draw_date: iso, nums: nums.slice(0, mainMin), special });
+    }
+  }
+
+  // ---- Quick Draw CSV writer (newest-first is fine) ----
+  if (gameKey === "ny_quick_draw") {
+    // Shape: draw_date,draw_number,draw_time,num1..num20
+    const header = [
+      "draw_date",
+      "draw_number",
+      "draw_time",
+      ...Array.from({ length: 20 }, (_, i) => `num${i + 1}`),
+    ].join(",");
+    const lines = [header];
+    for (const row of rowsQD) {
+      const ns = row.nums.slice(0, 20);
+      // Defensive: pad/truncate to exactly 20 cols.
+      const padded = Array.from({ length: 20 }, (_, i) => ns[i] ?? "");
+      lines.push(
+        [
+          row.draw_date,
+          row.draw_number ?? "",
+          row.draw_time ?? "",
+          ...padded,
+        ].join(",")
+      );
+    }
+    return lines.join("\n") + "\n";
   }
 
   // Keep your canonical writer when it’s the classic 5+special shape

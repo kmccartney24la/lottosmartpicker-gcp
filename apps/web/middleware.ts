@@ -1,15 +1,10 @@
-// middleware.ts
+// apps/web/middleware.ts
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
-import {
-  createSession,
-  getSession,
-  rotateCsrfToken,
-  validateCsrfToken,
-  isSessionExpired,
-} from "./@lsp/lib/session";
-import { enforceRequestSizeLimit, enforceRateLimit } from "./@lsp/lib/security";
-import { logSecurityEvent, detectSuspiciousActivity } from "./@lsp/lib/logger";
+// Local, Edge-safe helpers
+import { createSession, getSession, rotateCsrfToken, validateCsrfToken, isSessionExpired } from "./src/server/session";
+import { enforceRequestSizeLimit, enforceRateLimit } from "./src/server/security";
+import { logSecurityEvent, detectSuspiciousActivity } from "./src/server/mw-logger";
 
 const APP_ORIGIN = process.env.NEXT_PUBLIC_APP_ORIGIN || "https://app.lottosmartpicker.com";
 const APP_HOST = new URL(APP_ORIGIN).host;
@@ -33,66 +28,75 @@ export async function middleware(req: NextRequest) {
   const ua = (req.headers.get("user-agent") || "").toLowerCase();
   const sfs = req.headers.get("sec-fetch-site") || "";
   const accept = req.headers.get("accept") || "";
+  // Treat normal browser navigations as "HTML-like" even if Accept is */* (some proxies/clients)
+  const isHTMLLike = (req.method.toUpperCase() === "GET") && !pathname.startsWith("/api/");
   const isHTML = accept.includes("text/html");
   const host = (req.headers.get("x-forwarded-host") || req.headers.get("host") || "").toLowerCase();
   const method = req.method.toUpperCase();
 
-  // Canonical host: redirect HTML from app. → apex
-if (host === APP_HOST && APP_HOST === "app.lottosmartpicker.com" && isHTML) {
-  const url = req.nextUrl.clone();
-  url.host = "lottosmartpicker.com";
-  url.protocol = "https";
-  // Avoid redirect loops for API/static paths
-  const p = url.pathname;
+  // Compute these once; we need them in multiple places
+  const p = pathname;
   const isApi = p.startsWith("/api/");
-  const isStatic = p.startsWith("/_next/") || p.startsWith("/brand/") || p.startsWith("/favicon") || p === "/robots.txt" || p === "/sitemap.xml" || p === "/ads.txt";
-  if (!isApi && !isStatic) {
-    return NextResponse.redirect(url, 301);
-  }
-}
+  const isStatic =
+    p.startsWith("/_next/") ||
+    p.startsWith("/brand/") ||
+    p.startsWith("/favicon") ||
+    p === "/robots.txt" ||
+    p === "/sitemap.xml" ||
+    p === "/ads.txt";
+  const isBareDraws = p === "/" || p === "/index.html";
+  const isBareScratchers = p === "/scratchers";
+  const isStatePrefixed =
+    p.startsWith("/ga") || p.startsWith("/ny") || p.startsWith("/fl") || p.startsWith("/ca");
 
-// ---- Geo redirects for unprefixed entry points (before heavy security/session) ----
-  if (isHTML) {
-    const p = pathname;
-    const isBareDraws = p === '/' || p === '/index.html';
-    const isBareScratchers = p === '/scratchers';
-    const isStatePrefixed = p.startsWith('/ga') || p.startsWith('/ny') || p.startsWith('/fl') || p.startsWith('/ca');
-    const isApi = p.startsWith('/api/');
-    const isStatic =
-      p.startsWith('/_next/') ||
-      p.startsWith('/brand/') ||
-      p.startsWith('/favicon') ||
-      p === '/robots.txt' ||
-      p === '/sitemap.xml' ||
-      p === '/ads.txt';
-
-    // TS-safe geo inference using headers only.
-    function inferStateFromHeaders(req: NextRequest): 'ga' | 'ny' | 'fl' | 'ca' {
-      const up = (v: string | null) => (v || '').toUpperCase();
-      // Vercel-style
-      const vcCountry = up(req.headers.get('x-vercel-ip-country'));
-      const vcRegion  = up(req.headers.get('x-vercel-ip-country-region'));
-      // Cloudflare-style fallbacks
-      const cfCountry = up(req.headers.get('cf-ipcountry'));
-      const cfRegion  = up(req.headers.get('x-region-code')) || up(req.headers.get('x-vercel-ip-region'));
-      const country = vcCountry || cfCountry;
-      const region  = vcRegion  || cfRegion;
-      if (country === 'US') {
-        if (region === 'NY') return 'ny';
-        if (region === 'FL') return 'fl';
-        if (region === 'GA') return 'ga';
-        if (region === 'CA') return 'ca'; // California
-      }
-      return 'ga'; // default
+  // Canonical host: redirect HTML from app. → apex
+  if (host === APP_HOST && APP_HOST === "app.lottosmartpicker.com" && (isHTML || isHTMLLike)) {
+    const url = req.nextUrl.clone();
+    url.host = "lottosmartpicker.com";
+    url.protocol = "https";
+    // Avoid redirect loops for API/static paths
+    const p2 = url.pathname;
+    const isApi2 = p2.startsWith("/api/");
+    const isStatic2 =
+      p2.startsWith("/_next/") ||
+      p2.startsWith("/brand/") ||
+      p2.startsWith("/favicon") ||
+      p2 === "/robots.txt" ||
+      p2 === "/sitemap.xml" ||
+      p2 === "/ads.txt";
+    if (!isApi2 && !isStatic2) {
+      return NextResponse.redirect(url, 301);
     }
+  }
 
-    if (!isStatePrefixed && (isBareDraws || isBareScratchers) && !isApi && !isStatic) {
+  // ---- Geo redirects for unprefixed entry points (before heavy security/session) ----
+  if ( (isHTML || isHTMLLike) && !isApi && !isStatic ) {
+    if (!isStatePrefixed && (isBareDraws || isBareScratchers)) {
       const st = inferStateFromHeaders(req);
-      const target = isBareScratchers ? `/${st}/scratchers` : `/${st}`
+      const target = isBareScratchers ? `/${st}/scratchers` : `/${st}`;
       const url = req.nextUrl.clone();
       url.pathname = target;
       return NextResponse.redirect(url, 302);
     }
+  }
+  // TS-safe geo inference using headers only.
+  function inferStateFromHeaders(req: NextRequest): 'ga' | 'ny' | 'fl' | 'ca' {
+    const up = (v: string | null) => (v || '').toUpperCase();
+    // Vercel-style
+    const vcCountry = up(req.headers.get('x-vercel-ip-country'));
+    const vcRegion  = up(req.headers.get('x-vercel-ip-country-region'));
+    // Cloudflare-style fallbacks
+    const cfCountry = up(req.headers.get('cf-ipcountry'));
+    const cfRegion  = up(req.headers.get('x-region-code')) || up(req.headers.get('x-vercel-ip-region'));
+    const country = vcCountry || cfCountry;
+    const region  = vcRegion  || cfRegion;
+    if (country === 'US') {
+      if (region === 'NY') return 'ny';
+      if (region === 'FL') return 'fl';
+      if (region === 'GA') return 'ga';
+      if (region === 'CA') return 'ca'; // California
+    }
+    return 'ga'; // default
   }
 
   // --- Security Controls (early exit for critical issues) ---
@@ -121,40 +125,54 @@ if (host === APP_HOST && APP_HOST === "app.lottosmartpicker.com" && isHTML) {
   let session = sessionId ? getSession(sessionId) : undefined;
 
   // Session management
-  if (!session || isSessionExpired(sessionId!)) {
-    sessionId = createSession(req);
-    session = getSession(sessionId); // Re-fetch the newly created session
-    res.cookies.set({
-      name: "lsp.sid",
-      value: sessionId,
-      path: "/",
-      maxAge: 60 * 60 * 24, // 1 day
-      sameSite: "lax",
-      secure: true,
-      httpOnly: true, // Make session cookie httpOnly for security
-    });
+  if (!session || (sessionId ? isSessionExpired(sessionId) : true)) {
+    const newId = createSession(req);
+    sessionId = newId;
+    session = getSession(newId); // Re-fetch the newly created session
+    // Use the (name, value, options) overload to satisfy types
+    res.cookies.set(
+      "lsp.sid",
+      newId,
+      {
+        path: "/",
+        maxAge: 60 * 60 * 24, // 1 day
+        sameSite: "lax",
+        secure: true,
+        httpOnly: true,
+      }
+    );
     logSecurityEvent(req, 'SESSION_CREATED', 'success', { newSessionId: sessionId });
   } else {
     // Session rotation: Rotate CSRF token on every request to a protected API route
     if (pathname.startsWith("/api/") && !PUBLIC_API.some((re) => re.test(pathname))) {
       const oldCsrfToken = session.csrfToken;
+      // sessionId should exist here, but assert defensively for type + runtime safety
+      if (!sessionId) {
+        logSecurityEvent(req, 'MISSING_SESSION_ID', 'failure');
+        return new NextResponse("Missing session", { status: 403 });
+      }
       rotateCsrfToken(sessionId);
       session = getSession(sessionId); // Update session after rotation
-      logSecurityEvent(req, 'CSRF_TOKEN_ROTATED', 'success', { oldCsrfToken, newCsrfToken: session?.csrfToken });
+      logSecurityEvent(req, 'CSRF_TOKEN_ROTATED', 'success', {
+        oldCsrfToken,
+        newCsrfToken: session?.csrfToken
+      });
     }
   }
 
   // Set CSRF token in a client-accessible cookie for non-HTML requests to protected APIs
   if (!isHTML && pathname.startsWith("/api/") && !PUBLIC_API.some((re) => re.test(pathname)) && session?.csrfToken) {
-    res.cookies.set({
-      name: "csrf-token",
-      value: session.csrfToken,
-      path: "/",
-      maxAge: 60 * 60, // 1 hour
-      sameSite: "lax",
-      secure: true,
-      httpOnly: false, // Client-side accessible
-    });
+    res.cookies.set(
+      "csrf-token",
+      session.csrfToken,
+      {
+        path: "/",
+        maxAge: 60 * 60, // 1 hour
+        sameSite: "lax",
+        secure: true,
+        httpOnly: false, // Client-side accessible
+      }
+    );
   }
 
   // ✅ Allow public data endpoints (GET/HEAD) with no UA/cookie checks

@@ -22,12 +22,14 @@ const TEXT_CACHE = path.join(CACHE_DIR, "lotto_l6.txt");
 const BASE_HEADERS: Record<string, string> = {
   "user-agent":
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-  accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+  // Prefer PDFs; still allow fallbacks.
+  accept: "application/pdf,application/octet-stream;q=0.9,*/*;q=0.8",
   "accept-language": "en-US,en;q=0.9",
 };
 
 const GAME_PAGE_URL = "https://floridalottery.com/games/draw-games/florida-lotto";
 const HTTP_TIMEOUT_MS = Number(process.env.FL_HTTP_TIMEOUT_MS ?? 20000);
+const PDF_RETRIES = Number(process.env.PDF_FETCH_RETRIES ?? 2);
 
 // ---------- helpers ----------
 function absolutize(base: string, href: string) {
@@ -48,10 +50,39 @@ async function resolvePdfUrlFromGamePage(): Promise<string | null> {
   if (m3?.[1]) return absolutize(GAME_PAGE_URL, m3[1]);
   return null;
 }
+function looksLikePdf(bytes: Uint8Array): boolean {
+  // %PDF
+  return (
+    bytes.length > 1024 &&
+    bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46
+  );
+}
+
 async function fetchPdfBytes(url: string): Promise<Uint8Array> {
   const res = await fetch(url, { signal: AbortSignal.timeout(HTTP_TIMEOUT_MS), headers: BASE_HEADERS });
   if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
-  return new Uint8Array(await res.arrayBuffer());
+  const bytes = new Uint8Array(await res.arrayBuffer());
+  if (!looksLikePdf(bytes)) {
+    const ctype = res.headers.get("content-type") || "unknown";
+    const head = new TextDecoder().decode(bytes.slice(0, 200)).replace(/\s+/g, " ").trim();
+    throw new Error(`Not a PDF from ${url} (content-type=${ctype}). Head: ${JSON.stringify(head)}`);
+  }
+  return bytes;
+}
+
+async function fetchPdfBytesWithRetry(url: string): Promise<Uint8Array> {
+  let err: unknown;
+  for (let i = 0; i <= PDF_RETRIES; i++) {
+    try {
+      return await fetchPdfBytes(url);
+    } catch (e) {
+      err = e;
+      if (i < PDF_RETRIES) {
+        console.warn(`[fl_lotto] fetch PDF failed (attempt ${i + 1}/${PDF_RETRIES + 1}) — retrying…`, e);
+      }
+    }
+  }
+  throw err;
 }
 
 // ---------- date parsing ----------
@@ -119,6 +150,9 @@ async function extractCells(buf: Uint8Array): Promise<Cell[]> {
   const loadingTask = pdfjsLib.getDocument({
     data: buf,
     disableWorker: true,
+    // Serverless-friendly flags:
+    isEvalSupported: false,
+    useSystemFonts: false,
     // If fonts dir couldn’t be found, omit this field; pdfjs will warn but still extract text.
     ...(stdFontsDirUrl ? { standardFontDataUrl: stdFontsDirUrl } : {}),
   });
@@ -318,7 +352,14 @@ function buildRows(cells: Cell[]): Row[] {
 type Parsed = { dateISO: string; values: number[]; tag: "LOTTO" | "DP" | "UNKNOWN" };
 
 async function parsePdfStructured(buf: Uint8Array): Promise<Parsed[]> {
-  const cells = await extractCells(buf);
+  let cells: Cell[];
+  try {
+    cells = await extractCells(buf);
+  } catch (e: any) {
+    e = e || {};
+    const msg = (e && e.message) ? e.message : String(e);
+    throw new Error(`[fl_lotto] Failed to extract cells from PDF: ${msg}`);
+  }
   const rows = buildRows(cells);
 
   // dedupe by date (prefer LOTTO)
@@ -337,14 +378,14 @@ async function loadPdfBuffer(localPath?: string): Promise<Uint8Array> {
   if (local) return new Uint8Array(await fs.readFile(path.resolve(local)));
 
   const envUrl = process.env.FL_LOTTO_PDF_URL?.trim();
-  if (envUrl) return await fetchPdfBytes(envUrl);
+  if (envUrl) return await fetchPdfBytesWithRetry(envUrl);
 
   try {
-    return await fetchPdfBytes(PDF_URL);
+    return await fetchPdfBytesWithRetry(PDF_URL);
   } catch {
     const discovered = await resolvePdfUrlFromGamePage();
     if (!discovered) throw new Error("Could not discover Florida Lotto PDF URL");
-    return await fetchPdfBytes(discovered);
+    return await fetchPdfBytesWithRetry(discovered);
   }
 }
 

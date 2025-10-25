@@ -95,13 +95,15 @@ const REP_FOR_LOGICAL: Record<NyLogicalKey, GameKey> = {
 export default function HomeClientNY() {
   const [logical, setLogical] = useState<LogicalGameKey>('multi_powerball');
   const [period, setPeriod] = useState<Period>('both'); // 'midday' | 'evening' | 'both'
-  const [rows, setRows] = useState<LottoRow[]>([]);
+  // Keep ALL rows for generator/analysis
+  const [rowsAll, setRowsAll] = useState<LottoRow[]>([]);
   const [sortDir, setSortDir] = useState<'desc'|'asc'>('desc');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [compact, setCompact] = useState<boolean>(true);
   const [showPast, setShowPast] = useState<boolean>(false);
   const [payload, setPayload] = useState<PastDrawsPayload | undefined>(undefined);
+  const UI_CAP = 2000;           // hard cap for what the sidebar should show
   const isMobile = useIsMobile();
   const drawerMode = isMobile;
 
@@ -122,11 +124,11 @@ export default function HomeClientNY() {
     try {
       setLoading(true); setError(null);
       const data = await fetchLogicalRows({ logical, period });
-      setRows(data);
+      setRowsAll(data); // keep full for generator/analysis
     } catch (e: any) {
       console.error('NY load() failed:', e);
       setError(e?.message || String(e));
-      setRows([]);
+      setRowsAll([]);
     } finally {
       setLoading(false);
     }
@@ -141,18 +143,22 @@ export default function HomeClientNY() {
       let next: PastDrawsPayload | undefined;
       if (logical === 'ny_numbers' || logical === 'ny_win4') {
         const k = logical === 'ny_win4' ? 4 : 3;
-        const rows = await fetchDigitRowsFor(logical as 'ny_numbers' | 'ny_win4', period);
-        if (!cancelled) next = { kind: 'digits', rows, k };
+        const r = await fetchDigitRowsFor(logical as 'ny_numbers' | 'ny_win4', period);
+        const ui = r.slice(0, UI_CAP);
+        if (!cancelled) next = { kind: 'digits', rows: ui, k };
       } else if (logical === 'ny_pick10') {
-        const rows = await fetchPick10RowsFor('ny_pick10');
-        if (!cancelled) next = { kind: 'pick10', rows };
+        const r = await fetchPick10RowsFor('ny_pick10');
+        const ui = r.slice(0, UI_CAP);
+        if (!cancelled) next = { kind: 'pick10', rows: ui };
       } else if (logical === 'ny_quick_draw') {
-        const rows = await fetchQuickDrawRowsFor('ny_quick_draw');
-        if (!cancelled) next = { kind: 'quickdraw', rows };
+        const r = await fetchQuickDrawRowsFor('ny_quick_draw');
+        const ui = r.slice(0, UI_CAP);
+        if (!cancelled) next = { kind: 'quickdraw', rows: ui };
       } else if (logical === 'ny_lotto') {
         // 6 mains + explicit Bonus (no zeros)
-        const rows = await fetchNyLottoExtendedRows();
-        if (!cancelled) next = { kind: 'ny_lotto', rows };
+        const r = await fetchNyLottoExtendedRows();
+        const ui = r.slice(0, UI_CAP);
+        if (!cancelled) next = { kind: 'ny_lotto', rows: ui };
       } else {
         next = undefined; // PB/MM/C4L/Take 5 → legacy 5-ball path
       }
@@ -165,15 +171,29 @@ export default function HomeClientNY() {
   // Sorting & paging (same as GA/multi client)
   const [page, setPage] = useState(1);
   const pageSize = 25;
+  // For non-payload (legacy) sidebar, cap UI rows derived from ALL rows
+  const rowsUI = useMemo(() => rowsAll.slice(0, UI_CAP), [rowsAll]);
   const sortedRows = useMemo(() => {
-    const arr = [...rows];
+    const arr = [...rowsAll];
     arr.sort((a,b) => sortDir === 'desc'
       ? (a.date < b.date ? 1 : a.date > b.date ? -1 : 0)
       : (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
     return arr;
-  }, [rows, sortDir]);
-  const pageCount = Math.max(1, Math.ceil(sortedRows.length / pageSize));
-  const pageRows = useMemo(() => sortedRows.slice((page - 1) * pageSize, page * pageSize), [sortedRows, page]);
+  }, [rowsAll, sortDir]);
+  // Effective counts for the sidebar footer:
+  // - If payload provided, base on payload.rows (already capped).
+  // - Else base on rowsUI (capped legacy).
+  const uiTotal = useMemo(() => {
+    if (payload && 'rows' in payload) return (payload.rows as any[]).length;
+    return rowsUI.length;
+  }, [payload, rowsUI.length]);
+  const pageCount = Math.max(1, Math.ceil(uiTotal / pageSize));
+  const pageRows = useMemo(() => {
+    // pageRows are ignored when payload is present, but keep length consistent for footer display
+    const source = (payload && 'rows' in payload) ? (payload.rows as any[]) : rowsUI;
+    const start = (page - 1) * pageSize;
+    return source.slice(start, start + pageSize) as any;
+  }, [payload, rowsUI, page]);
 
   // Analysis cache keyed by *representative* game
   const [analysisByRep, setAnalysisByRep] =
@@ -184,10 +204,10 @@ export default function HomeClientNY() {
     if (existing) return { recMain: existing.recMain, recSpec: existing.recSpec };
     // The analysis/generator logic is era-aware by GameKey. Since the rows here
     // are “shimmed” (for flexible sources) to a repGame, it will behave consistently.
-    const a = await analyzeGameAsync(rows, repGame);
+    const a = await analyzeGameAsync(rowsAll, repGame);
     setAnalysisByRep(prev => ({ ...prev, [repGame]: a }));
     return { recMain: a.recMain, recSpec: a.recSpec };
-  }, [analysisByRep, repGame, rows]);
+  }, [analysisByRep, repGame, rowsAll]);
 
   const openPastDraws = useCallback(() => { setShowPast(true); }, []);
   const supportsPeriod = GAME_OPTIONS.find(g => g.key === logical)?.supportsPeriod;
@@ -284,18 +304,18 @@ export default function HomeClientNY() {
                     <Generator
                     game={repGame}                   // canonical rep (5-ball era config)
                     logical={logical}                // NEW: drives shape (digits/pick10/quickdraw)
-                    rowsForGenerator={rows}
+                    rowsForGenerator={rowsAll}       // full rows for generator
                     analysisForGame={analysisByRep[repGame] ?? null}
                     anLoading={loading}
                     onEnsureRecommended={async () => {
                         const era = getCurrentEraConfig(repGame);
-                        return analyzeGameAsync(rows, repGame);
+                        return analyzeGameAsync(rowsAll, repGame);
                     }}
                     />
                   </ErrorBoundary>
                 </div>
                 <div className="ad-slot ad-slot--rect-280" aria-label="Advertisement">
-                  {!loading && rows.length > 0 ? <AdsLot /> : null}
+                  {!loading && rowsAll.length > 0 ? <AdsLot /> : null}
                 </div>
               </section>
               <section className="vstack vstack--4">
@@ -331,7 +351,7 @@ export default function HomeClientNY() {
                 page={page}
                 pageCount={pageCount}
                 setPage={setPage}
-                total={sortedRows.length}
+                total={uiTotal}            // footer reflects capped size
                 side="right"
                 game={repGame}
                 logical={logical}

@@ -38,21 +38,11 @@
     box-shadow: none;
   }
   
-  /* Reserve space only between the title and the first control, so the title doesn't move */
-  .header-controls .game-select-card[data-has-period="true"],
-  .header-controls .game-select-card.game-select-card--has-period {
-    --period-reserve: calc(var(--touch-target-min, 40px));
-  }
-  /* The card is a grid; margins on grid children don't collapse — perfect for this spacer */
-  .header-controls .game-select-card[data-has-period="true"] > .game-select-label + *,
-  .header-controls .game-select-card.game-select-card--has-period > .game-select-label + * {
-    margin-top: var(--period-reserve);
-  }
+  /* Reserve space ONLY for the control row beneath the title when a period switcher exists */
+  .header-controls .game-select-card[data-has-period="true"] { --period-reserve: var(--touch-target-min, 40px); }
+  .header-controls .game-select-card[data-has-period="true"] > .game-select-label + * { margin-top: var(--period-reserve); }
   @media (--bp-mobile) {
-    .header-controls .game-select-card[data-has-period="true"],
-    .header-controls .game-select-card.game-select-card--has-period {
-      --period-reserve: calc(var(--touch-target-comfortable, 44px));
-    }
+    .header-controls .game-select-card[data-has-period="true"] { --period-reserve: var(--touch-target-comfortable, 44px); }
   }
 
   .header-controls {
@@ -138,19 +128,18 @@
       margin: 0;
     }
 
-  /* Auto-grow only when a period switcher is present */
-  .game-select-card { --topright-reserve: 0px; padding-top: var(--space-4); }
+  /* Keep card top padding constant so the TITLE never moves */
+  .game-select-card { padding-top: var(--space-4); }
   @media (--bp-mobile) { .game-select-card { padding-top: var(--space-3); } }
+
+  /* When a period switcher exists, ensure the card is tall enough not to overlap it */
   .game-select-card[data-has-period="true"] {
-    --topright-reserve: calc(var(--touch-target-min, 40px) + var(--space-2));
-    padding-top: calc(var(--space-4) + var(--topright-reserve));
-    min-height: calc(var(--touch-target-min, 40px) + var(--space-3) + var(--topright-reserve));
+    /* enough headroom for the anchor + a little breathing room */
+    min-height: calc(var(--touch-target-min, 40px) + var(--space-5));
   }
   @media (--bp-mobile) {
     .game-select-card[data-has-period="true"] {
-      --topright-reserve: calc(var(--touch-target-comfortable, 44px) + var(--space-1));
-      padding-top: calc(var(--space-3) + var(--topright-reserve));
-      min-height: calc(var(--touch-target-comfortable, 44px) + var(--space-2) + var(--topright-reserve));
+      min-height: calc(var(--touch-target-comfortable, 44px) + var(--space-4));
     }
   }
 

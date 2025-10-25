@@ -23,7 +23,9 @@
     "start": "npm run -w @lsp/web start"
   },
   "devDependencies": {
+    "typescript": "^5.6.3",
     "@types/node": "^20.19.23",
-    "typescript": "^5.6.3"
+    "@lsp/web": "workspace:*",
+    "@lsp/scripts": "workspace:*"
   }
 }

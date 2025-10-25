@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "type": "module",
   "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
     ".":             { "types": "./dist/index.d.ts",        "import": "./dist/index.js",        "default": "./dist/index.js" },
     "./index":       { "types": "./dist/index.d.ts",        "import": "./dist/index.js",        "default": "./dist/index.js" },
@@ -29,12 +30,28 @@
     },
     "./package.json": "./package.json"
   },
+  "typesVersions": {
+    "*": {
+      "csv":           ["dist/csv.d.ts"],
+      "gcs":           ["dist/gcs.d.ts"],
+      "gcs-public":    ["dist/gcs-public.d.ts"],
+      "scratchers":    ["dist/scratchers.d.ts"],
+      "state":         ["dist/state.d.ts"],
+      "lotto":         ["dist/lotto.d.ts"],
+      "gameRegistry":  ["dist/gameRegistry.d.ts"],
+      "breakpoints":   ["dist/breakpoints.d.ts"],
+      "react":         ["dist/react/index.d.ts"],
+      "react/*":       ["dist/react/*"]
+    }
+  },
   "files": [
     "dist",
     "src"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json"
+    "build": "tsc -p tsconfig.json --declaration --emitDeclarationOnly false",
+    "clean": "rm -rf dist tsconfig.tsbuildinfo",
+    "build:debug": "tsc -p tsconfig.json --listEmittedFiles --pretty false && node -e \"console.log('tsc version:', require('typescript').version)\" && tsc -p tsconfig.json --showConfig"
   },
   "sideEffects": false,
   "peerDependencies": {

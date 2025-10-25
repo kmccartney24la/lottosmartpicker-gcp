@@ -1,4 +1,4 @@
-// lib/gcs.mts
+// packages/lib/src/gcs.ts
 // ESM
 import crypto from "node:crypto";
 import { Storage } from "@google-cloud/storage";
