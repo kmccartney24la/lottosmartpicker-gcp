@@ -1,4 +1,4 @@
-// scripts/scratchers/image_hosting.ts
+// packages/scripts/src/scratchers/image_hosting.ts
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as crypto from "node:crypto";
@@ -179,9 +179,11 @@ export async function saveManifestToGCSIfAvailable() {
 // -----------------------------
 // Utilities
 // -----------------------------
-const ALLOWED_CT = new Set(["image/png", "image/jpeg"]);
-function extFromContentType(ct: string): "png" | "jpg" {
-  return /png/i.test(ct) ? "png" : "jpg";
+const ALLOWED_CT = new Set(["image/png", "image/jpeg", "image/gif"]);
+function extFromContentType(ct: string): "png" | "jpg" | "gif" {
+  if (/png/i.test(ct)) return "png";
+  if (/gif/i.test(ct)) return "gif";
+  return "jpg";
 }
 
 const ALLOW_LOCALHOST = process.env.ALLOW_LOCALHOST === "1";
@@ -201,8 +203,8 @@ export async function sha256(bytes: Uint8Array): Promise<string> {
 const DEFAULT_HEADERS: Record<string, string> = {
   "User-Agent":
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125 Safari/537.36",
-  // Prefer PNG/JPEG to avoid implicit WEBP conversions
-  "Accept": "image/png,image/jpeg;q=0.9,*/*;q=0.7",
+  // Prefer PNG/JPEG/GIF to avoid implicit WEBP conversions
+  "Accept": "image/png,image/jpeg,image/gif;q=0.9,*/*;q=0.7",
   "Accept-Language": "en-US,en;q=0.9",
   "Referer": "https://www.galottery.com/",
 };
@@ -250,6 +252,7 @@ async function fetchBinaryWithHeaders(url: string, init?: RequestInit): Promise<
     const isGA = /(^|\.)galottery\.com$/i.test(hostname);
     const isFL = /(^|\.)flalottery\.com$/i.test(hostname);
     const isCA = /(^|\.)calottery\.com$/i.test(hostname); 
+    const isTX = /(^|\.)texaslottery\.com$/i.test(hostname);
     perHostHeaders = {
       Referer: isNY
         ? "https://nylottery.ny.gov/"
@@ -258,7 +261,9 @@ async function fetchBinaryWithHeaders(url: string, init?: RequestInit): Promise<
         : isFL
         ? "https://www.flalottery.com/"
         : isCA
-        ? "https://www.calottery.com/"   
+        ? "https://www.calottery.com/" 
+        : isTX
+        ? "https://www.texaslottery.com/"  
         : DEFAULT_HEADERS["Referer"],
       // Some CDNs look at Sec-Fetch-Site; Playwright will set sensible values later too
     };
@@ -284,7 +289,7 @@ async function fetchBinaryWithHeaders(url: string, init?: RequestInit): Promise<
     const context = await browser.newContext({
         userAgent: String(DEFAULT_HEADERS["User-Agent"]),
       extraHTTPHeaders: {
-        "Accept": "image/png,image/jpeg;q=0.9,*/*;q=0.7",
+        "Accept": "image/png,image/jpeg,image/gif;q=0.9,*/*;q=0.7",
         "Accept-Language": "en-US,en;q=0.9",
         ...(perHostHeaders || {}),
       },
@@ -320,8 +325,12 @@ async function fetchBinaryWithHeaders(url: string, init?: RequestInit): Promise<
       const u8 = new Uint8Array(buf);
       const isPng = u8.length>=8 && u8[0]===0x89 && u8[1]===0x50 && u8[2]===0x4e && u8[3]===0x47 && u8[4]===0x0d && u8[5]===0x0a && u8[6]===0x1a && u8[7]===0x0a;
       const isJpg = u8.length>=3 && u8[0]===0xff && u8[1]===0xd8 && u8[2]===0xff;
+      const isGif = u8.length>=6 &&
+        u8[0]===0x47 && u8[1]===0x49 && u8[2]===0x46 && u8[3]===0x38 && // "GIF8"
+        (u8[4]===0x39 || u8[4]===0x37) && u8[5]===0x61;                 // "9a"/"7a"
       if (isPng) contentType = "image/png";
       else if (isJpg) contentType = "image/jpeg";
+      else if (isGif) contentType = "image/gif";
       else throw new Error(`playwright: unexpected content-type ${contentType || "(empty)"} and bytes not PNG/JPEG`);
     }
     if (/image\/webp/i.test(contentType)) {
@@ -607,7 +616,10 @@ export async function downloadAndHost(params: {
     b.length >= 8 &&
     b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47 &&
     b[4] === 0x0d && b[5] === 0x0a && b[6] === 0x1a && b[7] === 0x0a;
-
+  const isGif  = (b: Uint8Array) =>
+    b.length >= 6 &&
+    b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x38 &&
+    (b[4] === 0x39 || b[4] === 0x37) && b[5] === 0x61; // GIF89a / GIF87a
   // Coerce content-type if server lied or omitted
   const isWebp = (b: Uint8Array) =>
     b.length >= 12 && b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 &&
@@ -616,6 +628,7 @@ export async function downloadAndHost(params: {
   if (!ALLOWED_CT.has(ct)) {
     if (isPng(u8)) ct = "image/png";
     else if (isJpeg(u8)) ct = "image/jpeg";
+    else if (isGif(u8)) ct = "image/gif";
     else if (isWebp(u8)) {
         throw new Error(`Unsupported content-type "image/webp" for ${sourceUrl} (prevented by Accept header).`);
     } else {
@@ -726,3 +739,18 @@ export async function ensureHashKeyCA(params: {
   });
 }
 
+export async function ensureHashKeyTX(params: {
+  gameNumber: number;
+  kind: "ticket" | "odds";
+  sourceUrl: string;
+  storage?: StorageProvider;
+  dryRun?: boolean;
+}): Promise<Hosted> {
+  const base = `tx/scratchers/images/${params.gameNumber}/${params.kind}-<sha>.<ext>`;
+  return downloadAndHost({
+    sourceUrl: params.sourceUrl,
+    keyHint: base,
+    storage: params.storage,
+    dryRun: params.dryRun,
+  });
+}

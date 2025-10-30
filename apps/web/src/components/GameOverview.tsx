@@ -3,7 +3,7 @@
 import './GameOverview.css';
 import { ErrorBoundary } from 'apps/web/src/components/ErrorBoundary';
 import {
-  GameKey, drawNightsLabel, nextDrawLabelFor,
+  drawNightsLabel, nextDrawLabelFor,
   fetchRowsWithCache, fetchLogicalRows,
   defaultSinceFor,
   getCurrentEraConfig, jackpotOdds, jackpotOddsForLogical,
@@ -11,21 +11,23 @@ import {
   fetchDigitRowsFor, computeDigitStats,
   fetchPick10RowsFor, computePick10Stats,
   analyzeGameAsync,
-  // types for branching
-  type Period, type LogicalGameKey
 } from '@lsp/lib';
+import type {
+  GameKey,
+  Period,
+  LogicalGameKey
+} from '@lsp/lib'
 import { useEffect, useRef, useState } from 'react';
 import {
   resolveGameMeta,
-    isDigitShape,
     coerceAnyPeriod,
     displayNameFor,
     overviewPlanFor,
     overviewStepsFor,
 } from '@lsp/lib';
 
-// Canonical-only; never used for scratchers
-type CanonicalDrawGame = Exclude<GameKey, 'ga_scratchers'>;
+// All routed draw games are canonical in the new types
+type CanonicalDrawGame = GameKey;
 
 type Props = {
   game: CanonicalDrawGame;
@@ -76,20 +78,8 @@ function GameOverviewInner({ game, logical, period = 'both' }: Props) {
           const per: 'midday'|'evening' = (plan.effPeriod === 'midday' ? 'midday' : 'evening');
           const rows = await fetchDigitRowsFor(plan.digitLogical!, per);
           if (cancelled()) return;
-          const k = plan.kDigits!;
-          if (k === 3 || k === 4) {
-            setDigitStats(computeDigitStats(rows, k));
-            return;
-          }
-          // Proxy to nearest supported k (3 or 4) to keep UI populated gracefully
-          const proxyK: 3|4 = (k === 2 ? 3 : 4);
-          const proxyRows = rows.map(r => ({
-            date: r.date,
-            digits: (k === 2)
-              ? [r.digits[0] ?? 0, r.digits[1] ?? 0, r.digits[1] ?? 0]
-              : r.digits.slice(0, 4),
-          }));
-          setDigitStats(computeDigitStats(proxyRows as any, proxyK));
+          const k = plan.kDigits!; // k is now 2|3|4|5 (native support)
+          setDigitStats(computeDigitStats(rows, k));
           return;
         }
 

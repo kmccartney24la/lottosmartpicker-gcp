@@ -11,13 +11,14 @@ import SelectedLatest from 'apps/web/src/components/SelectedLatest';
 import HintLegend from 'apps/web/src/components/HintLegend';
 import dynamic from 'next/dynamic';
 import {
-  GameKey,
-  LottoRow,
   fetchRowsWithCache,
   getCurrentEraConfig,
   analyzeGameAsync,
 } from '@lsp/lib';
-import { useIsMobile } from '@lsp/lib/react/breakpoints';
+import type {
+  LottoRow,
+  GameKey,
+} from '@lsp/lib';
 import { ErrorBoundary } from 'apps/web/src/components/ErrorBoundary';
 
 const AdsLot = dynamic(() => import('apps/web/src/components/ads/AdsLot'), { ssr: false });
@@ -28,7 +29,7 @@ const GAME_OPTIONS: { key: CanonicalDrawGame; label: string }[] = [
   { key: 'multi_cash4life',    label: 'Cash4Life' },
   { key: 'multi_megamillions', label: 'Mega Millions'},
   { key: 'multi_powerball',    label: 'Powerball'},
-  { key: 'ga_fantasy5',        label: 'Fantasy 5' },
+  { key: 'ga_fantasy5',        label: 'Fantasy 5 (GA)' },
 ];
 
 export default function HomeClient() {
@@ -40,8 +41,6 @@ export default function HomeClient() {
   const [error, setError] = useState<string | null>(null);
   const [compact, setCompact] = useState<boolean>(true);
   const [showPast, setShowPast] = useState<boolean>(false);
-  const isMobile = useIsMobile();
-  const drawerMode = isMobile;
   const [page, setPage] = useState(1);
   const pageSize = 25;
   const UI_CAP = 2000; // hard cap for what the sidebar should render
@@ -86,14 +85,6 @@ export default function HomeClient() {
     }
   }, [game]);
   useEffect(() => { void load(); }, [load]);
-
-  const ensureRecommendedForSelected = useCallback(async () => {
-    const existing = analysisByGame[game];
-    if (existing) return { recMain: existing.recMain, recSpec: existing.recSpec };
-    const a = await analyzeGameAsync(rowsAll, game);
-    setAnalysisByGame(prev => ({ ...prev, [game]: a }));
-    return { recMain: a.recMain, recSpec: a.recSpec };
-  }, [analysisByGame, game, rowsAll]);
 
   const openPastDraws = useCallback(() => { setShowPast(true); }, []);
 
@@ -151,7 +142,7 @@ export default function HomeClient() {
                     fallback={
                       <div className="card p-3 text-sm">
                         <div className="font-medium mb-1">Generator temporarily unavailable.</div>
-                        <div>Try changing the game/period or reload the page.</div>
+                        <div>Try changing the game or reloading the page.</div>
                       </div>
                     }
                   >
@@ -163,7 +154,13 @@ export default function HomeClient() {
                     onEnsureRecommended={async () => {
                       const sinceEra = getCurrentEraConfig(game).start;
                       const rows = await fetchRowsWithCache({ game, since: sinceEra });
-                      return analyzeGameAsync(rows, game);
+                      const a = await analyzeGameAsync(rows, game);
+                      // Cache per-game so subsequent openings are instant
+                      setAnalysisByGame(prev => ({
+                        ...prev,
+                        [game]: a,
+                      }));
+                      return a;
                     }}
                   />
                   </ErrorBoundary>

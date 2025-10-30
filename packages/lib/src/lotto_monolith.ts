@@ -34,7 +34,11 @@
    | 'ny_win4'
    | 'ny_lotto'
    | 'ny_quick_draw_rep' // optional; see note below
-   | 'ny_pick10_rep';    // optional; see note below
+   | 'ny_pick10_rep'    // optional; see note below
+   // Texas (canonical)
+   | 'tx_lotto_texas'
+   | 'tx_texas_two_step'
+   | 'tx_cash5';
 
 // ---------- NY logical keys & period model (for pages/UI) ----------
 // Logical keys shown in the NY page UI
@@ -58,6 +62,10 @@
    | 'fl_pick4'
    | 'fl_pick3'
    | 'fl_pick2'
+   // Texas
+   | 'tx_all_or_nothing'
+   | 'tx_pick3'
+   | 'tx_daily4'
    // also allow multi-state on that page
    | 'multi_powerball'
    | 'multi_megamillions'
@@ -66,7 +74,8 @@
 // Generalized period tags (keeps existing M/E, adds 5-period day parts)
 export type CashPopPeriod = 'morning' | 'matinee' | 'afternoon' | 'evening' | 'latenight';
 // 'all' is the new selector; 'both' remains as a legacy alias.
-export type Period = 'midday' | 'evening' | 'both' | 'all' | CashPopPeriod;
+// Add TX’s Day/Night to the shared Period union.
+export type Period = 'midday' | 'evening' | 'day' | 'night' | 'both' | 'all' | CashPopPeriod;
 
 // ---- Narrow unions for specific registries ----
 // Games that have an *era* used by 5-ball analysis/generator.
@@ -81,7 +90,9 @@ export type EraGame =
   | 'ny_lotto'
   | 'fl_fantasy5'
   | 'fl_lotto'
-  | 'fl_jackpot_triple_play';
+  | 'fl_jackpot_triple_play'
+  | 'tx_lotto_texas'
+  | 'tx_cash5';
 
 // Games that we fetch from Socrata (NY Open Data).
 export type SocrataGame =
@@ -121,7 +132,11 @@ export type UnderlyingKey =
   // California Daily 3 / Daily 4 (file-backed, flexible CSVs)
   | 'ca_daily3_midday'
   | 'ca_daily3_evening'
-  | 'ca_daily4';
+  | 'ca_daily4'
+  // Texas (flexible CSVs)
+  | 'tx_all_or_nothing_morning' | 'tx_all_or_nothing_day' | 'tx_all_or_nothing_evening' | 'tx_all_or_nothing_night'
+  | 'tx_pick3_morning' | 'tx_pick3_day' | 'tx_pick3_evening' | 'tx_pick3_night'
+  | 'tx_daily4_morning' | 'tx_daily4_day' | 'tx_daily4_evening' | 'tx_daily4_night';
 
 // ---------- Feature Flags ----------
 export const FEATURES = {
@@ -142,6 +157,9 @@ type PeriodMap = {
   matinee?: UnderlyingKey[];
   afternoon?: UnderlyingKey[];
   latenight?: UnderlyingKey[];
+  // Texas
+  day?: UnderlyingKey[];
+  night?: UnderlyingKey[];
 };
 
 export const LOGICAL_TO_UNDERLYING: Record<LogicalGameKey, PeriodMap> = {
@@ -175,6 +193,30 @@ export const LOGICAL_TO_UNDERLYING: Record<LogicalGameKey, PeriodMap> = {
     afternoon:['fl_cashpop_afternoon'],
     evening:  ['fl_cashpop_evening'],
     latenight:['fl_cashpop_latenight'],
+  },
+  // ---- Texas All or Nothing (4 periods) ----
+  tx_all_or_nothing: {
+    all:     ['tx_all_or_nothing_morning','tx_all_or_nothing_day','tx_all_or_nothing_evening','tx_all_or_nothing_night'],
+    morning: ['tx_all_or_nothing_morning'],
+    day:     ['tx_all_or_nothing_day'],
+    evening: ['tx_all_or_nothing_evening'],
+    night:   ['tx_all_or_nothing_night'],
+  },
+  // ---- Texas Pick 3 (4 periods, with Fireball in CSV as fb/fireball) ----
+  tx_pick3: {
+    all:     ['tx_pick3_morning','tx_pick3_day','tx_pick3_evening','tx_pick3_night'],
+    morning: ['tx_pick3_morning'],
+    day:     ['tx_pick3_day'],
+    evening: ['tx_pick3_evening'],
+    night:   ['tx_pick3_night'],
+  },
+  // ---- Texas Daily 4 (4 periods, with Fireball in CSV as fb/fireball) ----
+  tx_daily4: {
+    all:     ['tx_daily4_morning','tx_daily4_day','tx_daily4_evening','tx_daily4_night'],
+    morning: ['tx_daily4_morning'],
+    day:     ['tx_daily4_day'],
+    evening: ['tx_daily4_evening'],
+    night:   ['tx_daily4_night'],
   },
 };
 
@@ -227,7 +269,9 @@ function resolveEraGame(game: GameKey): EraGame {
     game === 'ga_fantasy5' ||
     game === 'ca_superlotto_plus' ||
     game === 'fl_lotto' ||
-    game === 'fl_jackpot_triple_play'
+    game === 'fl_jackpot_triple_play' ||
+    game === 'tx_lotto_texas' ||
+    game === 'tx_cash5'
   ) {
     return game;
   }
@@ -312,6 +356,11 @@ export const GAME_TO_API_PATH = Object.freeze(<Record<GameKey, string>>{
   fl_pick3_evening:   `${FILE_BASE}/fl/pick3_evening.csv`,
   fl_pick2_midday:    `${FILE_BASE}/fl/pick2_midday.csv`,
   fl_pick2_evening:   `${FILE_BASE}/fl/pick2_evening.csv`,
+  // --- Texas ---
+  tx_lotto_texas:     `${FILE_BASE}/tx/lotto_texas.csv`,
+  tx_texas_two_step:  `${FILE_BASE}/tx/texas_two_step.csv`,
+  tx_cash5:          `${FILE_BASE}/tx/cash5.csv`,
+
   // --- New York (UNDERLYING, file-backed) ---
   ny_nylotto:         `${FILE_BASE}/ny/nylotto.csv`,
   ny_numbers_midday:  `${FILE_BASE}/ny/numbers_midday.csv`,
@@ -394,6 +443,21 @@ function apiPathForUnderlying(u: UnderlyingKey): string {
     case 'ca_daily3_midday':     return `${FILE_BASE}/ca/daily3_midday.csv`;
     case 'ca_daily3_evening':    return `${FILE_BASE}/ca/daily3_evening.csv`;
     case 'ca_daily4':            return `${FILE_BASE}/ca/daily4.csv`;
+
+    // --- Texas flexible files ---
+    case 'tx_all_or_nothing_morning': return `${FILE_BASE}/tx/all_or_nothing_morning.csv`;
+    case 'tx_all_or_nothing_day':     return `${FILE_BASE}/tx/all_or_nothing_day.csv`;
+    case 'tx_all_or_nothing_evening': return `${FILE_BASE}/tx/all_or_nothing_evening.csv`;
+    case 'tx_all_or_nothing_night':   return `${FILE_BASE}/tx/all_or_nothing_night.csv`;
+    // --- Texas digits (flexible files; include Fireball column as fb/fireball) ---
+    case 'tx_pick3_morning':  return `${FILE_BASE}/tx/pick3_morning.csv`;
+    case 'tx_pick3_day':      return `${FILE_BASE}/tx/pick3_day.csv`;
+    case 'tx_pick3_evening':  return `${FILE_BASE}/tx/pick3_evening.csv`;
+    case 'tx_pick3_night':    return `${FILE_BASE}/tx/pick3_night.csv`;
+    case 'tx_daily4_morning': return `${FILE_BASE}/tx/daily4_morning.csv`;
+    case 'tx_daily4_day':     return `${FILE_BASE}/tx/daily4_day.csv`;
+    case 'tx_daily4_evening': return `${FILE_BASE}/tx/daily4_evening.csv`;
+    case 'tx_daily4_night':   return `${FILE_BASE}/tx/daily4_night.csv`;
   }
   throw new Error(`No API path for underlying key: ${u}`);
 }
@@ -467,6 +531,7 @@ export async function fetchRowsWithCache(options: {
   // Phase 0: convert to SOFT error so UI never crashes on fast tab switches.
   if (
     game.startsWith('fl_pick') ||
+    game === 'tx_texas_two_step' ||   // 4 + Bonus (not 5-ball canonical)
     game.startsWith('ny_numbers') ||
     game.startsWith('ny_win4') ||
     game === 'ny_quick_draw' ||
@@ -699,6 +764,26 @@ export const CURRENT_ERA: Record<EraGame, EraConfig> = {
     description:
       'California Fantasy 5: 5 mains from 1–39, no bonus ball. Daily draws; entry closes at 6:30 p.m. PT.',
   },
+  tx_lotto_texas: {
+    // Lotto Texas has been 6-from-54 (no separate bonus) since 2006.
+    start: '2006-04-19',
+    mainMax: 54,
+    specialMax: 54,     // store the 6th main in `special` (schema compatibility)
+    mainPick: 6,
+    label: '6/54 (no bonus; 6th stored as special)',
+    description:
+      'Lotto Texas: 6 mains from 1–54. We store the 6th main in “special” to match the 5+special CSV schema.',
+  },
+    tx_cash5: {
+    start: '2018-09-23',      // conservative bound for current 5/35 era
+    mainMax: 35,
+    specialMax: 0,
+    mainPick: 5,
+    label: '5/35 (no bonus)',
+    description:
+      'Texas Cash Five: 5 mains from 1–35, no bonus ball. Draws daily.',
+  },
+
 };
 
 export function getCurrentEraConfig(game: GameKey): EraConfig {
@@ -761,7 +846,7 @@ export function normalizeRowsLoose(rows: any[]): LottoRow[] {
   if (!Array.isArray(rows)) return [];
   const isGameKey = (g: any): g is GameKey =>
     g === 'multi_powerball' || g === 'multi_megamillions' || g === 'multi_cash4life' ||
-    g === 'ga_fantasy5' || g === 'ny_take5';
+    g === 'ga_fantasy5' || g === 'ny_take5' || g === 'tx_cash5';
 
   const out: LottoRow[] = [];
   for (const r of rows) {
@@ -1058,7 +1143,7 @@ function toLottoShim(fr: FlexibleRow, rep: GameKey): LottoRow {
 // ---- fetchers for digits (Numbers/Win4) and Pick 10 ----
 // --- supports Florida digit logicals and returns optional fb ---
 export async function fetchDigitRowsFor(
-  logical: 'ny_numbers' | 'ny_win4' | 'fl_pick5' | 'fl_pick4' | 'fl_pick3' | 'fl_pick2' | 'ca_daily3' | 'ca_daily4',
+  logical: 'ny_numbers' | 'ny_win4' | 'fl_pick5' | 'fl_pick4' | 'fl_pick3' | 'fl_pick2' | 'ca_daily3' | 'ca_daily4' | 'tx_pick3' | 'tx_daily4',
   period: Period
 ): Promise<DigitRowEx[]> {
   const keys = underlyingKeysFor(logical, period);
@@ -1076,8 +1161,8 @@ export async function fetchDigitRowsFor(
       return flex.map(fr => {
         const d = fr.values.filter(Number.isFinite).slice(0, wantLen) as number[];
         if (d.length !== wantLen) return null;
-        // NY has no Fireball; FL digits do, and we surface it as fb
-        const fb = (logical.startsWith('fl_pick') && typeof fr.special === 'number' && Number.isFinite(fr.special))
+        // Fireball present for FL digits and TX digits (csv column: fb/fireball)
+        const fb = ((logical.startsWith('fl_pick') || logical.startsWith('tx_')) && typeof fr.special === 'number' && Number.isFinite(fr.special))
           ? fr.special
           : undefined;
         return { date: fr.date, digits: d, fb } as DigitRowEx;
@@ -1161,6 +1246,7 @@ export async function fetchLogicalRows(opts: {
     logical === 'fl_pick4'   ||
     logical === 'fl_pick5'   ||
     logical === 'fl_cashpop' ||
+    logical === 'tx_all_or_nothing' || // 12-of-24; not 5-ball
     logical === 'ny_quick_draw' ||
     logical === 'ny_pick10'     ||
     // Exclude CA digit logicals from 5-ball path
@@ -1705,8 +1791,10 @@ export function defaultSinceFor(game: GameKey): string | null {
     const d = new Date(today); d.setMonth(d.getMonth() - months); return d.toISOString().slice(0,10);
   };
   if (game === 'multi_powerball' || game === 'multi_megamillions' || game === 'multi_cash4life') return since(24);
-  if (game === 'ga_fantasy5' || game === 'ca_superlotto_plus' || game === 'ca_fantasy5' || game === 'fl_fantasy5_midday' || game === 'fl_fantasy5_evening' || game === 'ny_take5') return since(18);
-  if (game === 'fl_lotto' || game === 'fl_jackpot_triple_play' || game === 'ny_lotto') return since(24);
+  if (game === 'ga_fantasy5' || game === 'ca_superlotto_plus' || game === 'ca_fantasy5'
+   || game === 'fl_fantasy5_midday' || game === 'fl_fantasy5_evening' || game === 'ny_take5'
+   || game === 'tx_cash5') return since(18);
+  if (game === 'fl_lotto' || game === 'fl_jackpot_triple_play' || game === 'tx_lotto_texas' || game === 'ny_lotto') return since(24);
   return null; // leave rest unlimited for now
 }
 
@@ -1748,6 +1836,8 @@ export function digitKFor(logical: LogicalGameKey): 2|3|4|5 {
   if (logical === 'fl_pick2') return 2;
   if (logical === 'ca_daily3') return 3;
   if (logical === 'ca_daily4') return 4;
+  if (logical === 'tx_pick3')  return 3;
+  if (logical === 'tx_daily4') return 4;
   // sensible fallback; callers only pass digit games here
   return 3;
 }
@@ -1869,6 +1959,32 @@ export function computePick10Stats(rows: Pick10Row[]) {
 
 // ---------- Cash Pop (1-from-15), 5 daily periods ----------
 export type CashPopRow = { date: string; value: number };
+
+// ---------- Texas All or Nothing (12-from-24), 4 daily periods ----------
+export type AllOrNothingRow = { date: string; values: number[] }; // 12 numbers, 1..24
+
+export async function fetchAllOrNothingRows(
+  period: 'morning' | 'day' | 'evening' | 'night' | 'all'
+): Promise<AllOrNothingRow[]> {
+  const logical: LogicalGameKey = 'tx_all_or_nothing';
+  const keys = underlyingKeysFor(logical, period as Period);
+  const parts = await Promise.all(
+    keys.map(async (k) => {
+      const url = apiPathForUnderlying(k);
+      const res = await fetch(url);
+      if (!res.ok) return [] as AllOrNothingRow[];
+      const csv = await res.text();
+      const flex = parseFlexibleCsv(csv); // ascending
+      return flex
+        .map(fr => {
+          const vals = (fr.values || []).filter(n => Number.isFinite(n) && n >= 1 && n <= 24).slice(0, 12);
+          return vals.length === 12 ? ({ date: fr.date, values: vals } as AllOrNothingRow) : null;
+        })
+        .filter(Boolean) as AllOrNothingRow[];
+    })
+  );
+  return ([] as AllOrNothingRow[]).concat(...parts).sort((a,b)=>a.date.localeCompare(b.date));
+}
 
 // ---- Quick Draw (Keno-style, 20-from-80) ----
 export function computeQuickDrawStats(rows: QuickDrawRow[]) {
@@ -2173,9 +2289,15 @@ export function jackpotOddsForLogical(logical: LogicalGameKey): number | null {
     case 'ny_win4':    return Math.pow(10, 4);
     case 'ca_daily3':  return Math.pow(10, 3); // straight, exact order
     case 'ca_daily4':  return Math.pow(10, 4); // straight, exact order
+    case 'tx_pick3':   return Math.pow(10, 3); // straight, exact order
+    case 'tx_daily4':  return Math.pow(10, 4); // straight, exact order
     case 'ny_pick10':  return Math.round(nCk(80,10) / nCk(20,10));
     case 'ny_lotto':   return nCk(59, 6);
     case 'ny_quick_draw': return null;
+    case 'tx_all_or_nothing':
+      // Top prize if you match ALL 12 or NONE of 12 (two winning subsets).
+      // Total 12-number combinations from 24 is C(24,12); two winning outcomes → C(24,12)/2 odds denominator.
+      return Math.round(nCk(24,12) / 2);
     // NEW: Florida digit odds (straight, exact order)
     case 'fl_pick2':   return Math.pow(10, 2);
     case 'fl_pick3':   return Math.pow(10, 3);

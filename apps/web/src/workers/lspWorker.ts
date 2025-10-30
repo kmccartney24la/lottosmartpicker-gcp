@@ -7,11 +7,17 @@ import {
   parseCanonicalCsv, parseFlexibleCsv,
   computeStats, analyzeGame, generateTicket,
   // imports for non-5-ball work
-  computeDigitStats, computePick10Stats, computeQuickDrawStats,
-  generatePick10Ticket, generateQuickDrawTicket,
+  computeDigitStats,
+  computePick10Stats,
+  computeQuickDrawStats,
+  generatePick10Ticket,
+  generateQuickDrawTicket,
+  // AON (12/24) helpers come from the generalized k-of-N module
+  computeAllOrNothingStats,
+  generateAllOrNothingTicket,
   // types
   type LottoRow, type EraConfig, type GameKey,
-  type DigitRow, type Pick10Row, type QuickDrawRow,
+  type DigitRow, type Pick10Row, type QuickDrawRow, type AllOrNothingRow,
 } from '@lsp/lib';
 
 type Msg =
@@ -21,11 +27,14 @@ type Msg =
   | { id: string; type: 'analyzeGame'; rows: LottoRow[]; game: GameKey }
   | { id: string; type: 'generateTicket'; rows: LottoRow[]; game: GameKey; opts: any; override?: EraConfig }
   // non-5-ball tasks
-  | { id: string; type: 'computeDigitStats'; rows: DigitRow[]; k: 3|4 }
+  | { id: string; type: 'computeDigitStats'; rows: DigitRow[]; k: 2|3|4|5 }
   | { id: string; type: 'computePick10Stats'; rows: Pick10Row[] }
   | { id: string; type: 'computeQuickDrawStats'; rows: QuickDrawRow[] }
   | { id: string; type: 'generatePick10Ticket'; stats: ReturnType<typeof computePick10Stats>; opts: { mode:'hot'|'cold'; alpha:number } }
   | { id: string; type: 'generateQuickDrawTicket'; stats: ReturnType<typeof computeQuickDrawStats>; spots: 1|2|3|4|5|6|7|8|9|10; opts: { mode:'hot'|'cold'; alpha:number } }
+  // Texas All or Nothing (12 from 24)
+  | { id: string; type: 'computeAllOrNothingStats'; rows: AllOrNothingRow[] }
+  | { id: string; type: 'generateAllOrNothingTicket'; stats: ReturnType<typeof computeAllOrNothingStats>; opts: { mode:'hot'|'cold'; alpha:number } }
   | { id: string; type: 'cancel' };
 
 const inflight = new Map<string, boolean>();
@@ -83,6 +92,14 @@ self.onmessage = (e: MessageEvent<Msg>) => {
       }
       case 'generateQuickDrawTicket': {
         const out = generateQuickDrawTicket(msg.stats, msg.spots, msg.opts);
+        return done(true, out);
+      }
+      case 'computeAllOrNothingStats': {
+        const out = computeAllOrNothingStats(msg.rows);
+        return done(true, out);
+      }
+      case 'generateAllOrNothingTicket': {
+        const out = generateAllOrNothingTicket(msg.stats, msg.opts);
         return done(true, out);
       }
     }

@@ -9,16 +9,16 @@ import SelectedLatest from 'apps/web/src/components/SelectedLatest';
 import HintLegend from 'apps/web/src/components/HintLegend';
 import dynamic from 'next/dynamic';
 import {
-  // types + helpers from lotto.ts
+  fetchLogicalRows,
+  fetchDigitRowsFor,
+  analyzeGameAsync,
+  primaryKeyFor,
+} from '@lsp/lib';
+import type {
   LottoRow,
   GameKey,
   LogicalGameKey,
   Period,
-  fetchLogicalRows,
-  fetchDigitRowsFor,
-  analyzeGameAsync,
-  getCurrentEraConfig,
-  primaryKeyFor,
 } from '@lsp/lib';
 import { useIsMobile } from '@lsp/lib/react/breakpoints';
 import { ErrorBoundary } from 'apps/web/src/components/ErrorBoundary';
@@ -47,7 +47,7 @@ const GAME_OPTIONS: { key: CaLogicalKey; label: string; supportsPeriod: 'none' |
   { key: 'multi_megamillions', label: 'Mega Millions',      supportsPeriod: 'none' },
   { key: 'multi_powerball',    label: 'Powerball',          supportsPeriod: 'none' },
   { key: 'ca_superlotto_plus', label: 'SuperLotto Plus',    supportsPeriod: 'none' },
-  { key: 'ca_fantasy5',        label: 'Fantasy 5',          supportsPeriod: 'none' },
+  { key: 'ca_fantasy5',        label: 'Fantasy 5 (CA)',          supportsPeriod: 'none' },
   { key: 'ca_daily3',          label: 'Daily 3',            supportsPeriod: 'two'  },
   { key: 'ca_daily4',          label: 'Daily 4',            supportsPeriod: 'none' },
 ];
@@ -84,12 +84,6 @@ export default function HomeClientCA() {
 
   const repGame: GameKey = REP_FOR_LOGICAL[logical as CaLogicalKey];
 
-  // If a component needs *one underlying key* string (e.g., labels), use primaryKeyFor
-  const representativeUnderlying = useMemo(
-    () => primaryKeyFor(logical, period),
-    [logical, period]
-  );
-
   const load = useCallback(async () => {
     try {
       setLoading(true);
@@ -103,7 +97,8 @@ export default function HomeClientCA() {
         const k = logical === 'ca_daily4' ? 4 : 3;
         const per: TwoPeriod = toTwoPeriod(period); // Daily 3 respects midday/evening; Daily 4 uses its single file
         const digitRows = await fetchDigitRowsFor(logical as 'ca_daily3' | 'ca_daily4', per);
-        const ui = digitRows.slice(0, UI_CAP);
+        const ui =
+          digitRows.length > UI_CAP ? digitRows.slice(-UI_CAP) : digitRows;
         setPayload({
           kind: 'digits', // CA digits have no Fireball
           k,
@@ -165,14 +160,6 @@ export default function HomeClientCA() {
 
   // Analysis cache keyed by representative canonical GameKey
   const [analysisByRep, setAnalysisByRep] = useState<Partial<Record<GameKey, any>>>({});
-
-  const ensureRecommendedForSelected = useCallback(async () => {
-    const existing = analysisByRep[repGame];
-    if (existing) return { recMain: existing.recMain, recSpec: existing.recSpec };
-    const a = await analyzeGameAsync(rowsAll, repGame);
-    setAnalysisByRep((prev) => ({ ...prev, [repGame]: a }));
-    return { recMain: a.recMain, recSpec: a.recSpec };
-  }, [analysisByRep, repGame, rowsAll]);
 
   const openPastDraws = useCallback(() => {
     setShowPast(true);
@@ -287,7 +274,6 @@ export default function HomeClientCA() {
                         analysisForGame={analysisByRep[repGame] ?? null}
                         anLoading={loading}
                         onEnsureRecommended={async () => {
-                          const era = getCurrentEraConfig(repGame);
                           return analyzeGameAsync(rowsAll, repGame);
                         }}
                       />

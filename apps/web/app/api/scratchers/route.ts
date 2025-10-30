@@ -12,7 +12,7 @@ const BUCKET = process.env.DATA_BUCKET ?? 'lottosmartpicker-data';
 const FETCH_TIMEOUT_MS = 5000;
 
 // ✅ include 'ca'
-type Jurisdiction = 'ga' | 'ny' | 'fl' | 'ca';
+type Jurisdiction = 'ga' | 'ny' | 'fl' | 'ca' | 'tx';
 
 function indexCandidatesFor(j: Jurisdiction) {
   return [
@@ -102,6 +102,7 @@ export async function GET(request: NextRequest) {
       jParam === 'ny' ? 'ny' :
       jParam === 'fl' ? 'fl' :
       jParam === 'ca' ? 'ca' :
+      jParam === 'tx' ? 'tx' :
       'ga';
 
     const INDEX_CANDIDATES = indexCandidatesFor(j);

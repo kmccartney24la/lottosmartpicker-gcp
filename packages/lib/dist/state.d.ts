@@ -1,4 +1,4 @@
-export type StateKey = 'ga' | 'ca' | 'fl' | 'ny';
+export type StateKey = 'ga' | 'ca' | 'fl' | 'ny' | 'tx';
 export declare const DEFAULT_STATE: StateKey;
 export declare const LS_STATE = "lsp.state";
 export declare function stateFromPath(pathname: string): StateKey;

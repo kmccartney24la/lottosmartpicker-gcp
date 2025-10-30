@@ -13,7 +13,9 @@ type Task =
   | 'computePick10Stats'
   | 'computeQuickDrawStats'
   | 'generatePick10Ticket'
-  | 'generateQuickDrawTicket';
+  | 'generateQuickDrawTicket'
+  | 'computeAllOrNothingStats'
+  | 'generateAllOrNothingTicket';
 
 type WorkerFactory = () => Worker;
 

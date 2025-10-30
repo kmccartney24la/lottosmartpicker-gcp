@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useRef } from 'react';
-import { GameKey, isInDrawWindowFor } from '@lsp/lib';
+import { type GameKey, isInDrawWindowFor } from '@lsp/lib';
 
 /**
  * Auto-refresh strategy:

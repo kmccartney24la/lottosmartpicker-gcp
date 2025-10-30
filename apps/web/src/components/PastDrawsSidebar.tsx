@@ -3,28 +3,28 @@
 import './PastDrawsSidebar.css';
 import { ErrorBoundary } from 'apps/web/src/components/ErrorBoundary';
 import { useDrawerSwipe } from 'apps/web/src/hooks/useDrawerSwipe';
-import {
+import type {
   LottoRow,
   GameKey,
   LogicalGameKey,
   Period,
-  getCurrentEraConfig,
-  type DigitRow,
-  type Pick10Row,
-  type QuickDrawRow,
+  QuickDrawRow,
+  Pick10Row,
+  DigitRow,
 } from '@lsp/lib';
+import { toPastDrawsDigitsView, getCurrentEraConfig, } from '@lsp/lib';
 import { useEffect, useRef, useState, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import {
   resolveGameMeta,
   sidebarModeFor,
   sidebarHeaderLabel,
-  sidebarSpecialForRow,
   sidebarDateKey,
   rowToFiveView,
-  digitsKFor,
   type FiveLikeRow,
   type SidebarMode,
+  // use the registry's meta-driven helper (shape-aware)
+  digitsKFor,
 } from '@lsp/lib';
 
 
@@ -42,6 +42,8 @@ export type PastDrawsPayload =
   | { kind: 'quickdraw'; rows: QuickDrawRow[] }
   // Optional explicit NY Lotto extended shape if parent provides it
   | { kind: 'ny_lotto'; rows: { date: string; mains: number[]; bonus: number }[] }
+  // NEW: Texas All or Nothing (12 from 24)
+  | { kind: 'all_or_nothing'; rows: { date: string; values: number[] }[] }
   // NEW: Cash Pop (1 number per draw)
   | { kind: 'cashpop'; rows: { date: string; value: number }[] };
 
@@ -172,6 +174,17 @@ function PastDrawsSidebarInner({
         case 'five':
           asFive(payload.rows, payload.game);
           break;
+          case 'all_or_nothing': {
+          for (const r of payload.rows) {
+            const vals = (r.values || []).filter(n => Number.isFinite(n) && n >= 1 && n <= 24).slice(0, 12);
+            rows.push({
+              date: r.date,
+              values: vals,
+              label: 'Numbers',
+            });
+          }
+          break;
+        }
           case 'cashpop': {
           for (const r of payload.rows) {
             rows.push({
@@ -185,21 +198,15 @@ function PastDrawsSidebarInner({
           case 'digits_fb': {
           const k = payload.k;
           for (const r of payload.rows) {
-            const values = (r.digits || []).slice(0, k);
-            const sp = sidebarSpecialForRow({
-              meta,
-              mains: values,
-              special: r.fb,
-              specialLabelOverride: 'Fireball',
-            });
+            const view = toPastDrawsDigitsView(r, k);
             rows.push({
-              date: r.date,
-              values,
-              special: sp.special,
+              date: view.date,
+              values: view.values,
+              special: view.special,
               label: 'Digits',
-              sep: sp.sep,
-              specialLabel: sp.label,
-              specialClass: sp.className,
+              sep: view.sep,
+              specialLabel: view.specialLabel,
+              specialClass: view.special ? 'num-bubble--fireball' : undefined,
             });
           }
           break;
@@ -314,9 +321,18 @@ function PastDrawsSidebarInner({
   // Soft render guard: never render more than N rows to avoid jank/crashes.
  // Keep this generous; parent should still paginate/cap at fetch time.
  const MAX_RENDER_ROWS = 2000; // tune to taste
- const rowsToRender = sortedViewRows.length > MAX_RENDER_ROWS
-   ? sortedViewRows.slice(0, MAX_RENDER_ROWS)
-   : sortedViewRows;
+ const rowsToRender = (() => {
+    if (sortedViewRows.length <= MAX_RENDER_ROWS) {
+      return sortedViewRows;
+    }
+    // If we're showing newest → oldest, we want the *first* N (they're the newest).
+    // If we're showing oldest → newest, we want the *last* N (they're the newest).
+    if (effectiveSortDir === 'desc') {
+      return sortedViewRows.slice(0, MAX_RENDER_ROWS);
+    }
+    // asc: oldest → newest
+    return sortedViewRows.slice(-MAX_RENDER_ROWS);
+  })();
 
   const headerLabel =
     viewRows[0]?.label || sidebarHeaderLabel(meta, inferredMode);
@@ -416,7 +432,7 @@ function PastDrawsSidebarInner({
                         {r.values.map((n, i) => (
                           <span className="num-bubble" key={i}>{n}</span>
                         ))}
-                        {r.sep && (
+                        {showSep && (
                           <>
                             <span className="numbers-sep" aria-hidden="true">|</span>
                             <span

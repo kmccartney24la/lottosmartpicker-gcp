@@ -11,6 +11,8 @@ export function stateFromPath(pathname) {
         return 'fl';
     if (pathname.startsWith('/ca'))
         return 'ca';
+    if (pathname.startsWith('/tx'))
+        return 'tx';
     return DEFAULT_STATE;
 }
 export function sectionFromPath(pathname) {
@@ -25,13 +27,14 @@ export function routeFor(state, section) {
     const base = state === 'ny' ? '/ny' :
         state === 'ga' ? '/ga' :
             state === 'ca' ? '/ca' :
-                '/fl';
+                state === 'tx' ? '/tx' :
+                    '/fl';
     return section === 'scratchers' ? `${base}/scratchers` : base;
 }
 export function getStoredState(fb = DEFAULT_STATE) {
     try {
         const raw = typeof window !== 'undefined' ? window.localStorage.getItem(LS_STATE) : null;
-        return (raw === 'ny' || raw === 'ga' || raw === 'fl' || raw === 'ca') ? raw : fb;
+        return (raw === 'ny' || raw === 'ga' || raw === 'fl' || raw === 'ca' || raw === 'tx') ? raw : fb;
     }
     catch {
         return fb;

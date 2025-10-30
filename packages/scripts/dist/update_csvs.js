@@ -23,9 +23,13 @@ import { buildCaliforniaDaily3Update } from "./sources/ca/ca_daily3.js";
 import { buildCaliforniaDaily4Update } from "./sources/ca/ca_daily4.js";
 import { buildCaliforniaSuperLottoPlusUpdate } from "./sources/ca/ca_superlotto_plus.js";
 import { buildCaliforniaFantasy5Update } from "./sources/ca/ca_fantasy5.js";
-import { buildSocrataCsv, 
-// limit-aware helpers for NY Quick Draw
-buildQuickDrawRecentCsv40k, } from "./builders/socrata.js";
+import { buildTexasLottoCsv } from "./sources/tx/tx_lotto_texas.js";
+import { buildTexasTwoStepCsv } from "./sources/tx/tx_two_step.js";
+import { buildTexasAllOrNothingCSVs } from "./sources/tx/tx_all_or_nothing.js";
+import { buildTexasPick3Csvs } from "./sources/tx/tx_pick3.js";
+import { buildTexasDaily4Csvs } from "./sources/tx/tx_daily4.js";
+import { buildTexasCash5Csv } from "./sources/tx/tx_cash5.js";
+import { buildSocrataCsv } from "./builders/socrata.js";
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 // now you can use: require('node:fs'), require.resolve('some-pkg'), etc.
@@ -56,7 +60,12 @@ const BOOL = (v) => {
     return s === "1" || s === "true" || s === "yes";
 };
 // sensible default, override via env if you like
-const CSV_CACHE_CONTROL = process.env.CSV_CACHE_CONTROL ?? "public, max-age=300, must-revalidate";
+// Full files: immutable, cache long
+const FULL_CSV_CACHE = process.env.FULL_CSV_CACHE
+    ?? "public, max-age=86400, immutable";
+// Latest “rolling” files: always revalidate in browsers
+const LATEST_CSV_CACHE = process.env.LATEST_CSV_CACHE
+    ?? "public, max-age=0, no-cache, must-revalidate, stale-while-revalidate=60";
 async function maybeUploadCsv(params) {
     const { bucketName, objectPath, fullCsv } = params;
     // Full CSV
@@ -65,7 +74,7 @@ async function maybeUploadCsv(params) {
         objectPath,
         contentType: "text/csv; charset=utf-8",
         bodyBuffer: Buffer.from(fullCsv, "utf8"),
-        cacheControl: CSV_CACHE_CONTROL,
+        cacheControl: FULL_CSV_CACHE,
     });
     // Latest CSV (optional but handy)
     const latest = latestCsv(fullCsv);
@@ -74,8 +83,15 @@ async function maybeUploadCsv(params) {
         objectPath: objectPath.replace(/\.csv$/i, ".latest.csv"),
         contentType: "text/csv; charset=utf-8",
         bodyBuffer: Buffer.from(latest, "utf8"),
-        cacheControl: CSV_CACHE_CONTROL,
+        cacheControl: LATEST_CSV_CACHE,
     });
+}
+function latestN(fullCsv, n) {
+    const lines = fullCsv.trimEnd().split(/\r?\n/);
+    if (lines.length <= 1)
+        return fullCsv; // header only or empty
+    const [header, ...rows] = lines;
+    return [header, ...rows.slice(0, n)].join("\n") + "\n";
 }
 // ---------- main ----------
 export async function main() {
@@ -94,6 +110,12 @@ export async function main() {
     const skipCADaily4 = BOOL(process.env.SKIP_CA_DAILY4);
     const skipCASLP = BOOL(process.env.SKIP_CA_SUPERLOTTO_PLUS);
     const skipCAF5 = BOOL(process.env.SKIP_CA_FANTASY5);
+    const skipTXLotto = BOOL(process.env.SKIP_TX_LOTTO);
+    const skipTXTwoStep = BOOL(process.env.SKIP_TX_TWO_STEP);
+    const skipTXAON = BOOL(process.env.SKIP_TX_AON);
+    const skipTXPick3 = BOOL(process.env.SKIP_TX_PICK3);
+    const skipTXDaily4 = BOOL(process.env.SKIP_TX_DAILY4);
+    const skipTXCash5 = BOOL(process.env.SKIP_TX_CASH5);
     const socrataToken = process.env.NY_SOCRATA_APP_TOKEN || process.env.SOCRATA_APP_TOKEN;
     console.log(`[update-csvs] Bucket: ${bucket}`);
     console.log(`[update-csvs] Bucket: ${bucket}\n` +
@@ -110,25 +132,39 @@ export async function main() {
         `skipFLCashPop=${skipFLCashPop} ` +
         `skipCADaily3=${skipCADaily3} ` +
         `skipCASLP=${skipCASLP} ` +
-        `skipCAF5=${skipCAF5} `);
+        `skipCAF5=${skipCAF5} ` +
+        `skipTXLotto=${skipTXLotto} ` +
+        `skipTXTwoStep=${skipTXTwoStep} ` +
+        `skipTXAON=${skipTXAON} ` +
+        `skipTXPick3=${skipTXPick3} ` +
+        `skipTXDaily4=${skipTXDaily4} ` +
+        `skipTXCash5=${skipTXCash5} `);
     // --- Draws: Socrata (Multi-state + New York) ---
     if (!skipSocrata) {
         if (!socrataToken) {
             throw new Error("[update-csvs] Missing NY_SOCRATA_APP_TOKEN/SOCRATA_APP_TOKEN while SKIP_SOCRATA=0");
         }
-        await Promise.all(SOCRATA_JOBS.map(async ({ key, objectPath }) => {
-            let csv;
-            // SPECIAL CASE: limit NY Quick Draw to a manageable recent slice (last 40,000)
-            if (key === "ny_quick_draw") {
-                console.log(`[update-csvs] NY Quick Draw via lastN=40000`);
-                csv = await buildQuickDrawRecentCsv40k(socrataToken);
+        // Run jobs sequentially so Quick Draw's large pull can't starve others,
+        // and so one failure doesn't cancel the rest.
+        for (const { key, objectPath } of SOCRATA_JOBS) {
+            try {
+                if (key === "ny_quick_draw") {
+                    console.log(`[update-csvs] NY Quick Draw: newest 50,000 rows (draw_date DESC, draw_number DESC)`);
+                }
+                else {
+                    console.log(`[update-csvs] Socrata: ${key} → ${objectPath}`);
+                }
+                const csv = await buildSocrataCsv(key, socrataToken);
+                await maybeUploadCsv({ bucketName: bucket, objectPath, fullCsv: csv });
+                // Intentionally NOT writing:
+                //  - ny/quick_draw_latest_2000.csv
+                //  - ny/quick_draw_by_day/*
             }
-            else {
-                // All other Socrata datasets fetch full history as before
-                csv = await buildSocrataCsv(key, socrataToken);
+            catch (e) {
+                console.error(`[update-csvs] Socrata job failed for ${key} (${objectPath}):`, e);
+                // continue to next job
             }
-            await maybeUploadCsv({ bucketName: bucket, objectPath, fullCsv: csv });
-        }));
+        }
     }
     else {
         console.log("[update-csvs] SKIP_SOCRATA=1 — skipping all Socrata-driven draws (multi + NY)");
@@ -151,85 +187,121 @@ export async function main() {
     }
     // --- Draws: Florida LOTTO (from official PDF) ---
     if (!skipFLLotto) {
-        await buildFloridaLottoCsv(); // writes public/data/fl/lotto.csv
-        const csv = await fs.readFile("public/data/fl/lotto.csv", "utf8");
-        await maybeUploadCsv({
-            bucketName: bucket,
-            objectPath: "fl/lotto.csv",
-            fullCsv: csv,
-        });
+        try {
+            console.log("[update-csvs] FL Lotto: running update…");
+            await buildFloridaLottoCsv(); // writes public/data/fl/lotto.csv
+            const csv = await fs.readFile("public/data/fl/lotto.csv", "utf8");
+            await maybeUploadCsv({
+                bucketName: bucket,
+                objectPath: "fl/lotto.csv",
+                fullCsv: csv,
+            });
+        }
+        catch (e) {
+            console.error("[update-csvs] FL Lotto FAILED — continuing:", e);
+        }
     }
     else {
         console.log("[update-csvs] SKIP_FL_LOTTO=1 — skipping Florida Lotto");
     }
     // --- Draws: Florida Jackpot Triple Play (from official PDF) ---
     if (!skipFLJtp) {
-        await buildFloridaJtpCsv(); // writes public/data/fl/jackpot_triple_play.csv
-        const csv = await fs.readFile("public/data/fl/jackpot_triple_play.csv", "utf8");
-        await maybeUploadCsv({
-            bucketName: bucket,
-            objectPath: "fl/jackpot_triple_play.csv",
-            fullCsv: csv,
-        });
+        try {
+            await buildFloridaJtpCsv(); // writes public/data/fl/jackpot_triple_play.csv
+            const csv = await fs.readFile("public/data/fl/jackpot_triple_play.csv", "utf8");
+            await maybeUploadCsv({
+                bucketName: bucket,
+                objectPath: "fl/jackpot_triple_play.csv",
+                fullCsv: csv,
+            });
+        }
+        catch (e) {
+            console.error("[update-csvs] FL Jackpot Triple Play FAILED — continuing:", e);
+        }
     }
     else {
         console.log("[update-csvs] SKIP_FL_JTP=1 — skipping Florida Jackpot Triple Play");
     }
     // --- Draws: Florida Fantasy 5 (from official PDF) ---
     if (!skipFLF5) {
-        // Writes:
-        //   public/data/fl/fantasy5_midday.csv
-        //   public/data/fl/fantasy5_evening.csv
-        // Optional local override: FL_FF_PDF_PATH=/path/to/ff.pdf
-        await buildFloridaFantasy5Csvs();
-        const mid = await fs.readFile("public/data/fl/fantasy5_midday.csv", "utf8");
-        const eve = await fs.readFile("public/data/fl/fantasy5_evening.csv", "utf8");
-        await maybeUploadCsv({ bucketName: bucket, objectPath: "fl/fantasy5_midday.csv", fullCsv: mid });
-        await maybeUploadCsv({ bucketName: bucket, objectPath: "fl/fantasy5_evening.csv", fullCsv: eve });
+        try {
+            // Writes:
+            //   public/data/fl/fantasy5_midday.csv
+            //   public/data/fl/fantasy5_evening.csv
+            // Optional local override: FL_FF_PDF_PATH=/path/to/ff.pdf
+            await buildFloridaFantasy5Csvs();
+            const mid = await fs.readFile("public/data/fl/fantasy5_midday.csv", "utf8");
+            const eve = await fs.readFile("public/data/fl/fantasy5_evening.csv", "utf8");
+            await maybeUploadCsv({ bucketName: bucket, objectPath: "fl/fantasy5_midday.csv", fullCsv: mid });
+            await maybeUploadCsv({ bucketName: bucket, objectPath: "fl/fantasy5_evening.csv", fullCsv: eve });
+        }
+        catch (e) {
+            console.error("[update-csvs] FL Fantasy 5 FAILED — continuing:", e);
+        }
     }
     else {
         console.log("[update-csvs] SKIP_FL_FANTASY5=1 — skipping Florida Fantasy 5");
     }
     // --- Draws: Florida Pick 5 (from official PDF) ---
     if (!skipFLPick5) {
-        await buildFloridaPick5Csvs();
-        const mid = await fs.readFile("public/data/fl/pick5_midday.csv", "utf8");
-        const eve = await fs.readFile("public/data/fl/pick5_evening.csv", "utf8");
-        await maybeUploadCsv({ bucketName: bucket, objectPath: "fl/pick5_midday.csv", fullCsv: mid });
-        await maybeUploadCsv({ bucketName: bucket, objectPath: "fl/pick5_evening.csv", fullCsv: eve });
+        try {
+            await buildFloridaPick5Csvs();
+            const mid = await fs.readFile("public/data/fl/pick5_midday.csv", "utf8");
+            const eve = await fs.readFile("public/data/fl/pick5_evening.csv", "utf8");
+            await maybeUploadCsv({ bucketName: bucket, objectPath: "fl/pick5_midday.csv", fullCsv: mid });
+            await maybeUploadCsv({ bucketName: bucket, objectPath: "fl/pick5_evening.csv", fullCsv: eve });
+        }
+        catch (e) {
+            console.error("[update-csvs] FL Pick 5 FAILED — continuing:", e);
+        }
     }
     else {
         console.log("[update-csvs] SKIP_FL_PICK5=1 — skipping Florida Pick 5");
     }
     // --- Draws: Florida Pick 4 (from official PDF) ---
     if (!skipFLPick4) {
-        await buildFloridaPick4Csvs();
-        const mid = await fs.readFile("public/data/fl/pick4_midday.csv", "utf8");
-        const eve = await fs.readFile("public/data/fl/pick4_evening.csv", "utf8");
-        await maybeUploadCsv({ bucketName: bucket, objectPath: "fl/pick4_midday.csv", fullCsv: mid });
-        await maybeUploadCsv({ bucketName: bucket, objectPath: "fl/pick4_evening.csv", fullCsv: eve });
+        try {
+            await buildFloridaPick4Csvs();
+            const mid = await fs.readFile("public/data/fl/pick4_midday.csv", "utf8");
+            const eve = await fs.readFile("public/data/fl/pick4_evening.csv", "utf8");
+            await maybeUploadCsv({ bucketName: bucket, objectPath: "fl/pick4_midday.csv", fullCsv: mid });
+            await maybeUploadCsv({ bucketName: bucket, objectPath: "fl/pick4_evening.csv", fullCsv: eve });
+        }
+        catch (e) {
+            console.error("[update-csvs] FL Pick 4 FAILED — continuing:", e);
+        }
     }
     else {
         console.log("[update-csvs] SKIP_FL_PICK4=1 — skipping Florida Pick 4");
     }
     // --- Draws: Florida Pick 3 (from official PDF) ---
     if (!skipFLPick3) {
-        await buildFloridaPick3Csvs();
-        const mid = await fs.readFile("public/data/fl/pick3_midday.csv", "utf8");
-        const eve = await fs.readFile("public/data/fl/pick3_evening.csv", "utf8");
-        await maybeUploadCsv({ bucketName: bucket, objectPath: "fl/pick3_midday.csv", fullCsv: mid });
-        await maybeUploadCsv({ bucketName: bucket, objectPath: "fl/pick3_evening.csv", fullCsv: eve });
+        try {
+            await buildFloridaPick3Csvs();
+            const mid = await fs.readFile("public/data/fl/pick3_midday.csv", "utf8");
+            const eve = await fs.readFile("public/data/fl/pick3_evening.csv", "utf8");
+            await maybeUploadCsv({ bucketName: bucket, objectPath: "fl/pick3_midday.csv", fullCsv: mid });
+            await maybeUploadCsv({ bucketName: bucket, objectPath: "fl/pick3_evening.csv", fullCsv: eve });
+        }
+        catch (e) {
+            console.error("[update-csvs] FL Pick 3 FAILED — continuing:", e);
+        }
     }
     else {
         console.log("[update-csvs] SKIP_FL_PICK3=1 — skipping Florida Pick 3");
     }
     // --- Draws: Florida Pick 2 (from official PDF) ---
     if (!skipFLPick2) {
-        await buildFloridaPick2Csvs();
-        const mid = await fs.readFile("public/data/fl/pick2_midday.csv", "utf8");
-        const eve = await fs.readFile("public/data/fl/pick2_evening.csv", "utf8");
-        await maybeUploadCsv({ bucketName: bucket, objectPath: "fl/pick2_midday.csv", fullCsv: mid });
-        await maybeUploadCsv({ bucketName: bucket, objectPath: "fl/pick2_evening.csv", fullCsv: eve });
+        try {
+            await buildFloridaPick2Csvs();
+            const mid = await fs.readFile("public/data/fl/pick2_midday.csv", "utf8");
+            const eve = await fs.readFile("public/data/fl/pick2_evening.csv", "utf8");
+            await maybeUploadCsv({ bucketName: bucket, objectPath: "fl/pick2_midday.csv", fullCsv: mid });
+            await maybeUploadCsv({ bucketName: bucket, objectPath: "fl/pick2_evening.csv", fullCsv: eve });
+        }
+        catch (e) {
+            console.error("[update-csvs] FL Pick 2 FAILED — continuing:", e);
+        }
     }
     else {
         console.log("[update-csvs] SKIP_FL_PICK2=1 — skipping Florida Pick 2");
@@ -242,16 +314,21 @@ export async function main() {
         //   public/data/fl/cashpop_afternoon.csv
         //   public/data/fl/cashpop_evening.csv
         //   public/data/fl/cashpop_latenight.csv
-        await buildFloridaCashPopCsvs();
-        const periods = ['morning', 'matinee', 'afternoon', 'evening', 'latenight'];
-        for (const p of periods) {
-            const localPath = `public/data/fl/cashpop_${p}.csv`;
-            const csv = await fs.readFile(localPath, "utf8");
-            await maybeUploadCsv({
-                bucketName: bucket,
-                objectPath: `fl/cashpop_${p}.csv`,
-                fullCsv: csv,
-            });
+        try {
+            await buildFloridaCashPopCsvs();
+            const periods = ['morning', 'matinee', 'afternoon', 'evening', 'latenight'];
+            for (const p of periods) {
+                const localPath = `public/data/fl/cashpop_${p}.csv`;
+                const csv = await fs.readFile(localPath, "utf8");
+                await maybeUploadCsv({
+                    bucketName: bucket,
+                    objectPath: `fl/cashpop_${p}.csv`,
+                    fullCsv: csv,
+                });
+            }
+        }
+        catch (e) {
+            console.error("[update-csvs] FL Cash Pop FAILED — continuing:", e);
         }
     }
     else {
@@ -387,6 +464,148 @@ export async function main() {
     }
     else {
         console.log("[update-csvs] SKIP_CA_FANTASY5=1 — skipping CA Fantasy 5");
+    }
+    // --- Draws: Texas — Lotto Texas (official site HTML) ---
+    if (!skipTXLotto) {
+        try {
+            console.log("[update-csvs] TX Lotto Texas: running update…");
+            await buildTexasLottoCsv(); // writes public/data/tx/lotto_texas.csv
+            const csv = await fs.readFile("public/data/tx/lotto_texas.csv", "utf8");
+            await maybeUploadCsv({
+                bucketName: bucket,
+                objectPath: "tx/lotto_texas.csv",
+                fullCsv: csv,
+            });
+        }
+        catch (e) {
+            console.error("[update-csvs] TX Lotto Texas FAILED — continuing:", e);
+        }
+    }
+    else {
+        console.log("[update-csvs] SKIP_TX_LOTTO=1 — skipping Lotto Texas");
+    }
+    // --- Draws: Texas — Two Step (official site HTML) ---
+    if (!skipTXTwoStep) {
+        try {
+            console.log("[update-csvs] TX Two Step: running update…");
+            await buildTexasTwoStepCsv(); // writes public/data/tx/texas_two_step.csv
+            const csv = await fs.readFile("public/data/tx/texas_two_step.csv", "utf8");
+            await maybeUploadCsv({
+                bucketName: bucket,
+                objectPath: "tx/texas_two_step.csv",
+                fullCsv: csv,
+            });
+        }
+        catch (e) {
+            console.error("[update-csvs] TX Two Step FAILED — continuing:", e);
+        }
+    }
+    else {
+        console.log("[update-csvs] SKIP_TX_TWO_STEP=1 — skipping Texas Two Step");
+    }
+    // --- Draws: Texas — All or Nothing (official site HTML) ---
+    // Objects:
+    //   tx/all_or_nothing_morning.csv
+    //   tx/all_or_nothing_day.csv
+    //   tx/all_or_nothing_evening.csv
+    //   tx/all_or_nothing_night.csv
+    if (!skipTXAON) {
+        try {
+            console.log("[update-csvs] TX All or Nothing: running update…");
+            await buildTexasAllOrNothingCSVs(); // writes 4 local CSVs under public/data/tx
+            const slots = ["morning", "day", "evening", "night"];
+            for (const s of slots) {
+                const localPath = `public/data/tx/all_or_nothing_${s}.csv`;
+                const csv = await fs.readFile(localPath, "utf8");
+                await maybeUploadCsv({
+                    bucketName: bucket,
+                    objectPath: `tx/all_or_nothing_${s}.csv`,
+                    fullCsv: csv,
+                });
+            }
+        }
+        catch (e) {
+            console.error("[update-csvs] TX All or Nothing FAILED — continuing:", e);
+        }
+    }
+    else {
+        console.log("[update-csvs] SKIP_TX_AON=1 — skipping Texas All or Nothing");
+    }
+    // --- Draws: Texas — Pick 3 (official site HTML) ---
+    // Objects:
+    //   tx/pick3_morning.csv
+    //   tx/pick3_day.csv
+    //   tx/pick3_evening.csv
+    //   tx/pick3_night.csv
+    if (!skipTXPick3) {
+        try {
+            console.log("[update-csvs] TX Pick 3: running update…");
+            await buildTexasPick3Csvs(); // writes 4 local CSVs under public/data/tx
+            const slots = ["morning", "day", "evening", "night"];
+            for (const s of slots) {
+                const localPath = `public/data/tx/pick3_${s}.csv`;
+                const csv = await fs.readFile(localPath, "utf8");
+                await maybeUploadCsv({
+                    bucketName: bucket,
+                    objectPath: `tx/pick3_${s}.csv`,
+                    fullCsv: csv,
+                });
+            }
+        }
+        catch (e) {
+            console.error("[update-csvs] TX Pick 3 FAILED — continuing:", e);
+        }
+    }
+    else {
+        console.log("[update-csvs] SKIP_TX_PICK3=1 — skipping Texas Pick 3");
+    }
+    // --- Draws: Texas — Daily 4 (official site HTML) ---
+    // Objects:
+    //   tx/daily4_morning.csv
+    //   tx/daily4_day.csv
+    //   tx/daily4_evening.csv
+    //   tx/daily4_night.csv
+    if (!skipTXDaily4) {
+        try {
+            console.log("[update-csvs] TX Daily 4: running update…");
+            await buildTexasDaily4Csvs(); // writes 4 local CSVs under public/data/tx
+            const slots = ["morning", "day", "evening", "night"];
+            for (const s of slots) {
+                const localPath = `public/data/tx/daily4_${s}.csv`;
+                const csv = await fs.readFile(localPath, "utf8");
+                await maybeUploadCsv({
+                    bucketName: bucket,
+                    objectPath: `tx/daily4_${s}.csv`,
+                    fullCsv: csv,
+                });
+            }
+        }
+        catch (e) {
+            console.error("[update-csvs] TX Daily 4 FAILED — continuing:", e);
+        }
+    }
+    else {
+        console.log("[update-csvs] SKIP_TX_DAILY4=1 — skipping Texas Daily 4");
+    }
+    // --- Draws: Texas — Cash Five (official site HTML) ---
+    // Object: tx/cash5.csv
+    if (!skipTXCash5) {
+        try {
+            console.log("[update-csvs] TX Cash Five: running update…");
+            await buildTexasCash5Csv(); // writes public/data/tx/cash5.csv
+            const csv = await fs.readFile("public/data/tx/cash5.csv", "utf8");
+            await maybeUploadCsv({
+                bucketName: bucket,
+                objectPath: "tx/cash5.csv",
+                fullCsv: csv,
+            });
+        }
+        catch (e) {
+            console.error("[update-csvs] TX Cash Five FAILED — continuing:", e);
+        }
+    }
+    else {
+        console.log("[update-csvs] SKIP_TX_CASH5=1 — skipping Texas Cash Five");
     }
     console.log("[update-csvs] Done.");
 }

@@ -11,16 +11,14 @@ type DatasetCfg = {
     minMainCount?: number;
     /** If true and no special is found, we still emit the row without special. */
     specialOptional?: boolean;
+    /** Additional raw columns to select and pass through (e.g., draw_number, draw_time). */
+    extraFields?: string[];
+    /** Optional explicit Socrata $order value (e.g., "draw_date DESC, draw_number DESC"). */
+    orderBy?: string;
+    /** Optional explicit Socrata $limit override. */
+    limit?: number;
 };
 declare const DATASETS: Record<string, DatasetCfg>;
-export type SocrataLimitOpts = {
-    mode: "lastN";
-    n: number;
-} | {
-    mode: "since";
-    sinceISO: string;
-};
-export declare function buildSocrataCsvFlexible(gameKey: keyof typeof DATASETS, token?: string, limitOpts?: SocrataLimitOpts): Promise<string>;
+export declare function buildSocrataCsvFlexible(gameKey: keyof typeof DATASETS, token?: string): Promise<string>;
 export declare const buildSocrataCsv: typeof buildSocrataCsvFlexible;
-export declare function buildQuickDrawRecentCsv40k(token?: string): Promise<string>;
 export {};

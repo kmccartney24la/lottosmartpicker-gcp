@@ -1,4 +1,4 @@
-// scripts/sources/fl_jtp.ts
+// packages/scripts/src/sources/fl_jtp.ts
 // Node 18+ ESM. Deps: pdfjs-dist.
 // Parses the official JACKPOT TRIPLE PLAY PDF (multi-column layout) into canonical CSV
 // where the 6th main lives in `special` (to match your existing draw-game CSV shape).

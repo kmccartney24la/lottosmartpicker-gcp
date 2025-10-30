@@ -10,17 +10,17 @@ import SelectedLatest from 'apps/web/src/components/SelectedLatest';
 import HintLegend from 'apps/web/src/components/HintLegend';
 import dynamic from 'next/dynamic';
 import {
-  // types + helpers from lotto.ts
-  LottoRow,
-  GameKey,
-  LogicalGameKey,
-  Period,
   fetchLogicalRows,
   fetchDigitRowsFor,
   fetchCashPopRows,
   analyzeGameAsync,
-  getCurrentEraConfig,
   primaryKeyFor,
+} from '@lsp/lib';
+import type {
+  LottoRow,
+  GameKey,
+  LogicalGameKey,
+  Period,
 } from '@lsp/lib';
 import { useIsMobile } from '@lsp/lib/react/breakpoints';
 import { ErrorBoundary } from 'apps/web/src/components/ErrorBoundary';
@@ -53,7 +53,7 @@ const GAME_OPTIONS: { key: FlLogicalKey; label: string; supportsPeriod: 'none'|'
   { key: 'multi_megamillions', label: 'Mega Millions',        supportsPeriod: 'none' },
   { key: 'multi_powerball',    label: 'Powerball',            supportsPeriod: 'none' },
   { key: 'fl_cashpop',         label: 'Cash Pop',             supportsPeriod: 'five' },
-  { key: 'fl_fantasy5',        label: 'Fantasy 5',            supportsPeriod: 'two'  },
+  { key: 'fl_fantasy5',        label: 'Fantasy 5 (FL)',       supportsPeriod: 'two'  },
   { key: 'fl_pick2',           label: 'Pick 2',               supportsPeriod: 'two'  },
   { key: 'fl_pick3',           label: 'Pick 3',               supportsPeriod: 'two'  },
   { key: 'fl_pick4',           label: 'Pick 4',               supportsPeriod: 'two'  },
@@ -69,13 +69,13 @@ const REP_FOR_LOGICAL: Record<FlLogicalKey, GameKey> = {
   multi_cash4life: 'multi_cash4life',
   multi_powerball: 'multi_powerball',
   multi_megamillions: 'multi_megamillions',
-  // Use Fantasy 5 (evening file) as a neutral 5-ball rep where needed
-  fl_fantasy5: 'fl_fantasy5_evening',
-  fl_pick2:    'fl_fantasy5_evening',
-  fl_pick3:    'fl_fantasy5_evening',
-  fl_pick4:    'fl_fantasy5_evening',
-  fl_pick5:    'fl_fantasy5_evening',
-  fl_cashpop:  'fl_fantasy5_evening',
+  // Use Fantasy 5 (canonical GameKey) as a neutral 5-ball rep for FL non-multi games
+  fl_fantasy5: 'fl_fantasy5',
+  fl_pick2:    'fl_fantasy5',
+  fl_pick3:    'fl_fantasy5',
+  fl_pick4:    'fl_fantasy5',
+  fl_pick5:    'fl_fantasy5',
+  fl_cashpop:  'fl_fantasy5',
 };
 
 export default function HomeClientFL() {
@@ -95,12 +95,6 @@ export default function HomeClientFL() {
 
   const repGame: GameKey = REP_FOR_LOGICAL[logical as FlLogicalKey];
 
-  // If a component needs *one underlying key* string (e.g., labels), use primaryKeyFor
-  const representativeUnderlying = useMemo(
-    () => primaryKeyFor(logical, period),
-    [logical, period]
-  );
-
   const load = useCallback(async () => {
     try {
       setLoading(true); setError(null);
@@ -112,7 +106,8 @@ export default function HomeClientFL() {
         const k = logical === 'fl_pick5' ? 5 : logical === 'fl_pick4' ? 4 : logical === 'fl_pick3' ? 3 : 2;
         const per: 'midday'|'evening'|'both' = (period === 'midday' || period === 'evening') ? period : 'both';
         const digitRows = await fetchDigitRowsFor(logical, per);
-        const ui = digitRows.slice(0, UI_CAP);
+        const ui =
+          digitRows.length > UI_CAP ? digitRows.slice(-UI_CAP) : digitRows
         setPayload({
           kind: 'digits_fb',
           k,
@@ -121,7 +116,8 @@ export default function HomeClientFL() {
       } else if (logical === 'fl_cashpop') {
         const per = (period === 'morning' || period === 'matinee' || period === 'afternoon' || period === 'evening' || period === 'latenight') ? period : 'all';
         const cp = await fetchCashPopRows(per);
-        const ui = cp.slice(0, UI_CAP);
+        const ui =
+          cp.length > UI_CAP ? cp.slice(-UI_CAP) : cp;
         setPayload({
           kind: 'cashpop',
           rows: ui.map(r => ({ date: r.date, value: r.value })),
@@ -171,14 +167,6 @@ export default function HomeClientFL() {
   // Analysis cache keyed by representative canonical GameKey
   const [analysisByRep, setAnalysisByRep] =
     useState<Partial<Record<GameKey, any>>>({});
-
-  const ensureRecommendedForSelected = useCallback(async () => {
-    const existing = analysisByRep[repGame];
-    if (existing) return { recMain: existing.recMain, recSpec: existing.recSpec };
-    const a = await analyzeGameAsync(rowsAll, repGame);
-    setAnalysisByRep(prev => ({ ...prev, [repGame]: a }));
-    return { recMain: a.recMain, recSpec: a.recSpec };
-  }, [analysisByRep, repGame, rowsAll]);
 
   const openPastDraws = useCallback(() => { setShowPast(true); }, []);
   const periodSupport = GAME_OPTIONS.find(g => g.key === (logical as FlLogicalKey))?.supportsPeriod ?? 'none';
@@ -299,7 +287,6 @@ export default function HomeClientFL() {
                     analysisForGame={analysisByRep[repGame] ?? null}
                     anLoading={loading}
                     onEnsureRecommended={async () => {
-                      const era = getCurrentEraConfig(repGame);
                       return analyzeGameAsync(rowsAll, repGame);
                     }}
                   />

@@ -9,6 +9,7 @@ function flagsFor(key) {
         isFL: k.startsWith('fl_') || k.includes('florida'),
         isNY: k.startsWith('ny_') || k.includes('new_york'),
         isCA: k.startsWith('ca_') || k.includes('california'),
+        isTX: k.startsWith('tx_') || k.includes('texas'),
     };
 }
 /** Narrow helper: is a digit shape? */
@@ -65,6 +66,10 @@ export function specialLabel(meta, game) {
         ['cash4life', 'Cash Ball'],
         // California SuperLotto Plus uses a "Mega" number (not Mega Millions)
         ['superlotto', 'Mega'],
+        // Texas Two Step uses a Bonus Ball
+        // keep both needles to be resilient to future key variations
+        ['two_step', 'Bonus Ball'],
+        ['texas_two_step', 'Bonus Ball'],
     ];
     for (const [needle, label] of SPECIAL_LABEL_BY_SUBSTR) {
         if (g.includes(needle))
@@ -395,6 +400,13 @@ export function displayNameFor(game) {
         ny_take5: 'Take 5',
         fl_lotto: 'Florida LOTTO',
         fl_jackpot_triple_play: 'Jackpot Triple Play',
+        fl_cashpop: 'Cash Pop',
+        tx_all_or_nothing: 'All or Nothing',
+        tx_pick3: 'Pick 3',
+        tx_daily4: 'Daily 4',
+        tx_lotto_texas: 'Lotto Texas',
+        tx_texas_two_step: 'Texas Two Step',
+        tx_cash5: 'Cash Five',
     };
     const withPeriodSuffix = (key, base) => key.endsWith('_midday') ? `${base} (Midday)` :
         key.endsWith('_evening') ? `${base} (Evening)` : base;
@@ -588,6 +600,19 @@ const REGISTRY = {
     ...withPeriods('fl_pick5', digits(5, true)),
     // ----- Florida Cash Pop -----
     fl_cashpop: shapeOnly('cashpop', 'patterns-only'),
+    // ----- Texas classic draws -----
+    // Lotto Texas: 6 mains, no special
+    tx_lotto_texas: { ...sixNoSpecial },
+    // Cash Five: 5 mains, no special
+    tx_cash5: { ...fiveNoSpecial },
+    tx_texas_two_step: fiveWithTone('amber'), // 4 + Bonus Ball
+    // ----- Texas digits & All or Nothing -----
+    // Treat All or Nothing as keno-like (multi-number) for now, using the quickdraw shape & light patterns.
+    // (Rendering for AON is handled by its own pipeline; this keeps legends/simple tags sane.)
+    tx_all_or_nothing: shapeOnly('quickdraw', 'light-patterns'),
+    // Texas digits use Fireball
+    tx_pick3: digits(3, true),
+    tx_daily4: digits(4, true),
     // ----- New York underlying (file-backed) -----
     ny_nylotto: nyLottoMeta,
     ...withPeriods('ny_numbers', digits(3, false)),
@@ -604,10 +629,10 @@ const REGISTRY = {
     ny_pick10_rep: shapeOnly('pick10', 'patterns-only'),
 };
 const FUZZY = [
-    { test: k => /pick5/.test(k), meta: k => digits(5, k.startsWith('fl_')) },
-    { test: k => /pick4/.test(k), meta: k => digits(4, k.startsWith('fl_')) },
-    { test: k => /pick3/.test(k), meta: k => digits(3, k.startsWith('fl_')) },
-    { test: k => /pick2/.test(k), meta: k => digits(2, k.startsWith('fl_')) },
+    { test: k => /pick5/.test(k), meta: k => digits(5, k.startsWith('fl_') || k.startsWith('tx_')) },
+    { test: k => /pick4/.test(k), meta: k => digits(4, k.startsWith('fl_') || k.startsWith('tx_')) },
+    { test: k => /pick3/.test(k), meta: k => digits(3, k.startsWith('fl_') || k.startsWith('tx_')) },
+    { test: k => /pick2/.test(k), meta: k => digits(2, k.startsWith('fl_') || k.startsWith('tx_')) },
     { test: k => /(take5|fantasy5)/.test(k), meta: { ...fiveNoSpecial, preferEveningWhenBoth: true } },
     { test: k => /daily3/.test(k), meta: digits(3, false) },
     { test: k => /daily4/.test(k), meta: digits(4, false) },
@@ -683,6 +708,9 @@ export function digitLogicalFor(game, logical) {
         // California digit logicals are supported by fetchDigitRowsFor
         case 'ca_daily3': return 'ca_daily3';
         case 'ca_daily4': return 'ca_daily4';
+        // Texas digit logicals
+        case 'tx_pick3': return 'tx_pick3';
+        case 'tx_daily4': return 'tx_daily4';
     }
     // Derive from canonical FL keys with period suffixes
     if (key.startsWith('fl_pick5'))
@@ -698,6 +726,11 @@ export function digitLogicalFor(game, logical) {
         return 'ca_daily3';
     if (key.startsWith('ca_daily4'))
         return 'ca_daily4';
+    // Derive from canonical TX keys (4-per-day variants)
+    if (key.startsWith('tx_pick3'))
+        return 'tx_pick3';
+    if (key.startsWith('tx_daily4'))
+        return 'tx_daily4';
     return null;
 }
 // Add near other helpers

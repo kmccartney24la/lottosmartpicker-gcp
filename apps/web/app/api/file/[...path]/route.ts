@@ -7,7 +7,7 @@ export const runtime = "nodejs";
 export const revalidate = 600;
 
 const BUCKET = process.env.DATA_BUCKET ?? "lottosmartpicker-data";
-const ALLOWLIST = (process.env.DATA_PREFIX_ALLOWLIST ?? "ga/,fl/,ny/,ca/,multi/,scratchers/")
+const ALLOWLIST = (process.env.DATA_PREFIX_ALLOWLIST ?? "ga/,fl/,ny/,ca/,tx/,multi/,scratchers/")
   .split(",").map(s => s.trim()).filter(Boolean);
 
 function allowed(key: string) {

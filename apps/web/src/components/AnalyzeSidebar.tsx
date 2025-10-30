@@ -4,7 +4,6 @@ import './AnalyzeSidebar.css';
 import { useEffect, useRef, useState } from 'react';
 import { ErrorBoundary } from 'apps/web/src/components/ErrorBoundary';
 import {
-   GameKey, LogicalGameKey,
    fetchRowsWithCache, fetchLogicalRows,
    defaultSinceFor,
    jackpotOdds, jackpotOddsQuickDraw, jackpotOddsForLogical,
@@ -16,10 +15,15 @@ import {
    fetchQuickDrawRowsFor, computeQuickDrawStatsAsync, recommendQuickDrawFromStats,
    // Cash Pop
    fetchCashPopRows,
+   // All or Nothing (TX)
+   // lives in lotto/fetch.ts, analytics live in lotto/pick10.ts as a variant
+   fetchAllOrNothingRows,
+   computeAllOrNothingStatsAsync,
+   // (no explicit recommend fn exported; we’ll surface the hot/cold alpha-like results)
    // Worker-offloaded analysis
-   analyzeGameAsync,
+   analyzeGameAsync, LOGICAL_TO_UNDERLYING
  } from '@lsp/lib';
-import type { StateKey } from '@lsp/lib';
+import type { StateKey, GameKey, LogicalGameKey, EraGame } from '@lsp/lib';
 import { DEFAULT_STATE } from '@lsp/lib';
 import {
   resolveGameMeta,
@@ -32,12 +36,10 @@ import {
   digitsKFor,
 } from '@lsp/lib';
 
-
-// Canonical draw games only (no scratchers here)
-type CanonicalDrawGame = Exclude<GameKey, 'ga_scratchers'>;
-
+// Canonical/era-backed draw games come from lib types
+type CanonicalDrawGame = EraGame;
 // Canonical keys to consider (labels will come from registry.displayNameFor)
-const ORDER: CanonicalDrawGame[] = [
+const ORDER: EraGame[] = [
   'multi_powerball',
   'multi_megamillions',
   'multi_cash4life',
@@ -45,66 +47,38 @@ const ORDER: CanonicalDrawGame[] = [
   // California classics
   'ca_superlotto_plus',
   'ca_fantasy5',
+  // Florida classics
+  'fl_fantasy5',
   'fl_lotto',
   'fl_jackpot_triple_play',
+  // New York classics
+  'ny_take5',
+  'ny_lotto',
+  // Texas era-backed canonicals
+  'tx_lotto_texas',
+  'tx_cash5',
+  'tx_texas_two_step',
 ];
 
 // Which logical games are allowed per state page
-const LOGICAL_ALLOWED: Record<StateKey, LogicalGameKey[]> = {
-  ga: [
-    // GA page currently only shows multi-state logicals (add GA-specific later if needed)
-    'multi_powerball',
-    'multi_megamillions',
-    'multi_cash4life',
-  ],
-  ca: [
-    // California logicals: Daily 3/4 (digits) + multi-state
-    'ca_daily3',
-    'ca_daily4',
-    'multi_powerball',
-    'multi_megamillions',
-  ],
-  ny: [
-    'ny_take5',
-    'ny_numbers',
-    'ny_win4',
-    'ny_lotto',
-    'ny_pick10',
-    'ny_quick_draw',
-    'multi_powerball',
-    'multi_megamillions',
-    'multi_cash4life',
-  ],
-  fl: [
-    'fl_fantasy5',
-    'fl_pick5',
-    'fl_pick4',
-    'fl_pick3',
-    'fl_pick2',
-    'fl_cashpop',
-    'multi_powerball',
-    'multi_megamillions',
-    'multi_cash4life', 
-  ],
-};
+const MULTISTATE: LogicalGameKey[] = [
+  'multi_powerball','multi_megamillions','multi_cash4life',
+];
+
+function logicalAllowedByState(st: StateKey): LogicalGameKey[] {
+  const prefix = `${st}_`; // 'ga_','ca_','ny_','fl_','tx_'
+  const all = Object.keys(LOGICAL_TO_UNDERLYING) as LogicalGameKey[];
+  const local = all.filter(k => k.startsWith(prefix));
+  return [...new Set([...MULTISTATE, ...local])];
+}
 
 // Which canonical games are allowed per state page
-const CANON_ALLOWED: Record<StateKey, CanonicalDrawGame[]> = {
-  ga: ['ga_fantasy5', 'multi_powerball', 'multi_megamillions', 'multi_cash4life'],
-  ca: [
-    'ca_superlotto_plus',
-    'ca_fantasy5',
-    'multi_powerball',
-    'multi_megamillions',
-  ],
-  ny: ['multi_powerball', 'multi_megamillions', 'multi_cash4life'], // no GA Fantasy 5 on NY
-  fl: [
-    'fl_lotto',
-    'fl_jackpot_triple_play',
-    'multi_powerball',
-    'multi_megamillions',
-    'multi_cash4life',
-  ],
+const CANON_BY_STATE: Record<StateKey, EraGame[]> = {
+  ga: ['ga_fantasy5','multi_powerball','multi_megamillions','multi_cash4life'],
+  ca: ['ca_superlotto_plus','ca_fantasy5','multi_powerball','multi_megamillions'],
+  ny: ['ny_take5','ny_lotto','multi_powerball','multi_megamillions','multi_cash4life'],
+  fl: ['fl_fantasy5','fl_lotto','fl_jackpot_triple_play','multi_powerball','multi_megamillions','multi_cash4life'],
+  tx: ['tx_lotto_texas','tx_cash5','tx_texas_two_step','multi_powerball','multi_megamillions'],
 };
 
 type A = ReturnType<typeof import('@lsp/lib').analyzeGame>;
@@ -112,6 +86,7 @@ type A = ReturnType<typeof import('@lsp/lib').analyzeGame>;
 type DS  = ReturnType<typeof import('@lsp/lib').computeDigitStats>;
 type P10 = ReturnType<typeof import('@lsp/lib').computePick10Stats>;
 type QD  = ReturnType<typeof import('@lsp/lib').computeQuickDrawStats>;
+type AON = ReturnType<typeof import('@lsp/lib').computeAllOrNothingStats>;
 type CP  = { totalDraws: number };
 
 type Props = {
@@ -134,16 +109,17 @@ function AnalyzeSidebarInner({ canonical, logical, title, period = 'both', state
     (canonical && canonical.length > 0) ? canonical : ORDER;
 
   const CANON_LIST = CANON_BASE
-    .filter(k => CANON_ALLOWED[st].includes(k))
+    .filter(k => CANON_BY_STATE[st].includes(k))
     .map(key => ({ key, label: displayNameFor(key) }));
   // Filter logical by state
-  const LOGICAL_LIST = (logical ?? []).filter(lg => LOGICAL_ALLOWED[st].includes(lg)).slice();
+  const LOGICAL_LIST = (logical ?? []).filter(lg => logicalAllowedByState(st).includes(lg)).slice();
   // Store by string id so canonical and logical can coexist without collisions
   const [data5, setData5] = useState<Record<string, A | null>>({});
   const [dataDigits, setDataDigits] = useState<Record<string, DS | null>>({});
   const [dataP10, setDataP10] = useState<Record<string, P10 | null>>({});
   const [dataQD,  setDataQD]  = useState<Record<string, QD  | null>>({});
   const [dataCP,  setDataCP]  = useState<Record<string, CP  | null>>({});
+  const [dataAON, setDataAON] = useState<Record<string, AON | null>>({});
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string|null>(null);
   const [okCount, setOkCount] = useState(0);
@@ -179,18 +155,18 @@ function AnalyzeSidebarInner({ canonical, logical, title, period = 'both', state
           | readonly [key: string, kind: 'digits',   value: DS]
           | readonly [key: string, kind: 'pick10',   value: P10]
           | readonly [key: string, kind: 'quickdraw',value: QD]
+          | readonly [key: string, kind: 'allornothing', value: AON]
           | readonly [key: string, kind: 'cashpop',  value: CP];
         const tasks: Promise<TaskResult>[] = [];
         // Canonical games
         for (const g of CANON_LIST) {
-          tasks.push((async () => {
-            // Window canonical data using library helper
-            const since = defaultSinceFor(g.key) ?? undefined;
-            const rows = await fetchRowsWithCache({ game: g.key, since })
-            const v = await analyzeGameAsync(rows, g.key, signal);
-            return [g.key, 'five', v] as const;
-          })());
-        }
+           tasks.push((async () => {
+             const since = defaultSinceFor(g.key) ?? undefined;
+             const rows = await fetchRowsWithCache({ game: g.key, since })
+             const v = await analyzeGameAsync(rows, g.key, signal);
+             return [g.key, 'five', v] as const;
+           })());
+         }
         // Logical loader (branch by game type)
         for (const lg of LOGICAL_LIST) {
           const meta = resolveGameMeta(undefined, lg);
@@ -203,20 +179,9 @@ function AnalyzeSidebarInner({ canonical, logical, title, period = 'both', state
             if (!lgDigit) throw new Error('Unexpected non-digit logical: ' + lg);
             tasks.push((async (): Promise<TaskResult> => {
               const rows = await fetchDigitRowsFor(lgDigit, eff);
-              const k = meta.kDigits!; // guaranteed by registry for digit shapes
-              if (k === 3 || k === 4) {
-                const v = await computeDigitStatsAsync(rows, k, signal);
-                return [lg, 'digits', v] as const;
-              }
-              // proxy path for k=2|5
-              const proxyK: 3|4 = (k === 2 ? 3 : 4);
-              const proxyRows = rows.map(r => ({
-                date: r.date,
-                digits: (k === 2)
-                  ? [r.digits[0] ?? 0, r.digits[1] ?? 0, r.digits[1] ?? 0]
-                  : r.digits.slice(0, 4),
-              }));
-              const v = await computeDigitStatsAsync(proxyRows as any, proxyK, signal);
+              // Library now supports k ∈ {2,3,4,5} directly — no proxying.
+              const k = meta.kDigits!;
+              const v = await computeDigitStatsAsync(rows, k as 2|3|4|5, signal);
               return [lg, 'digits', v] as const;
             })());
             continue;
@@ -244,6 +209,17 @@ function AnalyzeSidebarInner({ canonical, logical, title, period = 'both', state
                 const rows = await fetchCashPopRows('all'); // all periods for better sample
                 const v: CP = { totalDraws: rows.length };
                 return [lg, 'cashpop', v] as const;
+              })());
+              break;
+
+              // Texas All or Nothing (12 of 24) — registry shape: 'allornothing'
+            case 'allornothing':
+              tasks.push((async (): Promise<TaskResult> => {
+                // We fetch ALL periods to get the full sample (morning/day/evening/night)
+                const rows = await fetchAllOrNothingRows('all');
+                const v = await computeAllOrNothingStatsAsync(rows, signal);
+                // We’ll tag this as a separate kind so the render can show the 12/24 domain.
+                return [lg, 'allornothing', v] as any;
               })());
               break;
 
@@ -277,6 +253,7 @@ function AnalyzeSidebarInner({ canonical, logical, title, period = 'both', state
         const nextD: Record<string, DS> = {};
         const nextP: Record<string, P10> = {};
         const nextQ: Record<string, QD>  = {};
+        const nextAON: Record<string, AON> = {};
         const nextC: Record<string, CP>  = {};
         let ok = 0;
         settled.forEach(r => {
@@ -286,6 +263,7 @@ function AnalyzeSidebarInner({ canonical, logical, title, period = 'both', state
             if (kind === 'digits')    { nextD[k] = v as DS;  ok++; }
             if (kind === 'pick10')    { nextP[k] = v as P10; ok++; }
             if (kind === 'quickdraw') { nextQ[k] = v as QD;  ok++; }
+            if (kind === 'allornothing') { nextAON[k] = v as AON; ok++; }
             if (kind === 'cashpop')   { nextC[k] = v as CP;  ok++; }
           }
         });
@@ -294,6 +272,7 @@ function AnalyzeSidebarInner({ canonical, logical, title, period = 'both', state
         setDataDigits(prev => ({ ...prev, ...nextD }));
         setDataP10(prev => ({ ...prev, ...nextP }));
         setDataQD(prev => ({ ...prev, ...nextQ }));
+        setDataAON(prev => ({ ...prev, ...nextAON }));
         setDataCP(prev => ({ ...prev, ...nextC }));
         if (ok === 0) setErr('No analysis available (data fetch failed).');
       } catch (e:any) {
@@ -367,6 +346,7 @@ function AnalyzeSidebarInner({ canonical, logical, title, period = 'both', state
               const ad  = dataDigits[lg];
               const ap10= dataP10[lg];
               const acp = dataCP[lg];
+              const aon = dataAON[lg];
               const meta = resolveGameMeta(undefined, lg);
               const rep  = repForLogical(lg, meta);
               const kDisplay = isDigitShape(meta.shape) ? digitsKFor(meta) : undefined;
@@ -519,6 +499,43 @@ function AnalyzeSidebarInner({ canonical, logical, title, period = 'both', state
                         <div className="analyze-detail analyze-recommendation">
                           <span className="analyze-label">Recommended:</span>
                           <span className="analyze-value mono">—</span>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="analyze-unavailable">Unavailable.</div>
+                    )
+                    ) : meta.shape === 'allornothing' ? (
+                    aon ? (
+                      <div className="analyze-game-details card-content-text">
+                        <div className="analyze-detail">
+                          <span className="analyze-label">Total draws analyzed:</span>
+                          <span className="analyze-value mono">
+                            {aon.totalDraws.toLocaleString()}
+                          </span>
+                        </div>
+                        <div className="analyze-detail">
+                          <span className="analyze-label">Number domain:</span>
+                          <span className="analyze-value mono">1–24 · pick 12</span>
+                        </div>
+                        <div className="analyze-detail">
+                          <span className="analyze-label">Heaviest hits:</span>
+                          <span className="analyze-value mono">
+                            {(() => {
+                              // counts is Map<number,number>; derive top 5 by freq
+                              const top = Array
+                                .from(aon.counts.entries())
+                                .sort((a, b) => b[1] - a[1])
+                                .slice(0, 5)
+                                .map(([num]) => num);
+                              return top.length ? top.join(', ') : 'n/a';
+                            })()}
+                          </span>
+                        </div>
+                        <div className="analyze-detail analyze-recommendation">
+                          <span className="analyze-label">Recommended:</span>
+                          <span className="analyze-value mono">
+                            Favor highest-frequency numbers.
+                          </span>
                         </div>
                       </div>
                     ) : (

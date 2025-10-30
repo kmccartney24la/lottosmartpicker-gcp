@@ -1,5 +1,5 @@
 // lib/state.ts
-export type StateKey = 'ga' | 'ca' | 'fl' | 'ny';
+export type StateKey = 'ga' | 'ca' | 'fl' | 'ny' | 'tx';
 export const DEFAULT_STATE: StateKey = 'ga';
 export const LS_STATE = 'lsp.state';
 
@@ -9,6 +9,7 @@ export function stateFromPath(pathname: string): StateKey {
   if (pathname.startsWith('/ga')) return 'ga';
   if (pathname.startsWith('/fl')) return 'fl';
   if (pathname.startsWith('/ca')) return 'ca';
+  if (pathname.startsWith('/tx')) return 'tx';
   return DEFAULT_STATE;
 }
 
@@ -24,6 +25,7 @@ export function routeFor(state: StateKey, section: 'draws'|'scratchers'): string
     state === 'ny' ? '/ny' :
     state === 'ga' ? '/ga' :
     state === 'ca' ? '/ca' :
+    state === 'tx' ? '/tx' :
     '/fl';
   return section === 'scratchers' ? `${base}/scratchers` : base;
 }
@@ -31,7 +33,7 @@ export function routeFor(state: StateKey, section: 'draws'|'scratchers'): string
 export function getStoredState(fb: StateKey = DEFAULT_STATE): StateKey {
   try {
     const raw = typeof window !== 'undefined' ? window.localStorage.getItem(LS_STATE) : null;
-    return (raw === 'ny' || raw === 'ga' || raw === 'fl' || raw === 'ca') ? (raw as StateKey) : fb;
+    return (raw === 'ny' || raw === 'ga' || raw === 'fl' || raw === 'ca' || raw === 'tx') ? (raw as StateKey) : fb;
   } catch {
     return fb;
   }

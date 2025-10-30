@@ -9,22 +9,20 @@ import GameOverview from 'apps/web/src/components/GameOverview';
 import SelectedLatest from 'apps/web/src/components/SelectedLatest';
 import HintLegend from 'apps/web/src/components/HintLegend';
 import dynamic from 'next/dynamic';
-
 import {
-  // types + helpers from lotto.ts
-  LottoRow,
-  GameKey,
-  LogicalGameKey,
-  Period,
   fetchLogicalRows,
   analyzeGameAsync,
-  getCurrentEraConfig,     // used to compute era-aware analysis for rep game
   // use the “representative” helper to get one key for UI components when needed
   primaryKeyFor,
   fetchDigitRowsFor,
   fetchPick10RowsFor,
   fetchQuickDrawRowsFor,
-  fetchNyLottoExtendedRows,
+} from '@lsp/lib';
+import type {
+  LottoRow,
+  GameKey,
+  LogicalGameKey,
+  Period,
 } from '@lsp/lib';
 import { useIsMobile } from '@lsp/lib/react/breakpoints';
 import { ErrorBoundary } from 'apps/web/src/components/ErrorBoundary';
@@ -124,7 +122,11 @@ export default function HomeClientNY() {
     try {
       setLoading(true); setError(null);
       const data = await fetchLogicalRows({ logical, period });
-      setRowsAll(data); // keep full for generator/analysis
+      // many fetchers return oldest → newest; normalize to newest → oldest
+      const normalized = [...data].sort((a, b) =>
+        a.date < b.date ? 1 : a.date > b.date ? -1 : 0
+      );
+      setRowsAll(normalized); // keep full for generator/analysis
     } catch (e: any) {
       console.error('NY load() failed:', e);
       setError(e?.message || String(e));
@@ -144,21 +146,19 @@ export default function HomeClientNY() {
       if (logical === 'ny_numbers' || logical === 'ny_win4') {
         const k = logical === 'ny_win4' ? 4 : 3;
         const r = await fetchDigitRowsFor(logical as 'ny_numbers' | 'ny_win4', period);
-        const ui = r.slice(0, UI_CAP);
+        const ui =
+          r.length > UI_CAP ? r.slice(-UI_CAP) : r;
         if (!cancelled) next = { kind: 'digits', rows: ui, k };
       } else if (logical === 'ny_pick10') {
         const r = await fetchPick10RowsFor('ny_pick10');
-        const ui = r.slice(0, UI_CAP);
+        const ui =
+          r.length > UI_CAP ? r.slice(-UI_CAP) : r;
         if (!cancelled) next = { kind: 'pick10', rows: ui };
       } else if (logical === 'ny_quick_draw') {
         const r = await fetchQuickDrawRowsFor('ny_quick_draw');
-        const ui = r.slice(0, UI_CAP);
+        const ui =
+          r.length > UI_CAP ? r.slice(-UI_CAP) : r;
         if (!cancelled) next = { kind: 'quickdraw', rows: ui };
-      } else if (logical === 'ny_lotto') {
-        // 6 mains + explicit Bonus (no zeros)
-        const r = await fetchNyLottoExtendedRows();
-        const ui = r.slice(0, UI_CAP);
-        if (!cancelled) next = { kind: 'ny_lotto', rows: ui };
       } else {
         next = undefined; // PB/MM/C4L/Take 5 → legacy 5-ball path
       }
@@ -172,7 +172,11 @@ export default function HomeClientNY() {
   const [page, setPage] = useState(1);
   const pageSize = 25;
   // For non-payload (legacy) sidebar, cap UI rows derived from ALL rows
-  const rowsUI = useMemo(() => rowsAll.slice(0, UI_CAP), [rowsAll]);
+  const rowsUI = useMemo(() => {
+    // rowsAll is already newest → oldest, so just take the first UI_CAP
+    // but if it ever isn’t, taking from the end is safer:
+    return rowsAll.length > UI_CAP ? rowsAll.slice(0, UI_CAP) : rowsAll;
+  }, [rowsAll]);
   const sortedRows = useMemo(() => {
     const arr = [...rowsAll];
     arr.sort((a,b) => sortDir === 'desc'
@@ -198,16 +202,6 @@ export default function HomeClientNY() {
   // Analysis cache keyed by *representative* game
   const [analysisByRep, setAnalysisByRep] =
     useState<Partial<Record<CanonicalDrawGame, any>>>({});
-
-  const ensureRecommendedForSelected = useCallback(async () => {
-    const existing = analysisByRep[repGame];
-    if (existing) return { recMain: existing.recMain, recSpec: existing.recSpec };
-    // The analysis/generator logic is era-aware by GameKey. Since the rows here
-    // are “shimmed” (for flexible sources) to a repGame, it will behave consistently.
-    const a = await analyzeGameAsync(rowsAll, repGame);
-    setAnalysisByRep(prev => ({ ...prev, [repGame]: a }));
-    return { recMain: a.recMain, recSpec: a.recSpec };
-  }, [analysisByRep, repGame, rowsAll]);
 
   const openPastDraws = useCallback(() => { setShowPast(true); }, []);
   const supportsPeriod = GAME_OPTIONS.find(g => g.key === logical)?.supportsPeriod;
@@ -308,7 +302,6 @@ export default function HomeClientNY() {
                     analysisForGame={analysisByRep[repGame] ?? null}
                     anLoading={loading}
                     onEnsureRecommended={async () => {
-                        const era = getCurrentEraConfig(repGame);
                         return analyzeGameAsync(rowsAll, repGame);
                     }}
                     />

@@ -6,17 +6,15 @@ import Pill from 'apps/web/src/components/Pill';
 import Info from 'apps/web/src/components/Info';
 import { HINT_EXPLAIN, classifyHint, displayHint } from 'apps/web/src/components/hints';
 import {
-  GameKey,
-  type LogicalGameKey,
   getCurrentEraConfig,
   ticketHints,
   ticketHintsPick10,
-  LottoRow,
   // worker-offloaded fallback when precomputedStats is absent
   computeStatsAsync,
 } from '@lsp/lib';
 // type-only imports to keep bundle clean but fix TS types
 import type {
+  GameKey, LogicalGameKey, LottoRow, 
   computeStats,
   computeDigitStats,
   computePick10Stats,
@@ -33,6 +31,7 @@ import {
   qdHas3Run,
   qdIsTight,
   hasColoredSpecial,
+  digitsKFor,
 } from '@lsp/lib';
 
 type StatsT = ReturnType<typeof computeStats>;
@@ -63,6 +62,7 @@ export default function EvaluateTicket({
   const isDigits   = isDigitShape(meta.shape);
   const isPick10   = meta.shape === 'pick10';
   const isQuickDraw= meta.shape === 'quickdraw';
+  const isAllOrNothing = meta.shape === 'allornothing';
   const isFiveBall = meta.shape === 'five' || meta.shape === 'six';
   const isNyLotto  = !!meta.isNyLotto;
 
@@ -82,9 +82,13 @@ export default function EvaluateTicket({
   const [special, setSpecial] = useState<string>('');
 
   // --------------------- DIGITS INPUTS ---------------------------------
-  const kDigits = (meta.kDigits ?? 3) as 2|3|4|5;
-  const [digits, setDigits] = useState<string[]>(
-    () => Array.from({ length: kDigits }, () => '')
+  // digitsKFor(meta) may be null (non-digit games). Derive both a definite length for arrays,
+  // and a narrow union for logic/labels.
+  const kDigitsMaybe = digitsKFor(meta);                     // number | null
+  const kDigits = (kDigitsMaybe ?? 3) as 2 | 3 | 4 | 5;      // narrow union for comparisons/UI
+  const kLen: number = kDigitsMaybe ?? 3;                    // definite number for Array.from
+  const [digits, setDigits] = useState<string[]>(() =>
+    Array.from({ length: kLen }, () => '')
   );
 
   // --------------------- PICK 10 INPUTS --------------------------------
@@ -98,6 +102,14 @@ export default function EvaluateTicket({
     () => Array.from({ length: qdSpotsLocal }, () => '')
   );
 
+  // --------------------- ALL OR NOTHING INPUTS ------------------------
+  // TX AoN = 12 numbers from 1..24, unique
+  const AON_COUNT = 12;
+  const AON_MAX = 24;
+  const [aonVals, setAonVals] = useState<string[]>(
+    () => Array.from({ length: AON_COUNT }, () => '')
+  );
+
   const [errors, setErrors] = useState<string[]>([]);
   const [resultHints, setResultHints] = useState<string[] | null>(null);
   // allow canceling a pending worker compute if user re-clicks or shape changes
@@ -107,12 +119,13 @@ export default function EvaluateTicket({
   useEffect(() => {
    setMains(Array.from({ length: eraCfg.mainPick }, () => ''));
     setSpecial('');
-    setDigits(Array.from({ length: kDigits }, () => ''));
+    setDigits(Array.from({ length: kLen }, () => ''));
     setP10Vals(Array.from({ length: 10 }, () => ''));
     setQdVals(Array.from({ length: qdSpotsLocal }, () => ''));
+    setAonVals(Array.from({ length: AON_COUNT }, () => ''));
     setResultHints(null);
     setErrors([]);
-  }, [game, eraCfg.mainPick, eraCfg.specialMax, kDigits, qdSpotsLocal]);
+  }, [game, eraCfg.mainPick, eraCfg.specialMax, kLen, qdSpotsLocal]);
   // Color class for the special input (matches ticket bubble colors).
   // Provide an explicit NY Lotto bonus style to mirror chips/bubbles elsewhere.
   const specialInputClass =
@@ -200,6 +213,20 @@ export default function EvaluateTicket({
     return { values: nums };
   }
 
+  // ---------------- ALL OR NOTHING VALIDATION -------------------------
+  function validateAllOrNothing(): { values: number[] } | null {
+    const errs: string[] = [];
+    const nums = aonVals.map(s => parseInt(s, 10)).filter(n => Number.isFinite(n));
+    if (nums.length !== AON_COUNT) errs.push(`Enter exactly ${AON_COUNT} numbers.`);
+    const inRange = nums.every(n => n >= 1 && n <= AON_MAX);
+    if (!inRange) errs.push(`Numbers must be between 1 and ${AON_MAX}.`);
+    const uniq = new Set(nums);
+    if (uniq.size !== nums.length) errs.push('Numbers must be unique.');
+    setErrors(errs);
+    if (errs.length) return null;
+    return { values: nums };
+  }
+
   // ---------------- Main evaluate() switch -----------------------------
   async function evaluate() {
     setResultHints(null);
@@ -243,6 +270,24 @@ export default function EvaluateTicket({
       // Keep a generic "Balanced" tag if neither flag tripped
       if (flags.length === 0) flags.push('Balanced');
       setResultHints(flags);
+      return;
+    }
+
+    // ALL OR NOTHING
+    if (!isFiveBall && isAllOrNothing) {
+      const ok = validateAllOrNothing();
+      if (!ok) return;
+      // We don't have a dedicated AoN ticket-hints helper in the lib, so mirror the
+      // registry patterns we added for shape 'allornothing': ['3-in-a-row','Tight span','Balanced']
+      const vals = ok.values;
+      const sorted = [...vals].sort((a,b)=>a-b);
+      const flags: string[] = [];
+      const hasRun3 = sorted.some((v,i,arr)=> i>=2 && arr[i-2]!+2===arr[i-1]!+1 && arr[i-1]!+1===v);
+      if (hasRun3) flags.push('3-in-a-row');
+      const span = sorted[sorted.length-1]! - sorted[0]!;
+      if (span <= 6) flags.push('Tight span'); // 24/4 → 6, same logic as SelectedLatest
+      if (flags.length === 0) flags.push('Balanced');
+      setResultHints(flags.filter(l => !!HINT_EXPLAIN[l]));
       return;
     }
 
@@ -346,7 +391,7 @@ export default function EvaluateTicket({
         <label className="evaluate-inline-label">
           <span>Your digits (0–9 × {kDigits})</span>
           <div className="evaluate-inline-inputs">
-            {Array.from({ length: kDigits }).map((_, i) => {
+            {Array.from({ length: kLen }).map((_, i) => {
               const v = digits[i] ?? '';
               const ok = v === '' ? true : (/^\d$/.test(v));
               return (
@@ -399,6 +444,38 @@ export default function EvaluateTicket({
             })}
           </div>
           <div className="evaluate-hint">No repeats; common patterns like tight spans/3-runs are flagged.</div>
+        </label>
+      )}
+
+{/* ALL OR NOTHING: 12 unique numbers 1..24 */}
+      {!isFiveBall && isAllOrNothing && (
+        <label className="evaluate-inline-label">
+          <span>Your numbers (12 unique, 1–24)</span>
+          <div className="evaluate-inline-inputs">
+            {Array.from({ length: AON_COUNT }).map((_, i) => {
+              const v = aonVals[i] ?? '';
+              const parsed = Number.parseInt(v, 10);
+              const okNum = Number.isFinite(parsed) && parsed >= 1 && parsed <= AON_MAX;
+              const dup = v !== '' && aonVals.filter(x => x === v).length > 1;
+              const invalid = !okNum || dup;
+              return (
+                <input
+                  key={`aon-${i}`}
+                  aria-label={`All or Nothing #${i+1}`}
+                  inputMode="numeric"
+                  type="number"
+                  min={1}
+                  max={AON_MAX}
+                  placeholder={`${i+1}`}
+                  value={v}
+                  onChange={e => setAonVals(prev => prev.map((x,idx)=>idx===i? e.target.value : x))}
+                  onWheel={e => (e.currentTarget as HTMLInputElement).blur()}
+                  className={`evaluate-main-input ${invalid ? 'evaluate-input-invalid' : ''}`}
+                />
+              );
+            })}
+          </div>
+          <div className="evaluate-hint">We’ll flag 3-in-a-row / tight span / balanced just like other multi-number games.</div>
         </label>
       )}
 
@@ -486,6 +563,15 @@ export default function EvaluateTicket({
               <>
                 {qdVals.map((v, i) => (
                   <span key={`qdx-${i}`} className="num-bubble">{v || '–'}</span>
+                ))}
+              </>
+            )}
+            {!isFiveBall && isAllOrNothing && (
+              <>
+                {aonVals.map((v, i) => (
+                  <span key={`aonx-${i}`} className="num-bubble">
+                    {v || '–'}
+                  </span>
                 ))}
               </>
             )}

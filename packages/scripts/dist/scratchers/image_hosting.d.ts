@@ -77,4 +77,11 @@ export declare function ensureHashKeyCA(params: {
     storage?: StorageProvider;
     dryRun?: boolean;
 }): Promise<Hosted>;
+export declare function ensureHashKeyTX(params: {
+    gameNumber: number;
+    kind: "ticket" | "odds";
+    sourceUrl: string;
+    storage?: StorageProvider;
+    dryRun?: boolean;
+}): Promise<Hosted>;
 export {};

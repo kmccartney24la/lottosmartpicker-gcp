@@ -1,5 +1,5 @@
 import type { GameKey, LogicalGameKey } from '@lsp/lib';
-type CanonicalDrawGame = Exclude<GameKey, 'ga_scratchers'>;
+type CanonicalDrawGame = GameKey;
 export type Shape = 'five' | 'six' | 'digit2' | 'digit3' | 'digit4' | 'digit5' | 'pick10' | 'quickdraw' | 'cashpop';
 export type SpecialTone = 'red' | 'blue' | 'green' | 'amber' | null;
 export type TagMode = 'patterns-only' | 'playtypes-only' | 'light-patterns';
@@ -189,7 +189,7 @@ export declare function repForLogical(lg: LogicalGameKey, meta: GameMeta): Canon
  * Returns a digit logical key accepted by fetchDigitRowsFor, or null if not derivable.
  * Accepts either canonical FL pick* keys (midday/evening) or digit logicals directly.
  */
-export declare function digitLogicalFor(game?: GameKey | string, logical?: LogicalGameKey | string): 'ny_numbers' | 'ny_win4' | 'fl_pick5' | 'fl_pick4' | 'fl_pick3' | 'fl_pick2' | null;
+export declare function digitLogicalFor(game?: GameKey | string, logical?: LogicalGameKey | string): 'ny_numbers' | 'ny_win4' | 'fl_pick5' | 'fl_pick4' | 'fl_pick3' | 'fl_pick2' | 'ca_daily3' | 'ca_daily4' | 'tx_pick3' | 'tx_daily4' | null;
 export declare function qdHas3Run(values: number[]): boolean;
 export declare function qdIsTight(values: number[], domainMax?: number): boolean;
 export declare function playTypeLabelsForDigits(digits: number[], meta: GameMeta): string[];

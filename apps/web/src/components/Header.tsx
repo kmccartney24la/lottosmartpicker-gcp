@@ -25,7 +25,7 @@ export default function Header() {
   const tabDrawRef = React.useRef<HTMLAnchorElement>(null);
   const tabScratchRef = React.useRef<HTMLAnchorElement>(null);
   // Pretty names for subtitle
-  const STATE_NAME: Record<StateKey, string> = { ga: 'Georgia', ny: 'New York', fl: 'Florida', ca: 'California' };
+  const STATE_NAME: Record<StateKey, string> = { ga: 'Georgia', ny: 'New York', fl: 'Florida', ca: 'California', tx: 'Texas' };
   const themeWrapRef = React.useRef<HTMLDivElement>(null);
   const [navItemW, setNavItemW] = React.useState<number | null>(null);
 
@@ -188,6 +188,7 @@ export default function Header() {
             <option value="fl">FL</option>
             <option value="ga">GA</option>
             <option value="ny">NY</option>
+            <option value="tx">TX</option>
           </select>
         </div>
         {/* Inline pills (wrap; aligned to the right side) */}

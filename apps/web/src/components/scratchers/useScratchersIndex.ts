@@ -19,8 +19,8 @@ try {
 // API response can be either { games: ActiveGame[], updatedAt?: string } or an array of ActiveGame
 type ScratchersIndexPayload = { games: ActiveGame[]; updatedAt?: string } | ActiveGame[];
 
-export function useScratchersIndex(opts?: { jurisdiction?: "ga" | "ny" | "fl" | "ca"}) {
-  const jurisdiction: "ga" | "ny" | "fl" | "ca" = opts?.jurisdiction ?? "ga";
+export function useScratchersIndex(opts?: { jurisdiction?: "ga" | "ny" | "fl" | "ca" | "tx"}) {
+  const jurisdiction: "ga" | "ny" | "fl" | "ca" | "tx"= opts?.jurisdiction ?? "ga";
   const [raw, setRaw] = useState<ScratchersIndexPayload | null>(null);
   const [loading, setLoading] = useState(false);
 

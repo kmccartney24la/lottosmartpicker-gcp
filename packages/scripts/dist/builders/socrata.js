@@ -1,7 +1,6 @@
-// packages/lib/scripts/builders/socrata.ts
+// packages/scripts/src/builders/socrata.ts
 import { fetch as undiciFetch } from "undici";
 import { toCanonicalCsv, toFlexibleCsv } from "@lsp/lib/csv";
-const DEBUG = process.env.SOCRATA_DEBUG === "1";
 // Make the key type extensible so you can add NY keys easily
 const DATASETS = {
     // Existing multi-state sets
@@ -16,8 +15,22 @@ const DATASETS = {
     ny_take5_evening: { id: "dg63-4siq", dateField: "draw_date", winningField: "evening_winning_numbers", minMainCount: 5, specialOptional: true },
     ny_nylotto: { id: "6nbc-h7bj", dateField: "draw_date", winningField: "winning_numbers", specialField: "bonus", minMainCount: 6 },
     ny_pick10: { id: "bycu-cw7c", dateField: "draw_date", winningField: "winning_numbers", minMainCount: 20, specialOptional: true },
-    // NOTE: Quick Draw dataset has fields: draw_date (timestamp), draw_number (number), draw_time, winning_numbers, extra_multiplier
-    ny_quick_draw: { id: "7sqk-ycpk", dateField: "draw_date", winningField: "winning_numbers", minMainCount: 20 },
+    /** NY Quick Draw — many draws per day. We want the most recent 50,000 rows. */
+    ny_quick_draw: {
+        id: "7sqk-ycpk",
+        dateField: "draw_date",
+        winningField: "winning_numbers",
+        minMainCount: 20,
+        // Do NOT include the Extra multiplier ("Extra"/"extra_multiplier") — we don't need it.
+        // Pull these extra columns for the CSV:
+        extraFields: ["draw_number", "draw_time"],
+        // Newest first, then latest draw_number within a day:
+        orderBy: "draw_date DESC, draw_number DESC",
+        // Exactly 50k newest rows:
+        limit: 50000,
+        // No special ball for Quick Draw:
+        specialOptional: true,
+    },
 };
 const SOCRATA_BASE = "https://data.ny.gov/resource";
 /** Robust tokenization:
@@ -55,7 +68,7 @@ function pickWinningValue(obj, f) {
     }
     return obj[f];
 }
-export async function buildSocrataCsvFlexible(gameKey, token, limitOpts) {
+export async function buildSocrataCsvFlexible(gameKey, token) {
     const cfg = DATASETS[gameKey];
     if (!cfg)
         throw new Error(`Unknown Socrata dataset key '${String(gameKey)}'`);
@@ -63,72 +76,28 @@ export async function buildSocrataCsvFlexible(gameKey, token, limitOpts) {
     (Array.isArray(cfg.winningField) ? cfg.winningField : [cfg.winningField]).forEach(f => select.add(f));
     if (cfg.specialField)
         select.add(cfg.specialField);
-    // NEW: build query params with optional limit strategy
-    // Default: chronological (ASC) with 50k cap to avoid pagination.
-    let order = `${cfg.dateField} ASC`;
-    let where;
-    let limit = "50000";
-    if (limitOpts?.mode === "lastN") {
-        // Ask Socrata for the newest rows first, then reverse locally.
-        limit = String(Math.min(limitOpts.n, 50000));
-        // For Quick Draw, date-only ordering collapses to a single day; add draw_number DESC.
-        if (gameKey === "ny_quick_draw") {
-            // Ensure the column is selected so SoQL can sort on it
-            select.add("draw_number");
-            order = `${cfg.dateField} DESC, draw_number DESC`;
-            // (Optional but harmless) filter out any odd rows missing winning numbers
-            where = where
-                ? `${where} AND winning_numbers IS NOT NULL`
-                : `winning_numbers IS NOT NULL`;
-        }
-        else {
-            order = `${cfg.dateField} DESC`;
-        }
-    }
-    else if (limitOpts?.mode === "since") {
-        // Since-date filter; keep ASC to get a natural chronological stream.
-        where = `${cfg.dateField} >= '${limitOpts.sinceISO}'`;
-        // Keep a single-page cap; caller should ensure date range is <= 50k rows.
-        limit = "50000";
-    }
-    const params = new URLSearchParams();
-    params.set("$select", Array.from(select).join(","));
-    params.set("$order", order);
-    params.set("$limit", limit);
-    if (where)
-        params.set("$where", where);
+    // Include any extra passthrough fields (e.g., draw_number, draw_time)
+    (cfg.extraFields ?? []).forEach(f => select.add(f));
+    const params = new URLSearchParams({
+        $select: Array.from(select).join(","),
+        // Default to newest-first so *.latest.csv is truly "latest"
+        $order: cfg.orderBy ?? `${cfg.dateField} DESC`,
+        $limit: String(cfg.limit ?? 50000),
+    });
     const url = `${SOCRATA_BASE}/${cfg.id}.json?${params}`;
-    if (DEBUG) {
-        console.log(`[socrata] ${String(gameKey)} URL: ${url}`);
-    }
     const res = await undiciFetch(url, { headers: token ? { "X-App-Token": token } : undefined });
-    if (DEBUG) {
-        console.log(`[socrata] ${String(gameKey)} HTTP status: ${res.status}`);
-    }
     if (!res.ok)
-        throw new Error(`Socrata ${res.status} for ${gameKey} (${await res.text()})`);
-    let json = (await res.json());
-    if (DEBUG) {
-        console.log(`[socrata] ${String(gameKey)} fetched rows: ${json.length}`);
-    }
-    // If we pulled DESC for "lastN", restore chronological order for downstream logic/CSV.
-    if (limitOpts?.mode === "lastN") {
-        json = json.reverse();
-    }
+        throw new Error(`Socrata ${res.status} for ${gameKey}`);
+    const json = (await res.json());
     const rowsFlex = [];
+    // Quick Draw passthrough holders (only populated for ny_quick_draw)
+    const rowsQD = [];
     for (const r of json) {
         const rawDate = r[cfg.dateField];
         const date = rawDate ? new Date(rawDate) : new Date(NaN);
         if (Number.isNaN(date.getTime()))
             continue;
-        // Keep full timestamp; for Quick Draw, append draw_number to guarantee uniqueness
-        const isoFull = date.toISOString();
-        const drawNum = gameKey === "ny_quick_draw"
-            ? Number.parseInt(String(r["draw_number"] ?? ""), 10)
-            : undefined;
-        const uniqueKey = gameKey === "ny_quick_draw" && Number.isFinite(drawNum)
-            ? `${isoFull}#${drawNum}`
-            : isoFull;
+        const iso = date.toISOString().slice(0, 10);
         const rawWin = pickWinningValue(r, cfg.winningField);
         if (rawWin == null)
             continue;
@@ -152,10 +121,40 @@ export async function buildSocrataCsvFlexible(gameKey, token, limitOpts) {
         const needsSpecial = mainMin === 5 && cfg.specialOptional !== true;
         if (needsSpecial && special == null)
             continue;
-        rowsFlex.push({ draw_date: uniqueKey, nums: nums.slice(0, mainMin), special });
+        if (gameKey === "ny_quick_draw") {
+            rowsQD.push({
+                draw_date: iso,
+                draw_number: r["draw_number"],
+                draw_time: r["draw_time"],
+                nums: nums.slice(0, mainMin),
+            });
+        }
+        else {
+            rowsFlex.push({ draw_date: iso, nums: nums.slice(0, mainMin), special });
+        }
     }
-    if (DEBUG) {
-        console.log(`[socrata] ${String(gameKey)} kept rows: ${rowsFlex.length}`);
+    // ---- Quick Draw CSV writer (newest-first is fine) ----
+    if (gameKey === "ny_quick_draw") {
+        // Shape: draw_date,draw_number,draw_time,num1..num20
+        const header = [
+            "draw_date",
+            "draw_number",
+            "draw_time",
+            ...Array.from({ length: 20 }, (_, i) => `num${i + 1}`),
+        ].join(",");
+        const lines = [header];
+        for (const row of rowsQD) {
+            const ns = row.nums.slice(0, 20);
+            // Defensive: pad/truncate to exactly 20 cols.
+            const padded = Array.from({ length: 20 }, (_, i) => ns[i] ?? "");
+            lines.push([
+                row.draw_date,
+                row.draw_number ?? "",
+                row.draw_time ?? "",
+                ...padded,
+            ].join(","));
+        }
+        return lines.join("\n") + "\n";
     }
     // Keep your canonical writer when it’s the classic 5+special shape
     const isClassic5PlusSpecial = (cfg.minMainCount ?? 0) === 5 &&
@@ -179,9 +178,3 @@ export async function buildSocrataCsvFlexible(gameKey, token, limitOpts) {
 }
 // Back-compat export: use the flexible builder by default
 export const buildSocrataCsv = buildSocrataCsvFlexible;
-// convenience helper specifically for Quick Draw — last 40,000 rows
-// Usage:
-//   const csv = await buildQuickDrawRecentCsv40k(process.env.NY_SOCRATA_APP_TOKEN);
-export async function buildQuickDrawRecentCsv40k(token) {
-    return buildSocrataCsvFlexible("ny_quick_draw", token, { mode: "lastN", n: 40000 });
-}

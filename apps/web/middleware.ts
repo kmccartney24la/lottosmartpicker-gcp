@@ -80,7 +80,7 @@ export async function middleware(req: NextRequest) {
     }
   }
   // TS-safe geo inference using headers only.
-  function inferStateFromHeaders(req: NextRequest): 'ga' | 'ny' | 'fl' | 'ca' {
+  function inferStateFromHeaders(req: NextRequest): 'ga' | 'ny' | 'fl' | 'ca' | 'tx' {
     const up = (v: string | null) => (v || '').toUpperCase();
     // Vercel-style
     const vcCountry = up(req.headers.get('x-vercel-ip-country'));
@@ -95,6 +95,7 @@ export async function middleware(req: NextRequest) {
       if (region === 'FL') return 'fl';
       if (region === 'GA') return 'ga';
       if (region === 'CA') return 'ca'; // California
+      if (region === 'TX') return 'tx'; // Texas
     }
     return 'ga'; // default
   }

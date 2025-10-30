@@ -51,16 +51,16 @@ export const HINT_EXPLAIN: Record<string, string> = {
   'Wheel':
     'Plays every possible order of your digits on separate Straight bets. Cost scales with the number of orders.',
   /* Jurisdiction-specific cover-all-orders */
-  'Combo (FL)':
-    'Florida Pick 3/4: wager on each possible Straight combination of your digits on one ticket. Cost scales with # of orders; wins Straight prizes.',
-  'Combination (NY)':
-    'NY Numbers/Win4: play all Straight permutations on one ticket. Cost scales with # of orders; wins Straight prizes.',
+  'Combo': // FL, TX
+    'Wager on each possible Straight combination of your digits on one ticket. Cost scales with # of orders; wins Straight prizes.',
+  'Combination': // NY
+    'Play all Straight permutations on one ticket. Cost scales with # of orders; wins Straight prizes.',
   'Front Pair':
-    'Match the first two digits in exact order (often available on Pick 3 or Pick 4).',
+    'Match the first two digits in exact order.',
   'Mid Pair':
-    'Match the middle two digits in exact order (usually for Pick 4).',
+    'Match the middle two digits in exact order.',
   'Back Pair':
-    'Match the last two digits in exact order (often available on Pick 3 or Pick 4).',
+    'Match the last two digits in exact order.',
   'Front Number':
     'Pick just the first digit. Win if that first digit matches exactly.',
   'Back Number':
