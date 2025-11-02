@@ -47,14 +47,7 @@ export async function middleware(req: NextRequest) {
   const isBareDraws = p === "/" || p === "/index.html";
   const isBareScratchers = p === "/scratchers";
   const isStatePrefixed =
-    p.startsWith("/ga") || p.startsWith("/ny") || p.startsWith("/fl") || p.startsWith("/ca") || p.startsWith("/tx");
-
-  // ✅ GA is now represented at apex → hard redirect /ga → /
-  if (p === "/ga" || p === "/ga/") {
-    const url = req.nextUrl.clone();
-    url.pathname = "/";
-    return NextResponse.redirect(url, 301);
-  }
+    p.startsWith("/ga") || p.startsWith("/ny") || p.startsWith("/fl") || p.startsWith("/ca");
 
   // Canonical host: redirect HTML from app. → apex
   if (host === APP_HOST && APP_HOST === "app.lottosmartpicker.com" && (isHTML || isHTMLLike)) {
@@ -80,16 +73,10 @@ export async function middleware(req: NextRequest) {
   if ( (isHTML || isHTMLLike) && !isApi && !isStatic ) {
     if (!isStatePrefixed && (isBareDraws || isBareScratchers)) {
       const st = inferStateFromHeaders(req);
-
-      // ✅ GA is special now:
-      // - "/" should stay "/" for GA
-      // - "/scratchers" should stay "/scratchers" for GA
-      if (st !== "ga") {
-        const target = isBareScratchers ? `/${st}/scratchers` : `/${st}`;
-        const url = req.nextUrl.clone();
-        url.pathname = target;
-        return NextResponse.redirect(url, 302);
-      }
+      const target = isBareScratchers ? `/${st}/scratchers` : `/${st}`;
+      const url = req.nextUrl.clone();
+      url.pathname = target;
+      return NextResponse.redirect(url, 302);
     }
   }
   // TS-safe geo inference using headers only.

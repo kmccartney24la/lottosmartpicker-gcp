@@ -7,7 +7,7 @@ export const metadata: Metadata = {
   title: 'Georgia Scratchers Analysis & Rankings',
   description:
     'Compare GA scratch-off games by odds, top prizes remaining, value and start date. Updated from official sources.',
-  alternates: { canonical: 'https://lottosmartpicker.com/scratchers' },
+  alternates: { canonical: 'https://lottosmartpicker.com/ga/scratchers' },
 };
 
 export default function ScratchersPage() {
@@ -21,7 +21,7 @@ export default function ScratchersPage() {
             '@context': 'https://schema.org',
             '@type': 'CollectionPage',
             name: 'Georgia Scratchers Analysis & Rankings',
-            url: 'https://lottosmartpicker.com/scratchers',
+            url: 'https://lottosmartpicker.com/ga/scratchers',
             description: 'GA scratch-off comparison by odds, top prizes remaining, and value.',
             isPartOf: { '@type': 'WebSite', name: 'Lotto Smart Picker', url: 'https://lottosmartpicker.com' },
           }),
