@@ -7,7 +7,7 @@ export const metadata: Metadata = {
   title: 'Smarter Powerball & Mega Millions Analysis (Georgia)',
   description:
     'Pick smarter numbers with data-driven analysis for Powerball, Mega Millions, Cash4Life and GA Fantasy 5. Trends, stats, and a generator in one place.',
-  alternates: { canonical: 'https://lottosmartpicker.com/ga' },
+  alternates: { canonical: 'https://lottosmartpicker.com' },
 };
 
 export default function Page() {
@@ -21,7 +21,7 @@ export default function Page() {
             '@context': 'https://schema.org',
             '@type': 'WebPage',
             name: 'Smarter Powerball & Mega Millions Analysis — Georgia',
-            url: 'https://lottosmartpicker.com/ga',
+            url: 'https://lottosmartpicker.com',
             description:
               'Data-driven analysis and number generator for Powerball, Mega Millions, Cash4Life and GA Fantasy 5.',
             isPartOf: {

@@ -7,8 +7,8 @@ export default function sitemap(): MetadataRoute.Sitemap {
   // Canonical, state-prefixed URLs only
   return [
     // Georgia (canonical)
-    { url: 'https://lottosmartpicker.com/ga',            lastModified: now, changeFrequency: 'daily',   priority: 1 },
-    { url: 'https://lottosmartpicker.com/ga/scratchers', lastModified: now, changeFrequency: 'daily',   priority: 0.9 },
+    { url: 'https://lottosmartpicker.com',            lastModified: now, changeFrequency: 'daily',   priority: 1 },
+    { url: 'https://lottosmartpicker.com/scratchers', lastModified: now, changeFrequency: 'daily',   priority: 0.9 },
 
     // New York (canonical)
     { url: 'https://lottosmartpicker.com/ny',            lastModified: now, changeFrequency: 'daily',   priority: 0.95 },
