@@ -15,6 +15,8 @@ import {
   fetchCashPopRows,
   analyzeGameAsync,
   primaryKeyFor,
+  // 👇 canonical 5/6-ball fetcher (same one TX uses)
+  fetchRowsWithCache,
 } from '@lsp/lib';
 import type {
   LottoRow,
@@ -37,6 +39,8 @@ const FL_KEYS = [
   'multi_megamillions',
   'multi_powerball',
   'multi_cash4life',
+  'fl_jackpot_triple_play',
+  'fl_lotto',
   'fl_fantasy5',
   'fl_pick2',
   'fl_pick3',
@@ -50,14 +54,16 @@ type FlLogicalKey = typeof FL_KEYS[number];
 // supportsPeriod: 'none' = single source; 'two' = Midday/Evening; 'five' = Cash Pop dayparts
 const GAME_OPTIONS: { key: FlLogicalKey; label: string; supportsPeriod: 'none'|'two'|'five' }[] = [
   { key: 'multi_cash4life',    label: 'Cash4Life',            supportsPeriod: 'none' },
-  { key: 'multi_megamillions', label: 'Mega Millions',        supportsPeriod: 'none' },
-  { key: 'multi_powerball',    label: 'Powerball',            supportsPeriod: 'none' },
   { key: 'fl_cashpop',         label: 'Cash Pop',             supportsPeriod: 'five' },
   { key: 'fl_fantasy5',        label: 'Fantasy 5 (FL)',       supportsPeriod: 'two'  },
+  { key: 'fl_jackpot_triple_play', label: 'Jackpot Triple Play', supportsPeriod: 'none' },
+  { key: 'fl_lotto',           label: 'Florida Lotto',        supportsPeriod: 'none' },
+  { key: 'multi_megamillions', label: 'Mega Millions',        supportsPeriod: 'none' },
   { key: 'fl_pick2',           label: 'Pick 2',               supportsPeriod: 'two'  },
   { key: 'fl_pick3',           label: 'Pick 3',               supportsPeriod: 'two'  },
   { key: 'fl_pick4',           label: 'Pick 4',               supportsPeriod: 'two'  },
   { key: 'fl_pick5',           label: 'Pick 5',               supportsPeriod: 'two'  },
+  { key: 'multi_powerball',    label: 'Powerball',            supportsPeriod: 'none' },
 ];
 
 /**
@@ -69,8 +75,10 @@ const REP_FOR_LOGICAL: Record<FlLogicalKey, GameKey> = {
   multi_cash4life: 'multi_cash4life',
   multi_powerball: 'multi_powerball',
   multi_megamillions: 'multi_megamillions',
-  // Use Fantasy 5 (canonical GameKey) as a neutral 5-ball rep for FL non-multi games
   fl_fantasy5: 'fl_fantasy5',
+  fl_jackpot_triple_play: 'fl_jackpot_triple_play',
+  fl_lotto: 'fl_lotto',
+  // Use Fantasy 5 (canonical GameKey) as a neutral 5-ball rep for FL non-multi games
   fl_pick2:    'fl_fantasy5',
   fl_pick3:    'fl_fantasy5',
   fl_pick4:    'fl_fantasy5',
@@ -91,40 +99,76 @@ export default function HomeClientFL() {
   const [payload, setPayload] = useState<PastDrawsPayload | undefined>(undefined);
   const UI_CAP = 2000; // hard cap for what the sidebar should render
   const isMobile = useIsMobile();
-  const drawerMode = isMobile;
 
   const repGame: GameKey = REP_FOR_LOGICAL[logical as FlLogicalKey];
 
   const load = useCallback(async () => {
     try {
-      setLoading(true); setError(null);
-      const data = await fetchLogicalRows({ logical, period });
-      setRowsAll(data); // keep full for generator/analysis
-      // Build a shape-aware payload for digit games & Cash Pop
-      // so PastDrawsSidebar renders the correct bubbles.
-      if (logical === 'fl_pick2' || logical === 'fl_pick3' || logical === 'fl_pick4' || logical === 'fl_pick5') {
-        const k = logical === 'fl_pick5' ? 5 : logical === 'fl_pick4' ? 4 : logical === 'fl_pick3' ? 3 : 2;
-        const per: 'midday'|'evening'|'both' = (period === 'midday' || period === 'evening') ? period : 'both';
-        const digitRows = await fetchDigitRowsFor(logical, per);
-        const ui =
-          digitRows.length > UI_CAP ? digitRows.slice(-UI_CAP) : digitRows
-        setPayload({
-          kind: 'digits_fb',
-          k,
-          rows: ui.map(r => ({ date: r.date, digits: r.digits, fb: r.fb })),
-        });
-      } else if (logical === 'fl_cashpop') {
-        const per = (period === 'morning' || period === 'matinee' || period === 'afternoon' || period === 'evening' || period === 'latenight') ? period : 'all';
-        const cp = await fetchCashPopRows(per);
-        const ui =
-          cp.length > UI_CAP ? cp.slice(-UI_CAP) : cp;
-        setPayload({
-          kind: 'cashpop',
-          rows: ui.map(r => ({ date: r.date, value: r.value })),
-        });
-      } else {
-        // Five-ball canonical games (PB/MM/C4L/Fantasy5): let sidebar use pageRows
+      setLoading(true);
+      setError(null);
+
+      // canonical FL + multis should use the canonical fetch path,
+      // same idea as TX
+      const isCanonicalSingle =
+        logical === 'multi_powerball' ||
+        logical === 'multi_megamillions' ||
+        logical === 'multi_cash4life' ||
+        logical === 'fl_lotto' ||
+        logical === 'fl_jackpot_triple_play';
+
+      if (isCanonicalSingle) {
+        const rows = await fetchRowsWithCache({ game: logical as GameKey, latestOnly: false });
+        const normalized = [...rows].sort((a, b) =>
+          a.date < b.date ? 1 : a.date > b.date ? -1 : 0
+        );
+        setRowsAll(normalized);
         setPayload(undefined);
+      } else {
+        // logical (period-aware) path for Fantasy 5, digits, cash pop
+        const data = await fetchLogicalRows({ logical, period });
+        setRowsAll(data);
+
+        // digits → shape-aware payload
+        if (
+          logical === 'fl_pick2' ||
+          logical === 'fl_pick3' ||
+          logical === 'fl_pick4' ||
+          logical === 'fl_pick5'
+        ) {
+          const k =
+            logical === 'fl_pick5' ? 5 :
+            logical === 'fl_pick4' ? 4 :
+            logical === 'fl_pick3' ? 3 : 2;
+          const per: 'midday'|'evening'|'both' =
+            (period === 'midday' || period === 'evening') ? period : 'both';
+          const digitRows = await fetchDigitRowsFor(logical, per);
+          const ui =
+            digitRows.length > UI_CAP ? digitRows.slice(-UI_CAP) : digitRows;
+          setPayload({
+            kind: 'digits_fb',
+            k,
+            rows: ui.map(r => ({ date: r.date, digits: r.digits, fb: r.fb })),
+          });
+        } else if (logical === 'fl_cashpop') {
+          const per =
+            (period === 'morning' ||
+             period === 'matinee' ||
+             period === 'afternoon' ||
+             period === 'evening' ||
+             period === 'latenight')
+              ? period
+              : 'all';
+          const cp = await fetchCashPopRows(per);
+          const ui =
+            cp.length > UI_CAP ? cp.slice(-UI_CAP) : cp;
+          setPayload({
+            kind: 'cashpop',
+            rows: ui.map(r => ({ date: r.date, value: r.value })),
+          });
+        } else {
+          // Fantasy 5 noon/evening path → sidebar can use default
+          setPayload(undefined);
+        }
       }
     } catch (e: any) {
       console.error('FL load() failed:', e);
@@ -136,28 +180,35 @@ export default function HomeClientFL() {
     }
   }, [logical, period]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    void load();
+  }, [load]);
 
   // Sorting & paging
   const [page, setPage] = useState(1);
   const pageSize = 25;
+
   const sortedRowsAll = useMemo(() => {
     const arr = [...rowsAll];
-    arr.sort((a,b) => sortDir === 'desc'
-      ? (a.date < b.date ? 1 : a.date > b.date ? -1 : 0)
-      : (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+    arr.sort((a,b) =>
+      sortDir === 'desc'
+        ? (a.date < b.date ? 1 : a.date > b.date ? -1 : 0)
+        : (a.date < b.date ? -1 : a.date > b.date ? 1 : 0)
+    );
     return arr;
   }, [rowsAll, sortDir]);
+
   // For legacy five-ball path (no payload), cap UI rows derived from ALL rows
   const rowsUI = useMemo(() => sortedRowsAll.slice(0, UI_CAP), [sortedRowsAll]);
+
   // Effective counts for the sidebar footer:
-  // - If payload provided (digits/cashpop), base on payload.rows (already capped).
-  // - Else base on rowsUI (capped legacy five-ball).
   const uiTotal = useMemo(() => {
     if (payload && 'rows' in payload) return (payload.rows as any[]).length;
     return rowsUI.length;
-  }, [payload, rowsUI.length]);
+  }, [payload, rowsUI]);
+
   const pageCount = Math.max(1, Math.ceil(uiTotal / pageSize));
+
   const pageRows = useMemo(() => {
     const source = (payload && 'rows' in payload) ? (payload.rows as any[]) : rowsUI;
     const start = (page - 1) * pageSize;
@@ -168,194 +219,202 @@ export default function HomeClientFL() {
   const [analysisByRep, setAnalysisByRep] =
     useState<Partial<Record<GameKey, any>>>({});
 
-  const openPastDraws = useCallback(() => { setShowPast(true); }, []);
+  const openPastDraws = useCallback(() => {
+    setShowPast(true);
+  }, []);
+
   const periodSupport = GAME_OPTIONS.find(g => g.key === (logical as FlLogicalKey))?.supportsPeriod ?? 'none';
 
   return (
     <ErrorBoundary>
-    <main className="layout-rails">
-      {/* Left rail */}
-      <aside className="rail rail--left" aria-label="Sponsored">
-        <div className="rail__inner">
-          <div className="ad-slot ad-slot--rail-300x600"><AdsLot /></div>
-          <div className="ad-slot ad-slot--rail-300x250"><AdsLot /></div>
-        </div>
-      </aside>
+      <main className="layout-rails">
+        {/* Left rail */}
+        <aside className="rail rail--left" aria-label="Sponsored">
+          <div className="rail__inner">
+            <div className="ad-slot ad-slot--rail-300x600"><AdsLot /></div>
+            <div className="ad-slot ad-slot--rail-300x250"><AdsLot /></div>
+          </div>
+        </aside>
 
-      {/* Center */}
-      <div className="rails-center">
-        <div className="center-clamp">
-          <div className="vstack vstack--4">
-            {/* Header controls */}
-            <section className="card">
-              <div className="controls header-controls">
-                {/* Logical game picker */}
-                <div
-                  className="card card--reserve-topright game-select-card"
-                  data-has-period={periodSupport !== 'none' ? 'true' : 'false'}
-                >
-                  <div className="card-title game-select-label">Pick Your Game</div>
-                  <select
-                    aria-label="Select Florida game"
-                    value={logical}
-                    onChange={(e) => {
-                      const next = e.target.value as LogicalGameKey;
-                      setLogical(next);
-                      // Reset to a sane default period on game switch
-                      setPeriod('both');
-                      setPage(1);
-                    }}
-                    className="compact-control"
+        {/* Center */}
+        <div className="rails-center">
+          <div className="center-clamp">
+            <div className="vstack vstack--4">
+              {/* Header controls */}
+              <section className="card">
+                <div className="controls header-controls">
+                  {/* Logical game picker */}
+                  <div
+                    className="card card--reserve-topright game-select-card"
+                    data-has-period={periodSupport !== 'none' ? 'true' : 'false'}
                   >
-                    {GAME_OPTIONS.map(opt => (
-                      <option key={opt.key} value={opt.key}>{opt.label}</option>
-                    ))}
-                  </select>
+                    <div className="card-title game-select-label">Pick Your Game</div>
+                    <select
+                      aria-label="Select Florida game"
+                      value={logical}
+                      onChange={(e) => {
+                        const next = e.target.value as LogicalGameKey;
+                        setLogical(next);
+                        // Reset to a sane default period on game switch
+                        setPeriod('both');
+                        setPage(1);
+                      }}
+                      className="compact-control"
+                    >
+                      {GAME_OPTIONS.map(opt => (
+                        <option key={opt.key} value={opt.key}>{opt.label}</option>
+                      ))}
+                    </select>
 
-                  {/* Period picker */}
-                  {periodSupport !== 'none' && (
-                    <div className="card-topright-anchor game-select-period-anchor">
-                      <label htmlFor="fl-period" className="visually-hidden">Draw Time</label>
+                    {/* Period picker */}
+                    {periodSupport !== 'none' && (
+                      <div className="card-topright-anchor game-select-period-anchor">
+                        <label htmlFor="fl-period" className="visually-hidden">Draw Time</label>
 
-                      {/* Two-period control */}
-                      {periodSupport === 'two' && (
-                        <select
-                          id="fl-period"
-                          aria-label="Select draw time"
-                          value={toTwoPeriod(period)}
-                          onChange={(e) => { setPeriod(e.target.value as Period); setPage(1); }}
-                          className="game-select-period compact-control"
-                        >
-                          <option value="both">Midday + Evening</option>
-                          <option value="midday">Midday only</option>
-                          <option value="evening">Evening only</option>
-                        </select>
-                      )}
+                        {/* Two-period control */}
+                        {periodSupport === 'two' && (
+                          <select
+                            id="fl-period"
+                            aria-label="Select draw time"
+                            value={toTwoPeriod(period)}
+                            onChange={(e) => { setPeriod(e.target.value as Period); setPage(1); }}
+                            className="game-select-period compact-control"
+                          >
+                            <option value="both">Midday + Evening</option>
+                            <option value="midday">Midday only</option>
+                            <option value="evening">Evening only</option>
+                          </select>
+                        )}
 
-                      {/* Five-period control (Cash Pop) */}
-                      {periodSupport === 'five' && (
-                        <select
-                          id="fl-period"
-                          aria-label="Select draw time (Cash Pop)"
-                          value={period}
-                          onChange={(e) => { setPeriod(e.target.value as Period); setPage(1); }}
-                          className="game-select-period compact-control"
-                        >
-                          <option value="all">All periods</option>
-                          <option value="morning">Morning</option>
-                          <option value="matinee">Matinee</option>
-                          <option value="afternoon">Afternoon</option>
-                          <option value="evening">Evening</option>
-                          <option value="latenight">Late Night</option>
-                        </select>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                <div className="latest-and-actions">
-                  {/* Components that still expect a canonical GameKey */}
-                  <SelectedLatest
-                    game={repGame}
-                    logical={logical}
-                    // Keep SelectedLatest in a two-period-safe range for Cash Pop
-                    period={periodSupport === 'two' ? toTwoPeriod(period) : 'both'}
-                    onOpenPastDraws={openPastDraws}
-                    showPast={showPast}
-                  />
-                </div>
-              </div>
-            </section>
-
-            {/* Two-column main */}
-            <div className="layout-grid main-content">
-              <section className="vstack vstack--4">
-                <GameOverview game={repGame} logical={logical} period={period} />
-                <div>
-                  <ErrorBoundary
-                    fallback={
-                      <div className="card p-3 text-sm">
-                        <div className="font-medium mb-1">Generator temporarily unavailable.</div>
-                        <div>Try changing the game/period or reload the page.</div>
+                        {/* Five-period control (Cash Pop) */}
+                        {periodSupport === 'five' && (
+                          <select
+                            id="fl-period"
+                            aria-label="Select draw time (Cash Pop)"
+                            value={period}
+                            onChange={(e) => { setPeriod(e.target.value as Period); setPage(1); }}
+                            className="game-select-period compact-control"
+                          >
+                            <option value="all">All periods</option>
+                            <option value="morning">Morning</option>
+                            <option value="matinee">Matinee</option>
+                            <option value="afternoon">Afternoon</option>
+                            <option value="evening">Evening</option>
+                            <option value="latenight">Late Night</option>
+                          </select>
+                        )}
                       </div>
-                    }
-                  >
-                  <Generator
-                    game={repGame}
-                    logical={logical}
-                    rowsForGenerator={rowsAll}  // full rows for generator/analysis
-                    analysisForGame={analysisByRep[repGame] ?? null}
-                    anLoading={loading}
-                    onEnsureRecommended={async () => {
-                      return analyzeGameAsync(rowsAll, repGame);
-                    }}
-                  />
-                  </ErrorBoundary>
-                </div>
-                <div className="ad-slot ad-slot--rect-280" aria-label="Advertisement">
-                  {!loading && rowsAll.length > 0 ? <AdsLot /> : null}
+                    )}
+                  </div>
+
+                  <div className="latest-and-actions">
+                    {/* Components that still expect a canonical GameKey */}
+                    <SelectedLatest
+                      game={repGame}
+                      logical={logical}
+                      // Keep SelectedLatest in a two-period-safe range for Cash Pop
+                      period={periodSupport === 'two' ? toTwoPeriod(period) : 'both'}
+                      onOpenPastDraws={openPastDraws}
+                      showPast={showPast}
+                    />
+                  </div>
                 </div>
               </section>
 
-              <section className="vstack vstack--4">
-                <div><HintLegend game={logical} /></div>
-                <div>
-                  <AnalyzeSidebar
-                    title="Analysis (All Games)"
-                    canonical={['multi_powerball','multi_megamillions','multi_cash4life']}
-                    logical={[
-                      'fl_fantasy5',
-                      'fl_pick2','fl_pick3','fl_pick4','fl_pick5',
-                      'fl_cashpop',
-                    ]}
-                    period={periodSupport === 'two' ? toTwoPeriod(period) : 'both'}
-                    state="fl"
-                  />
-                </div>
-              </section>
+              {/* Two-column main */}
+              <div className="layout-grid main-content">
+                <section className="vstack vstack--4">
+                  <GameOverview game={repGame} logical={logical} period={period} />
+                  <div>
+                    <ErrorBoundary
+                      fallback={
+                        <div className="card p-3 text-sm">
+                          <div className="font-medium mb-1">Generator temporarily unavailable.</div>
+                          <div>Try changing the game/period or reload the page.</div>
+                        </div>
+                      }
+                    >
+                      <Generator
+                        game={repGame}
+                        logical={logical}
+                        rowsForGenerator={rowsAll}  // full rows for generator/analysis
+                        analysisForGame={analysisByRep[repGame] ?? null}
+                        anLoading={loading}
+                        onEnsureRecommended={async () => {
+                          return analyzeGameAsync(rowsAll, repGame);
+                        }}
+                      />
+                    </ErrorBoundary>
+                  </div>
+                  <div className="ad-slot ad-slot--rect-280" aria-label="Advertisement">
+                    {!loading && rowsAll.length > 0 ? <AdsLot /> : null}
+                  </div>
+                </section>
+
+                <section className="vstack vstack--4">
+                  <div><HintLegend game={logical} /></div>
+                  <div>
+                    <AnalyzeSidebar
+                      title="Analysis (All Games)"
+                      canonical={[
+                        'multi_powerball','multi_megamillions','multi_cash4life',
+                        'fl_jackpot_triple_play','fl_lotto'
+                      ]}
+                      logical={[
+                        'fl_fantasy5',
+                        'fl_pick2','fl_pick3','fl_pick4','fl_pick5',
+                        'fl_cashpop',
+                      ]}
+                      period={periodSupport === 'two' ? toTwoPeriod(period) : 'both'}
+                      state="fl"
+                    />
+                  </div>
+                </section>
+              </div>
+
+              <ErrorBoundary
+                fallback={
+                  <div className="card p-3 text-sm">
+                    <div className="font-medium mb-1">Past Draws failed to load.</div>
+                    <button
+                      className="mt-1 rounded bg-black text-white px-3 py-1"
+                      onClick={() => setShowPast(false)}
+                    >
+                      Close
+                    </button>
+                  </div>
+                }
+              >
+                <PastDrawsSidebar
+                  open={showPast}
+                  onClose={() => setShowPast(false)}
+                  compact={compact}
+                  setCompact={setCompact}
+                  pageRows={pageRows}
+                  page={page}
+                  pageCount={pageCount}
+                  setPage={setPage}
+                  total={uiTotal}
+                  side="right"
+                  game={repGame}
+                  logical={logical}
+                  payload={payload}
+                  sortDir={sortDir}
+                  onToggleSort={() => setSortDir(d => d === 'desc' ? 'asc' : 'desc')}
+                />
+              </ErrorBoundary>
             </div>
-            <ErrorBoundary
-              fallback={
-                <div className="card p-3 text-sm">
-                  <div className="font-medium mb-1">Past Draws failed to load.</div>
-                  <button className="mt-1 rounded bg-black text-white px-3 py-1"
-                          onClick={() => setShowPast(false)}>
-                    Close
-                  </button>
-                </div>
-              }
-            >
-            {/* Drawer */}
-            <PastDrawsSidebar
-              open={showPast}
-              onClose={() => setShowPast(false)}
-              compact={compact}
-              setCompact={setCompact}
-              pageRows={pageRows}
-              page={page}
-              pageCount={pageCount}
-              setPage={setPage}
-              total={uiTotal}         
-              side="right"
-              game={repGame}
-              logical={logical}
-              payload={payload}   // undefined for FL → default Past Draws behavior
-              sortDir={sortDir}
-              onToggleSort={() => setSortDir(d => d === 'desc' ? 'asc' : 'desc')}
-            />
-            </ErrorBoundary>
           </div>
         </div>
-      </div>
 
-      {/* Right rail */}
-      <aside className="rail rail--right" aria-label="Sponsored">
-        <div className="rail__inner">
-          <div className="ad-slot ad-slot--rail-300x600"><AdsLot /></div>
-          <div className="ad-slot ad-slot--rail-300x250"><AdsLot /></div>
-        </div>
-      </aside>
-    </main>
+        {/* Right rail */}
+        <aside className="rail rail--right" aria-label="Sponsored">
+          <div className="rail__inner">
+            <div className="ad-slot ad-slot--rail-300x600"><AdsLot /></div>
+            <div className="ad-slot ad-slot--rail-300x250"><AdsLot /></div>
+          </div>
+        </aside>
+      </main>
     </ErrorBoundary>
   );
 }

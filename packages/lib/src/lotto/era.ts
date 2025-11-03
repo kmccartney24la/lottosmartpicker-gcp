@@ -1,5 +1,11 @@
 // packages/lib/src/lotto/era.ts
-import type { EraConfig, EraGame, GameKey, LottoRow } from './types.js';
+import type {
+  EraConfig,
+  EraGame,
+  GameKey,
+  LogicalGameKey,
+  LottoRow,
+} from './types.js';
 
 // Re-export types for convenience (as requested).
 export type { EraConfig, EraGame } from './types.js';
@@ -137,31 +143,77 @@ export const CURRENT_ERA: Record<EraGame, EraConfig> = {
     },
 };
 
-/** Map any GameKey to the EraGame we use for analysis (generator, stats, labels). */
-export function resolveEraGame(game: GameKey): EraGame {
-  // If the key itself is an EraGame, use it directly.
-  if ((CURRENT_ERA as Record<string, EraConfig>)[game]) {
-    return game as EraGame;
+/** Map any canonical or logical key to the EraGame we use for analysis (generator, stats, labels). */
+export function resolveEraGame(game: GameKey | LogicalGameKey): EraGame {
+  const g = String(game);
+  const eraTable = CURRENT_ERA as Record<string, EraConfig>;
+
+  // 1) Exact match: canonical era-backed game
+  if (eraTable[g]) {
+    return g as EraGame;
   }
-  // Fallback: use Cash4Life era (safe, 5+1) for non-era logical keys.
+
+  const gl = g.toLowerCase();
+
+  // 2) NY — anchor everything to Take 5, except Lotto which has its own era
+  if (gl.startsWith('ny_')) {
+    if (g === 'ny_lotto') return 'ny_lotto';
+    return 'ny_take5';
+  }
+
+  // 3) CA — digits and other CA logicals can lean on Fantasy 5
+  if (gl.startsWith('ca_')) {
+    if (g === 'ca_superlotto_plus') return 'ca_superlotto_plus';
+    if (g === 'ca_fantasy5') return 'ca_fantasy5';
+    return 'ca_fantasy5';
+  }
+
+  // 4) FL — we have several real era entries here, lean on those
+  if (gl.startsWith('fl_')) {
+    if (g === 'fl_lotto') return 'fl_lotto';
+    if (g === 'fl_jackpot_triple_play') return 'fl_jackpot_triple_play';
+    if (g === 'fl_fantasy5') return 'fl_fantasy5';
+    // digits / cashpop → use the daily 5-ball as stable anchor
+    return 'fl_fantasy5';
+  }
+
+  // 5) TX — use real entries when present, else Cash Five as the daily anchor
+  if (gl.startsWith('tx_')) {
+    if (g === 'tx_lotto_texas') return 'tx_lotto_texas';
+    if (g === 'tx_cash5') return 'tx_cash5';
+    if (g === 'tx_texas_two_step') return 'tx_texas_two_step';
+    // tx_all_or_nothing, tx_pick3, tx_daily4 → stable daily anchor
+    return 'tx_cash5';
+  }
+
+  // 6) Multi-state logicals should already be in CURRENT_ERA, but keep a fallback
+  if (gl.startsWith('multi_') && eraTable[g]) {
+    return g as EraGame;
+  }
+
+  // 7) Final safety net
   return 'multi_cash4life';
 }
 
-/** Return the current-era config for any (canonical or rep) GameKey. */
-export function getCurrentEraConfig(game: GameKey): EraConfig {
+/** Return the current-era config for any (canonical or logical) key. */
+export function getCurrentEraConfig(game: GameKey | LogicalGameKey): EraConfig {
   return CURRENT_ERA[resolveEraGame(game)];
 }
 
 /** Filter rows to the current era for the game (and collapse reps/underlyings consistently). */
-export function filterRowsForCurrentEra(rows: LottoRow[], game: GameKey): LottoRow[] {
+export function filterRowsForCurrentEra(
+  rows: LottoRow[],
+  game: GameKey | LogicalGameKey
+): LottoRow[] {
   const eraKey = resolveEraGame(game);
   const era = CURRENT_ERA[eraKey];
-  // Accept any row whose game resolves to the same era group & falls on/after start.
-  return rows.filter(r => resolveEraGame(r.game) === eraKey && r.date >= era.start);
+  return rows.filter(
+    (r) => resolveEraGame(r.game) === eraKey && r.date >= era.start
+  );
 }
 
 /** Friendly tooltip text describing the active era for a game (unchanged content). */
-export function eraTooltipFor(game: GameKey): string {
+export function eraTooltipFor(game: GameKey | LogicalGameKey): string {
   const eraKey = resolveEraGame(game);
   const era = CURRENT_ERA[eraKey];
   const DISPLAY_NAME: Record<EraGame, string> = {
@@ -169,13 +221,13 @@ export function eraTooltipFor(game: GameKey): string {
     multi_megamillions: 'Mega Millions',
     multi_cash4life: 'Cash4Life',
     ga_fantasy5: 'Fantasy 5 (GA)',
-    ca_superlotto_plus: 'SuperLotto Plus (CA)',
+    ca_superlotto_plus: 'SuperLotto Plus',
     ca_fantasy5: 'Fantasy 5 (CA)',
-    ny_take5: 'Take 5 (NY)',
+    ny_take5: 'Take 5',
     ny_lotto: 'New York LOTTO',
     fl_fantasy5: 'Fantasy 5 (FL)',
     fl_lotto: 'Florida LOTTO',
-    fl_jackpot_triple_play: 'Jackpot Triple Play (FL)',
+    fl_jackpot_triple_play: 'Jackpot Triple Play',
     tx_lotto_texas: 'Lotto Texas',
     tx_cash5: 'Cash Five',
     tx_texas_two_step: 'Texas Two Step',

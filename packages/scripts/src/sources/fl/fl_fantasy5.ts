@@ -1,4 +1,4 @@
-// scripts/sources/fl/fl_fantasy5.ts
+// packages/scripts/src/sources/fl/fl_fantasy5.ts
 // Node 18+ ESM. Deps: pdfjs-dist.
 // Parses the official FL Fantasy 5 PDF into two CSVs:
 //   • public/data/fl/fantasy5_midday.csv
@@ -144,29 +144,58 @@ function maybeBall(s: string): number | null {
 async function extractCells(buf: Uint8Array): Promise<Cell[]> {
   const pdfjsLib: any = await import("pdfjs-dist/legacy/build/pdf.mjs");
 
+  /**
+   * Resolve the 'standard_fonts' directory for pdfjs.
+   * Preference order:
+   *  1) FL_PDFJS_STD_FONTS env (explicit override)
+   *  2) node_modules/pdfjs-dist/standard_fonts              ← your known path
+   *  3) node_modules/pdfjs-dist/legacy/build/standard_fonts ← fallback
+   *  4) alongside legacy/build/pdf.mjs                      ← final fallback
+   */
   function resolveStandardFontsUrl(): string | undefined {
     try {
-      const pdfMjsPath = requireCJS.resolve("pdfjs-dist/legacy/build/pdf.mjs");
-      const buildDir = path.dirname(pdfMjsPath);
-      const c1 = path.join(buildDir, "standard_fonts");
-      if (fsSync.existsSync(c1)) return String(pathToFileURL(c1)) + "/";
+      // 1) explicit override
+      const envPath = (process.env.FL_PDFJS_STD_FONTS ?? "").trim();
+      if (envPath && fsSync.existsSync(envPath)) {
+        return String(pathToFileURL(path.resolve(envPath))) + "/";
+      }
+
+      // 2) package root standard_fonts (e.g., node_modules/pdfjs-dist/standard_fonts)
       const pkgPath = requireCJS.resolve("pdfjs-dist/package.json");
       const rootDir = path.dirname(pkgPath);
-      const c2 = path.join(rootDir, "legacy", "build", "standard_fonts");
-      if (fsSync.existsSync(c2)) return String(pathToFileURL(c2)) + "/";
-      const c3 = path.join(rootDir, "standard_fonts");
-      if (fsSync.existsSync(c3)) return String(pathToFileURL(c3)) + "/";
-    } catch {}
+      const pRoot = path.join(rootDir, "standard_fonts");
+      if (fsSync.existsSync(pRoot)) return String(pathToFileURL(pRoot)) + "/";
+
+      // 3) legacy build standard_fonts (commonly where fonts ship)
+      const pLegacy = path.join(rootDir, "legacy", "build", "standard_fonts");
+      if (fsSync.existsSync(pLegacy)) return String(pathToFileURL(pLegacy)) + "/";
+
+      // 4) near the legacy pdf.mjs (very defensive)
+      const pdfMjsPath = requireCJS.resolve("pdfjs-dist/legacy/build/pdf.mjs");
+      const buildDir = path.dirname(pdfMjsPath);
+      const pSibling = path.join(buildDir, "standard_fonts");
+      if (fsSync.existsSync(pSibling)) return String(pathToFileURL(pSibling)) + "/";
+    } catch {
+      // swallow and fall through to undefined
+    }
     return undefined;
   }
 
   const stdFontsDirUrl = resolveStandardFontsUrl();
+  if (ENABLE_DEBUG) {
+    if (stdFontsDirUrl) {
+      console.log(`[FF] pdfjs standardFontDataUrl → ${stdFontsDirUrl}`);
+    } else {
+      console.log("[FF] pdfjs standardFontDataUrl not resolved; consider setting FL_PDFJS_STD_FONTS");
+    }
+  }
 
-  const loadingTask = pdfjsLib.getDocument({
-    data: buf,
-    disableWorker: true,
-    ...(stdFontsDirUrl ? { standardFontDataUrl: stdFontsDirUrl } : {}),
-  });
+  const getDocOpts: any = { data: buf, disableWorker: true };
+  if (stdFontsDirUrl) {
+    // Ensure a trailing slash for pdfjs
+    getDocOpts.standardFontDataUrl = stdFontsDirUrl.endsWith("/") ? stdFontsDirUrl : (stdFontsDirUrl + "/");
+  }
+  const loadingTask = pdfjsLib.getDocument(getDocOpts);
 
   const pdf = await loadingTask.promise;
 

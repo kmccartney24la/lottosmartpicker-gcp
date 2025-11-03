@@ -1082,8 +1082,16 @@ export function resolveGameMeta(
 export function repForLogical(lg: LogicalGameKey, meta: GameMeta): CanonicalDrawGame {
   if (meta.isNyLotto) return 'ny_lotto' as CanonicalDrawGame;           // NY Lotto era (6 + Bonus)
   if (lg === 'ny_take5') return 'ny_take5' as CanonicalDrawGame;         // Take 5 era
-  // Florida logicals anchor to the representative (no period suffix in GameKey)
-  if (String(lg).startsWith('fl_')) return 'fl_fantasy5' as CanonicalDrawGame;
+  // Florida logicals:
+  // - Six-mains (no special) draw games should anchor to themselves for odds/era.
+  // - Digits + Fantasy 5 can still anchor to Fantasy 5 for consistency.
+  if (String(lg).startsWith('fl_')) {
+    if (lg === 'fl_lotto')                return 'fl_lotto' as CanonicalDrawGame;
+    if (lg === 'fl_jackpot_triple_play')  return 'fl_jackpot_triple_play' as CanonicalDrawGame;
+    if (lg === 'fl_fantasy5')             return 'fl_fantasy5' as CanonicalDrawGame;
+    // FL digits fall back to Fantasy 5 for a stable daily-era anchor
+    return 'fl_fantasy5' as CanonicalDrawGame;
+  }
   // California logicals (digits) need a canonical representative for odds/era anchor
   if (lg === 'ca_daily3' || lg === 'ca_daily4') return 'ca_fantasy5' as CanonicalDrawGame;
   // Texas digit logicals fall back to themselves for odds context or can be anchored later if needed

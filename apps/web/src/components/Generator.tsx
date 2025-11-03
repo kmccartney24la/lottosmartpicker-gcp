@@ -118,13 +118,16 @@ function GeneratorInner({
 
   // ---- Era-aware data & stats (only for five-ball) ----
 const eraCfg = useMemo(
-  () => (isFiveBall ? getCurrentEraConfig(game) : null),
-  [game, isFiveBall]
+  () => (isFiveBall ? getCurrentEraConfig((logical ?? game) as any) : null),
+  [game, logical, isFiveBall]
 );
 
 const rowsEra = useMemo(
-  () => (isFiveBall && rowsForGenerator ? filterRowsForCurrentEra(rowsForGenerator, game) : []),
-  [rowsForGenerator, game, isFiveBall]
+  () =>
+    isFiveBall && rowsForGenerator
+      ? filterRowsForCurrentEra(rowsForGenerator, (logical ?? game) as any)
+      : [],
+  [rowsForGenerator, game, logical, isFiveBall]
 );
 
 // Five-ball stats (computed off-thread when enabled)
@@ -149,7 +152,7 @@ useEffect(() => {
   }
   go();
   return () => { ac?.abort(); };
-}, [isFiveBall, eraCfg?.mainMax, eraCfg?.specialMax, eraCfg?.mainPick, game, rowsEra.length]);
+}, [isFiveBall, eraCfg?.mainMax, eraCfg?.specialMax, eraCfg?.mainPick, game, logical, rowsEra.length]);
 
 // Respect registry flags (don’t infer from eraCfg):
 // - PB/MM/C4L: colored special

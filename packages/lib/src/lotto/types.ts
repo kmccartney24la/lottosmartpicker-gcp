@@ -63,6 +63,8 @@ export type LogicalGameKey =
   | 'fl_pick4'
   | 'fl_pick3'
   | 'fl_pick2'
+  | 'fl_lotto'
+  | 'fl_jackpot_triple_play'
   // Texas
   | 'tx_all_or_nothing'
   | 'tx_pick3'
@@ -252,6 +254,8 @@ export const LOGICAL_TO_UNDERLYING: Record<LogicalGameKey, PeriodMap> = {
 
   // ---- Florida (classic draws) ----
   fl_fantasy5: { all: ['fl_fantasy5_midday','fl_fantasy5_evening'], midday:['fl_fantasy5_midday'], evening:['fl_fantasy5_evening'] },
+  fl_jackpot_triple_play: { all: ['fl_jackpot_triple_play'] },
+  fl_lotto:    { all: ['fl_lotto'] },
 
   // ---- Florida digits ----
   fl_pick5: { all: ['fl_pick5_midday','fl_pick5_evening'], midday:['fl_pick5_midday'], evening:['fl_pick5_evening'] },
