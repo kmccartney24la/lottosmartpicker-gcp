@@ -4,8 +4,7 @@
    =========================== */
 export function parseTokens(s) {
     return s
-        .replace(/,/g, ' ')
-        .replace(/-/g, ' ')
+        .replace(/[,;\-|]/g, ' ')
         .split(/\s+/)
         .filter(Boolean)
         .map((t) => parseInt(t, 10))
@@ -22,36 +21,85 @@ export function parseCanonicalCsv(csv, game) {
     const cols = header.split(',').map((s) => s.trim().toLowerCase());
     const idx = (name) => cols.indexOf(name);
     const iDate = idx('draw_date');
+    // detect main columns
     const i1 = idx('num1') >= 0 ? idx('num1') : idx('m1');
     const i2 = idx('num2') >= 0 ? idx('num2') : idx('m2');
     const i3 = idx('num3') >= 0 ? idx('num3') : idx('m3');
     const i4 = idx('num4') >= 0 ? idx('num4') : idx('m4');
-    const i5 = idx('num5') >= 0 ? idx('num5') : idx('m5');
-    const iSpec = idx('special'); // optional
-    if (iDate < 0 || [i1, i2, i3, i4, i5].some((i) => i < 0))
+    const i5raw = idx('num5') >= 0 ? idx('num5') : idx('m5');
+    // optional: accept common aliases for special/bonus ball
+    let iSpec = idx('special');
+    if (iSpec < 0)
+        iSpec = idx('bonus');
+    // optional: allow 6th main to stand in for special (Lotto-style 6 mains)
+    const i6 = idx('num6') >= 0 ? idx('num6') : idx('m6');
+    // must have a date
+    if (iDate < 0)
+        return [];
+    // how many main columns do we actually have?
+    // we always require 1..4, because all your games have at least 4
+    const have4 = [i1, i2, i3, i4].every((i) => i >= 0);
+    const have5 = have4 && i5raw >= 0;
+    // if we don't even have 4, bail
+    if (!have4)
         return [];
     const out = [];
     for (const line of lines) {
         if (!line.trim())
             continue;
         const t = line.split(',').map((s) => s.trim());
-        const dStr = t[iDate];
+        const dStr = t[iDate] ?? '';
         if (!dStr)
             continue;
         const d = new Date(dStr);
         if (Number.isNaN(d.getTime()))
             continue;
         const date = d.toISOString().slice(0, 10);
-        const mains = [t[i1], t[i2], t[i3], t[i4], t[i5]].map((v) => v == null ? NaN : parseInt(v, 10));
-        if (mains.some((n) => !Number.isFinite(n)))
+        // read 4 mandatory mains
+        const m1 = parseInt(t[i1] ?? '', 10);
+        const m2 = parseInt(t[i2] ?? '', 10);
+        const m3 = parseInt(t[i3] ?? '', 10);
+        const m4 = parseInt(t[i4] ?? '', 10);
+        if (![m1, m2, m3, m4].every(Number.isFinite))
             continue;
-        const [n1, n2, n3, n4, n5] = mains;
-        const special = iSpec >= 0 && t[iSpec] !== '' && t[iSpec] != null
-            ? parseInt(t[iSpec], 10)
-            : undefined;
-        out.push({ game, date, n1, n2, n3, n4, n5, special });
+        // optional 5th main
+        let m5 = undefined;
+        if (have5) {
+            const v = parseInt(t[i5raw] ?? '', 10);
+            if (Number.isFinite(v))
+                m5 = v;
+        }
+        // special / bonus / or 6th main
+        let special;
+        const specRaw = iSpec >= 0 ? t[iSpec] : undefined;
+        if (specRaw != null && specRaw !== '') {
+            const s = parseInt(specRaw, 10);
+            if (Number.isFinite(s))
+                special = s;
+        }
+        else {
+            const sixRaw = i6 >= 0 ? t[i6] : undefined;
+            if (sixRaw != null && sixRaw !== '') {
+                const s6 = parseInt(sixRaw, 10);
+                if (Number.isFinite(s6))
+                    special = s6;
+            }
+        }
+        // normalize to LottoRow shape (always n1..n5)
+        out.push({
+            game,
+            date,
+            n1: m1,
+            n2: m2,
+            n3: m3,
+            n4: m4,
+            n5: m5 ?? NaN, // or undefined, but keep it numeric if the rest of your code likes numbers
+            special,
+        });
     }
-    return out;
+    return out
+        // Normalize sort order to ascending date (matches parseFlexibleCsv)
+        .sort((a, b) => a.date.localeCompare(b.date));
 }
 export function parseFlexibleCsv(csv) {
     const lines = csv.trim().split(/\r?\n/);
@@ -88,8 +136,10 @@ export function parseFlexibleCsv(csv) {
         seq = trySeq('ball');
     nIdx.push(...seq);
     // optional special column
-    // Support common aliases: 'special', 'fb' (Florida/Texas Fireball), 'fireball'
+    // Support common aliases: 'special', 'bonus', 'fb' (Florida/Texas Fireball), 'fireball'
     let iSpec = find('special');
+    if (iSpec < 0)
+        iSpec = find('bonus');
     if (iSpec < 0)
         iSpec = find('fb');
     if (iSpec < 0)
@@ -101,7 +151,7 @@ export function parseFlexibleCsv(csv) {
         if (!line.trim())
             continue;
         const t = line.split(',').map((s) => s.trim());
-        const dStr = t[iDate];
+        const dStr = t[iDate] ?? '';
         if (!dStr)
             continue;
         const d = new Date(dStr);
@@ -120,13 +170,11 @@ export function parseFlexibleCsv(csv) {
                 .filter(Number.isFinite);
         }
         let special;
-        if (iSpec >= 0 && t[iSpec] !== '' && t[iSpec] != null) {
-            const sRaw = t[iSpec];
-            if (sRaw != null) {
-                const s = parseInt(sRaw, 10);
-                if (Number.isFinite(s))
-                    special = s;
-            }
+        const sRaw = iSpec >= 0 ? t[iSpec] : undefined;
+        if (sRaw != null && sRaw !== '') {
+            const s = parseInt(sRaw, 10);
+            if (Number.isFinite(s))
+                special = s;
         }
         out.push({ date, values, special });
     }

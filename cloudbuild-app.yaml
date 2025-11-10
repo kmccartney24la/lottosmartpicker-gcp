@@ -80,7 +80,7 @@ steps:
         gcloud config set run/region ${_REGION}
         gcloud run services update ${_SERVICE} \
           --image="${_TAG}" \
-          --set-env-vars="PUBLIC_BASE_URL=${_PUBLIC_BASE_URL},NEXT_PUBLIC_DATA_BASE=${_APP_URL}/api/file,NEXT_PUBLIC_DATA_BASE_URL=${_APP_URL}/api/file,NEXT_PUBLIC_APP_ORIGIN=${_APP_URL}, NEXT_PUBLIC_USE_WORKER=1"
+          --set-env-vars="PUBLIC_BASE_URL=${_PUBLIC_BASE_URL},NEXT_PUBLIC_DATA_BASE=${_APP_URL}/api/file,NEXT_PUBLIC_DATA_BASE_URL=${_APP_URL}/api/file,NEXT_PUBLIC_APP_ORIGIN=${_APP_URL}, NEXT_PUBLIC_USE_WORKER=1 FL_PDFJS_STD_FONTS=/app/node_modules/pdfjs-dist/legacy/build/standard_fonts"
 
   # 4) Smoke test /api/ping with retry/backoff
   - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
@@ -166,7 +166,7 @@ steps:
           --command "/usr/local/bin/node" \
           --args "dist/scripts/update_csvs.js" \
           --cpu 1 --memory 4Gi --tasks 1 --parallelism 1 --task-timeout 1200s --max-retries 1 \
-          --set-env-vars "NODE_OPTIONS=--trace-uncaught --trace-warnings --unhandled-rejections=strict,PUBLIC_BASE_URL=${_PUBLIC_BASE_URL},GCS_BUCKET=lottosmartpicker-data,SKIP_SOCRATA=0,SKIP_FANTASY5=0,SKIP_SCRATCHERS=1,SKIP_CA_DAILY3=0,CA_ENABLE_PLAYWRIGHT=0,XDG_CACHE_HOME=/app/.cache" \
+          --set-env-vars "NODE_OPTIONS=--trace-uncaught --trace-warnings --unhandled-rejections=strict,PUBLIC_BASE_URL=${_PUBLIC_BASE_URL},GCS_BUCKET=lottosmartpicker-data,SKIP_SOCRATA=0,SKIP_FANTASY5=0,SKIP_SCRATCHERS=1,SKIP_CA_DAILY3=0,CA_ENABLE_PLAYWRIGHT=0,XDG_CACHE_HOME=/app/.cache,FL_PDFJS_STD_FONTS=/app/node_modules/pdfjs-dist/legacy/build/standard_fonts" \
           --set-secrets "NY_SOCRATA_APP_TOKEN=SOCRATA_APP_TOKEN:latest"
 
   # 5c) (optional) seed-socrata variant, uses same compiled entrypoint with flags

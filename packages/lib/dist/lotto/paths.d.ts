@@ -9,3 +9,4 @@ export declare function apiPathForGame(game: GameKey): string;
 export declare function apiPathForUnderlying(u: UnderlyingKey): string;
 /** Swap a canonical CSV path for its tiny “latest” probe endpoint. */
 export declare function latestApiPathForGame(game: GameKey): string;
+export declare function latestApiPathForUnderlying(u: UnderlyingKey): string;

@@ -214,13 +214,6 @@ export default function ScratchersClientTX() {
                       try { localStorage.setItem('lsp.displayMode', v); } catch {}
                       window.dispatchEvent(new CustomEvent('ui:set-display-mode', { detail: v }));
                     }}
-                    onToggleGlobalImageKind={() => {
-                      setGlobalImageKind(prev => {
-                        const next = prev === 'odds' ? 'ticket' : 'odds';
-                        try { localStorage.setItem(LS_SHOW_ODDS, next); } catch {}
-                        return next;
-                      });
-                    }}
                   />
                 </section>
               </section>

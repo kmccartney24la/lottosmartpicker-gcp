@@ -1,10 +1,8 @@
-export { LOGICAL_TO_UNDERLYING } from './types.js';
+// Pull the *value* from a runtime module (not from types.ts).
+import { LOGICAL_TO_UNDERLYING } from './types.js';
+// Delegate digit-family normalization to the central registry to avoid duplication.
 /** Return all underlying keys for a logical game + period. */
 export function underlyingKeysFor(logical, period) {
-    // The map lives in types.ts and is re-exported above.
-    // We import it lazily via re-export to avoid accidental writes here.
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { LOGICAL_TO_UNDERLYING } = require('./types.js');
     const m = LOGICAL_TO_UNDERLYING[logical];
     if (!m)
         return [];
@@ -19,20 +17,11 @@ export function underlyingKeysFor(logical, period) {
  * - If someone passes a canonical GameKey by mistake, just return it.
  */
 export function primaryKeyFor(logical, period) {
-    // Treat canonical GameKeys as already “primary” to avoid hard dependency on paths.ts.
-    const isCanonicalGameKey = (k) => typeof k === 'string'; // GameKey is a string union; callers only reach here with known keys.
-    if (isCanonicalGameKey(logical)) {
-        // If it was actually a GameKey (common mistake), just pass it through.
-        // (At runtime our unions are strings; this preserves the prior behavior
-        // of returning the same key when it’s canonical.)
-        return logical;
+    // If it's not a logical family we know about, just pass it through as an underlying/canonical key.
+    if (!(logical in LOGICAL_TO_UNDERLYING)) {
+        return logical; // canonical singles are valid UnderlyingKeys
     }
-    // Normal logical flow:
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { LOGICAL_TO_UNDERLYING } = require('./types');
     const m = LOGICAL_TO_UNDERLYING[logical];
-    if (!m)
-        throw new Error(`Unknown logical game: ${logical}`);
     const p = period === 'both' ? 'all' : period;
     if (p !== 'all' && m[p]?.length)
         return m[p][0];

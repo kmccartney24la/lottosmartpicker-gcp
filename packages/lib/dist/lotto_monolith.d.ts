@@ -172,7 +172,7 @@ export declare function computeDigitStatsAsync(rows: DigitRow[], k: 3 | 4, signa
     counts: any[];
     lastSeen: any[];
     totalDraws: number;
-    k: 3 | 4;
+    k: 4 | 3;
     z: number[];
 } | undefined>;
 export declare function computePick10StatsAsync(rows: Pick10Row[], signal?: AbortSignal): Promise<{
@@ -209,7 +209,7 @@ export declare function computeDigitStats(rows: DigitRow[], k: 3 | 4): {
     counts: any[];
     lastSeen: any[];
     totalDraws: number;
-    k: 3 | 4;
+    k: 4 | 3;
     z: number[];
 } | undefined;
 /**

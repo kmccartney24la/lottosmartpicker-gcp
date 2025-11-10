@@ -13,7 +13,6 @@ import React, {
   type MutableRefObject,
 } from 'react';
 import { ErrorBoundary } from 'apps/web/src/components/ErrorBoundary';
-import { createPortal } from 'react-dom';
 import { comparators } from './sort';
 import type { SortKey, ActiveGame } from './types';
 import type { DisplayMode } from './DisplayModeSwitcher';
@@ -197,7 +196,7 @@ function MobileSkeleton() {
 type ScratchersTableProps = {
   games: ActiveGame[];
   loading: boolean;
-  displayMode?: DisplayMode; // 'compact' | 'detailed' | 'expanded'
+  displayMode?: DisplayMode; // 'compact' | 'detailed' 
   /** Global image selection that also resets per-row overrides on change */
   globalImageKind?: ThumbKind; // 'ticket' | 'odds'
   /** @deprecated Visibility is container-driven via [data-filters="drawer"]. Button is always rendered; CSS decides visibility. */
@@ -206,8 +205,6 @@ type ScratchersTableProps = {
   onOpenFilters?: () => void;
   /** Change view mode */
   onChangeDisplayMode?: (mode: DisplayMode) => void;
-  /** Toggle Ticket/Odds globally (used in Expanded) */
-  onToggleGlobalImageKind?: () => void;
   /** Container-driven override for cards/table */
   forcedView?: 'table' | 'cards';
   /** Optional: the active sort key (if parent wants table to sort) */
@@ -221,29 +218,29 @@ const ScratchersTableInner = forwardRef<HTMLDivElement, ScratchersTableProps>(fu
   {
     games,
     loading,
+    // normalize: if anyone still passes "expanded", treat it as "detailed"
     displayMode = 'detailed',
     globalImageKind = 'ticket',
     onOpenFilters,
     onChangeDisplayMode,
-    onToggleGlobalImageKind,
     forcedView,
     sortKey,
     isSortReversed = false,
   }: ScratchersTableProps,
   scrollRootRef: ForwardedRef<HTMLDivElement>
 ) {
-  const isDetailed = displayMode === ('detailed' as DisplayMode);
-  const isExpanded = displayMode === ('expanded' as DisplayMode);
-  const showThumbs = isDetailed || isExpanded;
-  // NY: there are no odds images. Decide UI affordances from the data:
-  const hasAnyOdds = useMemo(() => games.some(g => !!g.oddsImageUrl), [games]);
-  // NY-only: expose header toggle when any game has tiers with counts
+  // defensive: if some old caller still sends an unknown mode, fall back to 'detailed'
+  const effectiveMode: DisplayMode =
+    displayMode === 'compact' || displayMode === 'detailed' ? displayMode : 'detailed';
+  const isDetailed = effectiveMode === 'detailed';
+  const showThumbs = isDetailed;
+  // expose header toggle when any game has tiers with counts
   const canToggleLeft = useMemo(() => hasTierToggleAvailable(games), [games]);
   const [leftMode, setLeftMode] = useState<LeftMode>('top');
   /** Tracks if the user explicitly clicked the header toggle in this session. */
   const userOverrodeLeftMode = useRef<boolean>(false);
 
-  // Default to 'total' when NY totals are available (first load / dataset change)
+  // Default to 'total' when totals are available (first load / dataset change)
   useEffect(() => {
     if (canToggleLeft && !userOverrodeLeftMode.current) {
       setLeftMode('total');
@@ -311,44 +308,7 @@ const ScratchersTableInner = forwardRef<HTMLDivElement, ScratchersTableProps>(fu
     return copy;
   }, [games, sortKey, isSortReversed, cmpMap]);
 
-
-  /** Lightbox (Detailed mode only) */
-  type LightboxState = { id: number; kind: ThumbKind } | null;
-  const [lightbox, setLightbox] = useState<LightboxState>(null);
-  const gameMap = useMemo(() => new Map(sortedGames.map(g => [g.gameNumber, g])), [sortedGames]);
-
-  const openLightbox = (id: number) => {
-    if (!isDetailed) return;
-    setLightbox({ id, kind: currentKindFor(id) });
-  };
-  const closeLightbox = () => setLightbox(null);
-  const setLightboxKind = (id: number, kind: ThumbKind) => {
-    setLightbox(s => (s && s.id === id ? { ...s, kind } : s));
-    setRowThumb(prev => ({ ...prev, [id]: kind }));
-  };
-
-  useEffect(() => {
-    if (!lightbox) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') return closeLightbox();
-      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
-        const g = gameMap.get(lightbox.id);
-        if (!g) return;
-        const hasT = !!g.ticketImageUrl;
-        const hasO = !!g.oddsImageUrl;
-        const next: ThumbKind =
-          lightbox.kind === 'ticket' ? (hasO ? 'odds' : 'ticket') : (hasT ? 'ticket' : 'odds');
-        setLightboxKind(lightbox.id, next);
-      }
-    };
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    window.addEventListener('keydown', onKey);
-    return () => {
-      window.removeEventListener('keydown', onKey);
-      document.body.style.overflow = prevOverflow;
-    };
-  }, [lightbox, gameMap]);
+  // lightbox / expanded image modal removed for legal/copyright concerns
 
   const [hasMounted, setHasMounted] = useState(false);
   useEffect(() => {
@@ -395,60 +355,48 @@ const ScratchersTableInner = forwardRef<HTMLDivElement, ScratchersTableProps>(fu
   if (loading || !hasMounted) {
     return (
       <div
-        className={`scratchers-table has-stbar ${displayMode === 'expanded' ? 'mode-expanded' : displayMode === 'detailed' ? 'mode-detailed' : 'mode-compact'}`}
+        className={`scratchers-table has-stbar ${isDetailed ? 'mode-detailed' : 'mode-compact'}`}
         aria-busy="true"
         ref={setRefs}
-        /* Hint for CSS when parent forces card/table via shell attribute */
-         data-view={forcedView}
+        data-view={forcedView}
       >
         {/* Permanent thin header */}
         <div className="stbar" role="toolbar" aria-label="Scratchers controls">
-          {/* Render once; CSS container queries decide visibility */}
-        <button
-          type="button"
-          className="btn btn-primary filters-btn"
-          onClick={onOpenFilters}
-          aria-label="Open filters"
-        >
-          Filters
-        </button>
+          <button
+            type="button"
+            className="btn btn-primary filters-btn"
+            onClick={onOpenFilters}
+            aria-label="Open filters"
+          >
+            Filters
+          </button>
           <div className="spacer" />
-          {/* Dropdown-only (keeps bar thin and inline at all widths) */}
           <DisplayModeSwitcher
             value={displayMode}
             onChange={onChangeDisplayMode}
             aria-label="View mode"
-            className="mode-switcher"  /* optional hook for styling */
+            className="mode-switcher"
           />
-          {/* Only show toggle if there exists at least one odds image */}
-          {displayMode === 'expanded' && hasAnyOdds && (
-            <button
-              type="button"
-              className="btn btn-primary odds-toggle"
-              onClick={onToggleGlobalImageKind}
-              aria-label={globalImageKind === 'odds' ? 'Show ticket images' : 'Show odds images'}
-            >
-              {globalImageKind === 'odds' ? 'Show Tickets' : 'Show Odds'}
-            </button>
-          )}
         </div>
+
         <DesktopSkeleton />
         <MobileSkeleton />
       </div>
     );
   }
+
   // Keep the header even when there are no rows
   const hasRows = sortedGames.length > 0;
 
   return (
     <div
       ref={setRefs}
-      className={`scratchers-table has-stbar ${isExpanded ? 'mode-expanded' : isDetailed ? 'mode-detailed' : 'mode-compact'}`}
+      className={`scratchers-table has-stbar ${isDetailed ? 'mode-detailed' : 'mode-compact'}`}
       role="region"
       aria-label="Scratchers table"
       data-view={forcedView}
     >
-      {/* Permanent thin header (replaces any old expanded header) */}
+      {/* Permanent thin header */}
       <div className="stbar" role="toolbar" aria-label="Scratchers controls">
         <button
           type="button"
@@ -459,25 +407,13 @@ const ScratchersTableInner = forwardRef<HTMLDivElement, ScratchersTableProps>(fu
           Filters
         </button>
         <div className="spacer" />
-        {/* Dropdown-only mode switcher */}
         <DisplayModeSwitcher
-            value={displayMode}
-            onChange={onChangeDisplayMode}
-            aria-label="View mode"
-            className="mode-switcher"  /* optional hook for styling */
-          />
-       {/* Only show toggle if there exists at least one odds image */}
-       {isExpanded && hasAnyOdds && (
-          <button
-            type="button"
-            className="btn btn-primary odds-toggle"
-            onClick={onToggleGlobalImageKind}
-            aria-label={globalImageKind === 'odds' ? 'Show ticket images' : 'Show odds images'}
-          >
-            {globalImageKind === 'odds' ? 'Show Tickets' : 'Show Odds'}
-          </button>
-        )}
-      </div>
+          value={displayMode}
+          onChange={onChangeDisplayMode}
+          aria-label="View mode"
+          className="mode-switcher"
+        />
+      </div> 
       {/* Desktop/tablet: single table inside the scroll host (thead is sticky) */}
       {!hasRows ? null : (
       <div
@@ -490,11 +426,11 @@ const ScratchersTableInner = forwardRef<HTMLDivElement, ScratchersTableProps>(fu
           <thead>
             <tr>
               {showThumbs && (
-                <th className={`col-image mono ${isExpanded ? 'w-[12%]' : 'w-[10%]'} text-left`}>Image</th>
+                <th className="col-image mono w-[10%] text-left">Image</th>
               )}
               <th
                 className={`col-name text-left ${
-                  showThumbs ? (isExpanded ? 'w-[28%]' : 'w-[30%]') : 'w-[38%]'
+                  showThumbs ? 'w-[30%]' : 'w-[38%]'
                 }`}
               >
                 Name
@@ -540,51 +476,18 @@ const ScratchersTableInner = forwardRef<HTMLDivElement, ScratchersTableProps>(fu
               <tr key={g.gameNumber} className="row">
                 {showThumbs && (
                   <td className="col-image whitespace-nowrap">
-                    {isExpanded ? (
-                      <div className="thumb-wrap">
-                        {src ? (
-                          <img
-                            className="thumb-full"
-                            src={src}
-                            alt=""
-                            loading="lazy"
-                            decoding="async"
-                            aria-hidden="true"
-                          />
-                        ) : (
-                          <div className="thumb placeholder" aria-hidden="true" />
-                        )}
-                        {/* Only show badge + arrows when BOTH images exist */}
-                        {hasTicket && hasOdds && (
-                          <>
-                            <div className="thumb-badge mono">
-                              {currentKindFor(g.gameNumber) === 'odds' ? 'Odds' : 'Ticket'}
-                            </div>
-                            <div className="thumb-controls" role="group" aria-label="Swap image">
-                              <button
-                                type="button"
-                                className="thumb-arrow"
-                                onClick={() => toggleRow(g.gameNumber)}
-                              >
-                                ‹ ›
-                              </button>
-                            </div>
-                          </>
-                        )}
-                      </div>
+                    {/* simplified, non-interactive thumbnail */}
+                    {src ? (
+                      <img
+                        className="thumb"
+                        src={src}
+                        alt=""
+                        loading="lazy"
+                        decoding="async"
+                        aria-hidden="true"
+                      />
                     ) : (
-                      <button
-                        type="button"
-                        className="thumb-open"
-                        onClick={() => openLightbox(g.gameNumber)}
-                        aria-label={`Open ${currentKindFor(g.gameNumber)} image for ${g.name}`}
-                      >
-                        {src ? (
-                          <img className="thumb" src={src} alt="" loading="lazy" decoding="async" />
-                        ) : (
-                          <div className="thumb placeholder" aria-hidden="true" />
-                        )}
-                      </button>
+                      <div className="thumb placeholder" aria-hidden="true" />
                     )}
                   </td>
                 )}
@@ -627,7 +530,7 @@ const ScratchersTableInner = forwardRef<HTMLDivElement, ScratchersTableProps>(fu
       </div>
       )}
 
-      {/* Mobile cards (with true 2-column layout for detailed/expanded) */}
+      {/* Mobile cards (with true 2-column layout for detailed) */}
       {!hasRows ? (
         <div className="empty-state" role="status" aria-live="polite">
           <p>No games match your filters.</p>
@@ -652,41 +555,21 @@ const ScratchersTableInner = forwardRef<HTMLDivElement, ScratchersTableProps>(fu
           const lifecycle = lifecycleLabelFromStartDate(g.startDate);
           return (
             <div key={g.gameNumber} role="listitem" className={`mobile-card ${showThumbs ? 'twocol' : ''}`}>
-              {/* LEFT column (media) – only for detailed/expanded */}
+              {/* LEFT column (media) – only for detailed*/}
               {showThumbs && (
                 <div className="media">
-                  {isExpanded ? (
-                    <div className="thumb-wrap">
-                      {src ? (
-                        <img className="thumb-full" src={src} alt="" loading="lazy" decoding="async" aria-hidden="true" />
-                      ) : (
-                        <div className="thumb placeholder" aria-hidden="true" />
-                      )}
-                      {/* Only show badge + arrows when BOTH images exist */}
-                      {hasTicket && hasOdds && (
-                        <>
-                          <div className="thumb-badge mono">{kind === 'odds' ? 'Odds' : 'Ticket'}</div>
-                          <div className="thumb-controls" role="group" aria-label="Swap image">
-                            <button
-                              type="button"
-                              className="thumb-arrow"
-                              onClick={() => toggleRow(g.gameNumber)}
-                            >
-                              ‹ ›
-                            </button>
-                          </div>
-                        </>
-                      )}
-                    </div>
+                  {/* simplified mobile image, no modal/lightbox */}
+                  {src ? (
+                    <img
+                      className="thumb"
+                      src={src}
+                      alt=""
+                      loading="lazy"
+                      decoding="async"
+                      aria-hidden="true"
+                    />
                   ) : (
-                    <button
-                      type="button"
-                      className="thumb-open"
-                      onClick={() => openLightbox(g.gameNumber)}
-                      aria-label={`Open ${kind} image for ${g.name}`}
-                    >
-                      {src ? <img className="thumb" src={src} alt="" loading="lazy" decoding="async" /> : <div className="thumb placeholder" aria-hidden="true" />}
-                    </button>
+                    <div className="thumb placeholder" aria-hidden="true" />
                   )}
                 </div>
               )}
@@ -725,76 +608,6 @@ const ScratchersTableInner = forwardRef<HTMLDivElement, ScratchersTableProps>(fu
         })}
       </div>
       )}
-
-      {/* Lightbox (Detailed mode only) */}
-      {isDetailed && lightbox && hasMounted && createPortal((() => {
-          const g = gameMap.get(lightbox.id);
-          if (!g) return null;
-          const hasTicket = !!g.ticketImageUrl;
-          const hasOdds = !!g.oddsImageUrl;
-          const effectiveKind: ThumbKind =
-            lightbox.kind === 'odds' && hasOdds
-              ? 'odds'
-              : lightbox.kind === 'ticket' && hasTicket
-              ? 'ticket'
-              : hasTicket
-              ? 'ticket'
-              : 'odds';
-          const src =
-            effectiveKind === 'odds' ? g.oddsImageUrl : (g.ticketImageUrl ?? g.oddsImageUrl);
-          return (
-            <div className="lightbox-overlay" onClick={closeLightbox}>
-              <div
-                className="lightbox"
-                role="dialog"
-                aria-modal="true"
-                aria-labelledby={`lb-title-${g.gameNumber}`}
-                onClick={e => e.stopPropagation()}
-              >
-                <header className="lightbox-header">
-                  <h2 id={`lb-title-${g.gameNumber}`}>{g.name}</h2>
-                  <button type="button" className="btn" aria-label="Close image" onClick={closeLightbox}>
-                    ✕
-                  </button>
-                </header>
-                <div className="lightbox-body">
-                  {src ? (
-                    <img
-                      className="lightbox-img"
-                      src={src}
-                      alt={`${g.name} ${effectiveKind === 'odds' ? 'odds' : 'ticket'} image`}
-                      decoding="async"
-                    />
-                  ) : (
-                    <div className="thumb placeholder" aria-hidden="true" />
-                  )}
-                </div>
-                {/* Only show swap controls when BOTH images exist.
-                   This hides the buttons for states without odds images. */}
-                {hasTicket && hasOdds && (
-                  <div className="lightbox-controls">
-                    <button
-                      type="button"
-                      className={`btn ${effectiveKind === 'ticket' ? 'btn-primary' : ''}`}
-                      onClick={() => setLightboxKind(g.gameNumber, 'ticket')}
-                      aria-pressed={effectiveKind === 'ticket'}
-                    >
-                      Ticket
-                    </button>
-                    <button
-                      type="button"
-                      className={`btn ${effectiveKind === 'odds' ? 'btn-primary' : ''}`}
-                      onClick={() => setLightboxKind(g.gameNumber, 'odds')}
-                      aria-pressed={effectiveKind === 'odds'}
-                    >
-                      Odds
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
-          );
-        })(), document.body)}
     </div>
   );
 });

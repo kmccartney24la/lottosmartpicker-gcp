@@ -2,6 +2,7 @@
 'use client';
 import './AnalyzeSidebar.css';
 import { useEffect, useRef, useState } from 'react';
+import PatternInsightsModal from './PatternInsightsModal';
 import { ErrorBoundary } from 'apps/web/src/components/ErrorBoundary';
 import {
    fetchRowsWithCache, fetchLogicalRows,
@@ -124,6 +125,10 @@ function AnalyzeSidebarInner({ canonical, logical, title, period = 'both', state
   const [err, setErr] = useState<string|null>(null);
   const [okCount, setOkCount] = useState(0);
   const [qdSpots, setQdSpots] = useState<1|2|3|4|5|6|7|8|9|10>(10);
+  const [sortMode, setSortMode] = useState<'alpha' | 'odds'>('alpha');
+  const [selectedGameId, setSelectedGameId] = useState<string | null>(null);
+  const [insightsOpen, setInsightsOpen] = useState(false);
+
   // Track a single in-flight analyze chain to abort on prop changes
   const inflightRef = useRef<{ ac: AbortController | null; timer: any } | null>(null);
 
@@ -134,6 +139,52 @@ function AnalyzeSidebarInner({ canonical, logical, title, period = 'both', state
   const LOGICAL_VIEW = [...LOGICAL_LIST].sort((a, b) =>
     String(displayNameFor(a)).localeCompare(String(displayNameFor(b)), 'en', { sensitivity: 'base' })
   );
+
+  // Build a single list containing *all* games with a best-effort odds number
+  const ALL_GAMES_SORTABLE = [
+    ...CANON_LIST.map(g => {
+      const raw = jackpotOdds(g.key);
+      const odds = Number.isFinite(raw) ? raw : Number.POSITIVE_INFINITY;
+      return {
+        id: g.key,
+        kind: 'canonical' as const,
+        label: displayNameFor(g.key),
+        odds,
+      };
+    }),
+    ...LOGICAL_LIST.map(lg => {
+      const meta = resolveGameMeta(undefined, lg);
+      const rep = repForLogical(lg, meta);
+      let odds = Number.POSITIVE_INFINITY;
+      if (isDigitShape(meta.shape)) {
+        const o = jackpotOddsForLogical(lg);
+        odds = o ? o : Number.POSITIVE_INFINITY;
+      } else if (meta.shape === 'pick10') {
+        const o = jackpotOddsForLogical('ny_pick10');
+        odds = o ? o : Number.POSITIVE_INFINITY;
+      } else if (meta.shape === 'quickdraw') {
+        // depends on current spots, but that's ok — we just need *a* number
+        const o = jackpotOddsQuickDraw(qdSpots);
+        odds = o ? o : Number.POSITIVE_INFINITY;
+      } else if (meta.shape === 'five' || meta.shape === 'six') {
+        const o = jackpotOdds(rep);
+        odds = o ? o : Number.POSITIVE_INFINITY;
+      }
+      return {
+        id: lg,
+        kind: 'logical' as const,
+        label: displayNameFor(lg),
+        odds,
+      };
+    }),
+  ];
+
+  const SORTED_BY_ODDS = [...ALL_GAMES_SORTABLE].sort((a, b) => {
+    if (a.odds === b.odds) {
+      return a.label.localeCompare(b.label, 'en', { sensitivity: 'base' });
+    }
+    return a.odds - b.odds;
+  });
 
   // Load per-game analysis (current era only) with debounce + abort
   useEffect(() => {
@@ -161,8 +212,7 @@ function AnalyzeSidebarInner({ canonical, logical, title, period = 'both', state
         // Canonical games
         for (const g of CANON_LIST) {
            tasks.push((async () => {
-             const since = defaultSinceFor(g.key) ?? undefined;
-             const rows = await fetchRowsWithCache({ game: g.key, since })
+             const rows = await fetchRowsWithCache({ game: g.key})
              const v = await analyzeGameAsync(rows, g.key, signal);
              return [g.key, 'five', v] as const;
            })());
@@ -230,8 +280,7 @@ function AnalyzeSidebarInner({ canonical, logical, title, period = 'both', state
               tasks.push((async () => {
                 // Prefer logical-windowing based on its canonical representative
                 const rep = repForLogical(lg, meta);
-                const since = defaultSinceFor(rep) ?? undefined;
-                const rows = await fetchLogicalRows({ logical: lg, period: eff, since });
+                const rows = await fetchLogicalRows({ logical: lg, period: eff});
                 const v = await analyzeGameAsync(rows, rep, signal);
                 return [lg, 'five', v] as const;
               })());
@@ -291,9 +340,17 @@ function AnalyzeSidebarInner({ canonical, logical, title, period = 'both', state
   }, [JSON.stringify(CANON_LIST.map(x => x.key)), JSON.stringify(LOGICAL_LIST), period, st]);
 
   return (
+    <>
     <section className="card analyze-sidebar ticket-grid" role="note" aria-label="Analysis">
-      <div className="card-title">
-        {title ?? 'Analysis'}
+      <div className="card-title analyze-title-row">
+        <span>{title ?? 'Analysis'}</span>
+        <button
+          type="button"
+          className="btn btn-ghost analyze-sort-btn"
+          onClick={() => setSortMode(mode => mode === 'alpha' ? 'odds' : 'alpha')}
+        >
+          {sortMode === 'alpha' ? 'Sort: Best odds' : 'Sort: A–Z'}
+        </button>
       </div>
       {busy && (Object.keys(data5).length + Object.keys(dataDigits).length
                 + Object.keys(dataP10).length + Object.keys(dataQD).length
@@ -310,11 +367,23 @@ function AnalyzeSidebarInner({ canonical, logical, title, period = 'both', state
       <div className="analyze-games">
         {!busy && (
           <>
-            {CANON_VIEW.map(g => {
+            {sortMode === 'alpha' && CANON_VIEW.map(g => {
               const a = data5[g.key];
               return (
                 <div key={g.key} className="analyze-game">
-                  <div className="analyze-game-title">{displayNameFor(g.key)}</div>
+                  <div className="analyze-game-title">
+                    <span>{displayNameFor(g.key)}</span>
+                    <button
+                      type="button"
+                      className="btn btn-ghost analyze-insights-btn"
+                      onClick={() => {
+                        setSelectedGameId(g.key);
+                        setInsightsOpen(true);
+                      }}
+                    >
+                      Pattern insights
+                    </button>
+                  </div>
                   {a ? (
                     <div className="analyze-game-details card-content-text">
                       <div className="analyze-detail">
@@ -341,7 +410,7 @@ function AnalyzeSidebarInner({ canonical, logical, title, period = 'both', state
                 </div>
               );
             })}
-            {LOGICAL_VIEW.map(lg => {
+            {sortMode === 'alpha' && LOGICAL_VIEW.map(lg => {
               const a5  = data5[lg];
               const ad  = dataDigits[lg];
               const ap10= dataP10[lg];
@@ -352,7 +421,19 @@ function AnalyzeSidebarInner({ canonical, logical, title, period = 'both', state
               const kDisplay = isDigitShape(meta.shape) ? digitsKFor(meta) : undefined;
               return (
                 <div key={lg} className="analyze-game">
-                  <div className="analyze-game-title">{displayNameFor(lg)}</div>
+                  <div className="analyze-game-title">
+                    <span>{displayNameFor(lg)}</span>
+                    <button
+                      type="button"
+                      className="btn btn-ghost analyze-insights-btn"
+                      onClick={() => {
+                        setSelectedGameId(lg);
+                        setInsightsOpen(true);
+                      }}
+                    >
+                      Pattern insights
+                    </button>
+                  </div>
                   {a5 ? (
                     <div className="analyze-game-details card-content-text">
                       <div className="analyze-detail">
@@ -547,10 +628,289 @@ function AnalyzeSidebarInner({ canonical, logical, title, period = 'both', state
                 </div>
               );
             })}
+            {sortMode === 'odds' && SORTED_BY_ODDS.map(item => {
+              if (item.kind === 'canonical') {
+                const a = data5[item.id];
+                return (
+                  <div key={item.id} className="analyze-game">
+                    <div className="analyze-game-title">
+                      <span>{item.label}</span>
+                      <button
+                        type="button"
+                        className="btn btn-ghost analyze-insights-btn"
+                        onClick={() => {
+                          setSelectedGameId(item.id);
+                          setInsightsOpen(true);
+                        }}
+                      >
+                        Pattern insights
+                      </button>
+                    </div>
+                    {a ? (
+                      <div className="analyze-game-details card-content-text">
+                        <div className="analyze-detail">
+                          <span className="analyze-label">Total draws analyzed:</span>
+                          <span className="analyze-value mono">{a.draws.toLocaleString()}</span>
+                        </div>
+                        <div className="analyze-detail">
+                          <span className="analyze-label">Jackpot odds:</span>
+                          <span className="analyze-value mono">
+                            1 in {jackpotOdds(item.id).toLocaleString()}
+                          </span>
+                        </div>
+                        <div className="analyze-detail analyze-recommendation">
+                          <span className="analyze-label">Recommended:</span>
+                          <span className="analyze-value mono">
+                            mains <em>{a.recMain.mode}</em> (α={a.recMain.alpha.toFixed(2)})
+                            {a.eraCfg.specialMax > 0 && (
+                              <>, special <em>{a.recSpec.mode}</em> (α={a.recSpec.alpha.toFixed(2)})</>
+                            )}
+                          </span>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="analyze-unavailable">Unavailable.</div>
+                    )}
+                  </div>
+                );
+              }
+
+              // logical branch: reuse the existing logical rendering logic
+              const lg = item.id;
+              const a5  = data5[lg];
+              const ad  = dataDigits[lg];
+              const ap10= dataP10[lg];
+              const acp = dataCP[lg];
+              const aon = dataAON[lg];
+              const meta = resolveGameMeta(undefined, lg);
+              const rep  = repForLogical(lg, meta);
+              const kDisplay = isDigitShape(meta.shape) ? digitsKFor(meta) : undefined;
+              return (
+                <div key={lg} className="analyze-game">
+                  <div className="analyze-game-title">
+                    <span>{displayNameFor(lg)}</span>
+                    <button
+                      type="button"
+                      className="btn btn-ghost analyze-insights-btn"
+                      onClick={() => {
+                        setSelectedGameId(lg);
+                        setInsightsOpen(true);
+                      }}
+                    >
+                      Pattern insights
+                    </button>
+                  </div>
+                  {/* --- existing logical render branches unchanged --- */}
+                  {a5 ? (
+                    <div className="analyze-game-details card-content-text">
+                      <div className="analyze-detail">
+                        <span className="analyze-label">Total draws analyzed:</span>
+                        <span className="analyze-value mono">{a5.draws.toLocaleString()}</span>
+                      </div>
+                      <div className="analyze-detail">
+                        <span className="analyze-label">Jackpot odds:</span>
+                        <span className="analyze-value mono">1 in {jackpotOdds(rep).toLocaleString()}</span>
+                      </div>
+                      <div className="analyze-detail analyze-recommendation">
+                        <span className="analyze-label">Recommended:</span>
+                        <span className="analyze-value mono">
+                          mains <em>{a5.recMain.mode}</em> (α={a5.recMain.alpha.toFixed(2)})
+                          {a5.eraCfg.specialMax > 0 && (
+                            <>, special <em>{a5.recSpec.mode}</em> (α={a5.recSpec.alpha.toFixed(2)})</>
+                          )}
+                        </span>
+                      </div>
+                    </div>
+                  ) : ad ? (
+                    <div className="analyze-game-details card-content-text">
+                      <div className="analyze-detail">
+                        <span className="analyze-label">Total draws analyzed:</span>
+                        <span className="analyze-value mono">{ad.totalDraws.toLocaleString()}</span>
+                      </div>
+                      <div className="analyze-detail">
+                        <span className="analyze-label">Digit domain:</span>
+                        <span className="analyze-value mono">
+                          0–9 × {kDisplay ?? ad.k}
+                          {kDisplay && kDisplay !== ad.k && (
+                            <> (analyzed via {ad.k}-digit proxy)</>
+                          )}
+                        </span>
+                      </div>
+                      <div className="analyze-detail">
+                        <span className="analyze-label">Jackpot odds:</span>
+                        <span className="analyze-value mono">
+                          {(() => {
+                            const o = jackpotOddsForLogical(lg);
+                            return o ? `1 in ${o.toLocaleString()}` : 'n/a';
+                          })()}
+                        </span>
+                      </div>
+                      <div className="analyze-detail analyze-recommendation">
+                        <span className="analyze-label">Recommended:</span>
+                        <span className="analyze-value mono">
+                          {(() => {
+                            const rec = recommendDigitsFromStats(ad);
+                            return <>digits <em>{rec.mode}</em> (α={rec.alpha.toFixed(2)})</>;
+                          })()}
+                        </span>
+                      </div>
+                    </div>
+                  ) : ap10 ? (
+                    <div className="analyze-game-details card-content-text">
+                      <div className="analyze-detail">
+                        <span className="analyze-label">Total draws analyzed:</span>
+                        <span className="analyze-value mono">{ap10.totalDraws.toLocaleString()}</span>
+                      </div>
+                      <div className="analyze-detail">
+                        <span className="analyze-label">Number domain:</span>
+                        <span className="analyze-value mono">1–80 · pick 10</span>
+                      </div>
+                      <div className="analyze-detail">
+                        <span className="analyze-label">Jackpot odds:</span>
+                        <span className="analyze-value mono">
+                          {(() => {
+                            const o = jackpotOddsForLogical('ny_pick10');
+                            return o ? `1 in ${o.toLocaleString()}` : 'n/a';
+                          })()}
+                        </span>
+                      </div>
+                      <div className="analyze-detail analyze-recommendation">
+                        <span className="analyze-label">Recommended:</span>
+                        <span className="analyze-value mono">
+                          {(() => {
+                            const rec = recommendPick10FromStats(ap10);
+                            return <>mains <em>{rec.mode}</em> (α={rec.alpha.toFixed(2)})</>;
+                          })()}
+                        </span>
+                      </div>
+                    </div>
+                  ) : lg === 'ny_quick_draw' ? (
+                    (() => {
+                      const aqd = dataQD[lg];
+                      if (!aqd) return <div className="analyze-unavailable">Unavailable.</div>;
+                      const rec = recommendQuickDrawFromStats(aqd);
+                      return (
+                        <div className="analyze-game-details card-content-text">
+                          <div className="analyze-detail">
+                            <span className="analyze-label">Total draws analyzed:</span>
+                            <span className="analyze-value mono">{aqd.totalDraws.toLocaleString()}</span>
+                          </div>
+                          <div className="analyze-detail">
+                            <span className="analyze-label">Number domain:</span>
+                            <span className="analyze-value mono">1–80 · hits per draw: 20</span>
+                          </div>
+                          <div className="analyze-detail">
+                            <span className="analyze-label">Spots:</span>
+                            <span className="analyze-value">
+                              <select
+                                aria-label="Quick Draw Spots"
+                                value={qdSpots}
+                                onChange={e => setQdSpots(Number(e.target.value) as any)}
+                              >
+                                {[1,2,3,4,5,6,7,8,9,10].map(s => (
+                                  <option key={s} value={s}>{s} spot{s>1?'s':''}</option>
+                                ))}
+                              </select>
+                            </span>
+                          </div>
+                          <div className="analyze-detail">
+                            <span className="analyze-label">Jackpot odds:</span>
+                            <span className="analyze-value mono">
+                              1 in {jackpotOddsQuickDraw(qdSpots).toLocaleString()}
+                            </span>
+                          </div>
+                          <div className="analyze-detail analyze-recommendation">
+                            <span className="analyze-label">Recommended:</span>
+                            <span className="analyze-value mono">
+                              mains <em>{rec.mode}</em> (α={rec.alpha.toFixed(2)})
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })()
+                  ) : lg === 'fl_cashpop' ? (
+                    acp ? (
+                      <div className="analyze-game-details card-content-text">
+                        <div className="analyze-detail">
+                          <span className="analyze-label">Total draws analyzed:</span>
+                          <span className="analyze-value mono">{acp.totalDraws.toLocaleString()}</span>
+                        </div>
+                        <div className="analyze-detail">
+                          <span className="analyze-label">Number domain:</span>
+                          <span className="analyze-value mono">1–15 · pick 1</span>
+                        </div>
+                        <div className="analyze-detail">
+                          <span className="analyze-label">Jackpot odds:</span>
+                          <span className="analyze-value mono">n/a</span>
+                        </div>
+                        <div className="analyze-detail analyze-recommendation">
+                          <span className="analyze-label">Recommended:</span>
+                          <span className="analyze-value mono">—</span>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="analyze-unavailable">Unavailable.</div>
+                    )
+                  ) : meta.shape === 'allornothing' ? (
+                    aon ? (
+                      <div className="analyze-game-details card-content-text">
+                        <div className="analyze-detail">
+                          <span className="analyze-label">Total draws analyzed:</span>
+                          <span className="analyze-value mono">
+                            {aon.totalDraws.toLocaleString()}
+                          </span>
+                        </div>
+                        <div className="analyze-detail">
+                          <span className="analyze-label">Number domain:</span>
+                          <span className="analyze-value mono">1–24 · pick 12</span>
+                        </div>
+                        <div className="analyze-detail">
+                          <span className="analyze-label">Heaviest hits:</span>
+                          <span className="analyze-value mono">
+                            {(() => {
+                              const top = Array
+                                .from(aon.counts.entries())
+                                .sort((a, b) => b[1] - a[1])
+                                .slice(0, 5)
+                                .map(([num]) => num);
+                              return top.length ? top.join(', ') : 'n/a';
+                            })()}
+                          </span>
+                        </div>
+                        <div className="analyze-detail analyze-recommendation">
+                          <span className="analyze-label">Recommended:</span>
+                          <span className="analyze-value mono">
+                            Favor highest-frequency numbers.
+                          </span>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="analyze-unavailable">Unavailable.</div>
+                    )
+                  ) : (
+                    <div className="analyze-unavailable">Unavailable.</div>
+                  )}
+                </div>
+              );
+            })}
           </>
         )}
       </div>
     </section>
+
+    {/* Pattern insights modal, shared for whichever game was clicked */}
+    {selectedGameId && (
+      <PatternInsightsModal
+        open={insightsOpen}
+        gameKey={selectedGameId as any}
+        onClose={() => {
+          setInsightsOpen(false);
+          // keep the last selected id so reopen is instant if user clicks again
+        }}
+        period={period}
+      />
+    )}
+    </>
   );
 }
 

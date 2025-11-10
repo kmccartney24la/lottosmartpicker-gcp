@@ -5,7 +5,7 @@ export declare function computeQuickDrawStats(rows: QuickDrawRow[]): {
     lastSeen: Map<number, number>;
     totalDraws: number;
     z: Map<number, number>;
-} | undefined;
+};
 /** Weight builder for Quick Draw (hot/cold + alpha blend). */
 export declare function buildQuickDrawWeights(stats: ReturnType<typeof computeQuickDrawStats>, mode: 'hot' | 'cold', alpha: number): number[];
 /** Ticket generator for Quick Draw. */

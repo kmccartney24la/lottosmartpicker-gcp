@@ -16,39 +16,27 @@ export const GAME_TO_API_PATH = Object.freeze({
     // --- Florida ---
     fl_lotto: `${FILE_BASE}/fl/lotto.csv`,
     fl_jackpot_triple_play: `${FILE_BASE}/fl/jackpot_triple_play.csv`,
-    fl_fantasy5_midday: `${FILE_BASE}/fl/fantasy5_midday.csv`,
-    fl_fantasy5_evening: `${FILE_BASE}/fl/fantasy5_evening.csv`,
-    fl_pick5_midday: `${FILE_BASE}/fl/pick5_midday.csv`,
-    fl_pick5_evening: `${FILE_BASE}/fl/pick5_evening.csv`,
-    fl_pick4_midday: `${FILE_BASE}/fl/pick4_midday.csv`,
-    fl_pick4_evening: `${FILE_BASE}/fl/pick4_evening.csv`,
-    fl_pick3_midday: `${FILE_BASE}/fl/pick3_midday.csv`,
-    fl_pick3_evening: `${FILE_BASE}/fl/pick3_evening.csv`,
-    fl_pick2_midday: `${FILE_BASE}/fl/pick2_midday.csv`,
-    fl_pick2_evening: `${FILE_BASE}/fl/pick2_evening.csv`,
+    fl_fantasy5: `${FILE_BASE}/fl/fantasy5_evening.csv`,
+    fl_pick5: `${FILE_BASE}/fl/pick5_evening.csv`,
+    fl_pick4: `${FILE_BASE}/fl/pick4_evening.csv`,
+    fl_pick3: `${FILE_BASE}/fl/pick3_evening.csv`,
+    fl_pick2: `${FILE_BASE}/fl/pick2_evening.csv`,
     // --- Texas ---
     tx_lotto_texas: `${FILE_BASE}/tx/lotto_texas.csv`,
     tx_texas_two_step: `${FILE_BASE}/tx/texas_two_step.csv`,
     tx_cash5: `${FILE_BASE}/tx/cash5.csv`,
-    // --- New York (UNDERLYING, file-backed) ---
-    ny_nylotto: `${FILE_BASE}/ny/nylotto.csv`,
-    ny_numbers_midday: `${FILE_BASE}/ny/numbers_midday.csv`,
-    ny_numbers_evening: `${FILE_BASE}/ny/numbers_evening.csv`,
-    ny_win4_midday: `${FILE_BASE}/ny/win4_midday.csv`,
-    ny_win4_evening: `${FILE_BASE}/ny/win4_evening.csv`,
-    ny_pick10: `${FILE_BASE}/ny/pick10.csv`,
-    ny_take5_midday: `${FILE_BASE}/ny/take5_midday.csv`,
-    ny_take5_evening: `${FILE_BASE}/ny/take5_evening.csv`,
-    ny_quick_draw: `${FILE_BASE}/ny/quick_draw.csv`,
+    // --- Texas representatives for 4x-daily families (Night = rep) ---
+    tx_all_or_nothing: `${FILE_BASE}/tx/all_or_nothing_night.csv`,
+    tx_pick3: `${FILE_BASE}/tx/pick3_night.csv`,
+    tx_daily4: `${FILE_BASE}/tx/daily4_night.csv`,
     // --- New York (REPRESENTATIVE / logical single-source) ---
     // For twice-daily games, EVENING is the representative source.
     ny_take5: `${FILE_BASE}/ny/take5_evening.csv`,
     ny_numbers: `${FILE_BASE}/ny/numbers_evening.csv`,
     ny_win4: `${FILE_BASE}/ny/win4_evening.csv`,
     ny_lotto: `${FILE_BASE}/ny/nylotto.csv`,
-    // Optional rep keys:
-    ny_quick_draw_rep: `${FILE_BASE}/ny/quick_draw.csv`,
-    ny_pick10_rep: `${FILE_BASE}/ny/pick10.csv`,
+    ny_quick_draw: `${FILE_BASE}/ny/quick_draw.csv`,
+    ny_pick10: `${FILE_BASE}/ny/pick10.csv`,
 });
 /** Strict lookup (throws on unknown). */
 export function apiPathForGame(game) {
@@ -65,6 +53,9 @@ export function apiPathForUnderlying(u) {
         return canonical;
     // 2) Flexible CSVs (served via same-origin proxy)
     switch (u) {
+        // --- Florida Fantasy 5 flexible files (underlying) ---
+        case 'fl_fantasy5_midday': return `${FILE_BASE}/fl/fantasy5_midday.csv`;
+        case 'fl_fantasy5_evening': return `${FILE_BASE}/fl/fantasy5_evening.csv`;
         // --- Florida Pick (explicit fallbacks; protects against stale maps) ---
         case 'fl_pick2_midday': return `${FILE_BASE}/fl/pick2_midday.csv`;
         case 'fl_pick2_evening': return `${FILE_BASE}/fl/pick2_evening.csv`;
@@ -114,4 +105,7 @@ export function apiPathForUnderlying(u) {
 export function latestApiPathForGame(game) {
     const p = apiPathForGame(game);
     return p.replace(/\.csv(\?.*)?$/i, '.latest.csv');
+}
+export function latestApiPathForUnderlying(u) {
+    return apiPathForUnderlying(u).replace(/\.csv(\?.*)?$/i, '.latest.csv');
 }

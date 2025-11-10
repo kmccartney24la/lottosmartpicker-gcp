@@ -1,4 +1,4 @@
-// scripts/sources/fl/fl_fantasy5.ts
+// packages/scripts/src/sources/fl/fl_fantasy5.ts
 // Node 18+ ESM. Deps: pdfjs-dist.
 // Parses the official FL Fantasy 5 PDF into two CSVs:
 //   • public/data/fl/fantasy5_midday.csv
@@ -139,31 +139,65 @@ function maybeBall(s) {
 }
 async function extractCells(buf) {
     const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs");
+    /**
+     * Resolve the 'standard_fonts' directory for pdfjs.
+     * Make this mirror the working Cash Pop resolver so we don't end up
+     * picking a present-but-empty directory on Cloud Run.
+     *
+     * Preference order:
+     *  1) FL_PDFJS_STD_FONTS env (explicit override)
+     *  2) next to legacy/build/pdf.mjs  ← where pdfjs often ships fonts
+     *  3) <pkg root>/legacy/build/standard_fonts
+     *  4) <pkg root>/standard_fonts     ← worst fallback
+     */
     function resolveStandardFontsUrl() {
         try {
+            // 1) explicit override via env
+            const envPath = (process.env.FL_PDFJS_STD_FONTS ?? "").trim();
+            if (envPath && fsSync.existsSync(envPath)) {
+                return String(pathToFileURL(path.resolve(envPath))) + "/";
+            }
+            // 2) prefer the directory right next to legacy/build/pdf.mjs
+            //    (this is where many pdfjs-dist builds place standard_fonts)
             const pdfMjsPath = requireCJS.resolve("pdfjs-dist/legacy/build/pdf.mjs");
-            const buildDir = path.dirname(pdfMjsPath);
-            const c1 = path.join(buildDir, "standard_fonts");
-            if (fsSync.existsSync(c1))
-                return String(pathToFileURL(c1)) + "/";
+            const legacyBuildDir = path.dirname(pdfMjsPath);
+            const candLegacySibling = path.join(legacyBuildDir, "standard_fonts");
+            if (fsSync.existsSync(candLegacySibling)) {
+                return String(pathToFileURL(candLegacySibling)) + "/";
+            }
+            // 3) try package root legacy/build/standard_fonts
             const pkgPath = requireCJS.resolve("pdfjs-dist/package.json");
             const rootDir = path.dirname(pkgPath);
-            const c2 = path.join(rootDir, "legacy", "build", "standard_fonts");
-            if (fsSync.existsSync(c2))
-                return String(pathToFileURL(c2)) + "/";
-            const c3 = path.join(rootDir, "standard_fonts");
-            if (fsSync.existsSync(c3))
-                return String(pathToFileURL(c3)) + "/";
+            const candPkgLegacy = path.join(rootDir, "legacy", "build", "standard_fonts");
+            if (fsSync.existsSync(candPkgLegacy)) {
+                return String(pathToFileURL(candPkgLegacy)) + "/";
+            }
+            // 4) finally, fall back to package root /standard_fonts
+            const candRoot = path.join(rootDir, "standard_fonts");
+            if (fsSync.existsSync(candRoot)) {
+                return String(pathToFileURL(candRoot)) + "/";
+            }
         }
-        catch { }
+        catch {
+            // swallow and fall through to undefined
+        }
         return undefined;
     }
     const stdFontsDirUrl = resolveStandardFontsUrl();
-    const loadingTask = pdfjsLib.getDocument({
-        data: buf,
-        disableWorker: true,
-        ...(stdFontsDirUrl ? { standardFontDataUrl: stdFontsDirUrl } : {}),
-    });
+    if (ENABLE_DEBUG) {
+        if (stdFontsDirUrl) {
+            console.log(`[FF] pdfjs standardFontDataUrl → ${stdFontsDirUrl}`);
+        }
+        else {
+            console.log("[FF] pdfjs standardFontDataUrl not resolved; consider setting FL_PDFJS_STD_FONTS");
+        }
+    }
+    const getDocOpts = { data: buf, disableWorker: true };
+    if (stdFontsDirUrl) {
+        // Ensure a trailing slash for pdfjs
+        getDocOpts.standardFontDataUrl = stdFontsDirUrl.endsWith("/") ? stdFontsDirUrl : (stdFontsDirUrl + "/");
+    }
+    const loadingTask = pdfjsLib.getDocument(getDocOpts);
     const pdf = await loadingTask.promise;
     const DATE_RE = /\b(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}|[A-Za-z]{3,9}\s+\d{1,2},?\s*\d{4}|\d{1,2}[- ][A-Za-z]{3}[- ,]?\d{4})\b/;
     const DROP = [

@@ -7,6 +7,21 @@
   margin-bottom: var(--space-2);
 }
 
+.analyze-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.analyze-sort-btn {
+  padding: 4px 10px;
+  font-size: var(--text-xs);
+  line-height: 1;
+  cursor: pointer;
+  min-height: 28px;
+}
+
 .analyze-error {
   color: var(--danger);
   font-size: var(--text-sm);
@@ -37,6 +52,10 @@
 
 /* Tighter, clearer break between title and details inside each block */
 .analyze-game-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
   font-weight: 700;
   margin-bottom: var(--space-2);
   font-size: var(--text-sm);
@@ -98,6 +117,13 @@
 
 /* Mobile optimizations for sidebars */
 @media (max-width: var(--breakpoint-mobile)) {
+  .analyze-title-row {
+    gap: var(--space-1);
+  }
+  .analyze-sort-btn {
+    white-space: nowrap;
+  }
+
   .sidebar-header {
     padding: var(--space-3);
     flex-wrap: wrap;
@@ -177,4 +203,10 @@
 
 .sidebar.bottom .sidebar-content {
   height: calc(100% - 60px);
+}
+
+.analyze-insights-btn {
+  min-height: 28px;
+  padding: 4px 10px;
+  font-size: var(--text-xs);
 }

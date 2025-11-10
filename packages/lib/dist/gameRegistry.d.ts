@@ -1,6 +1,6 @@
-import type { GameKey, LogicalGameKey } from '@lsp/lib';
+import type { GameKey, LogicalGameKey, UnderlyingKey, ScheduleGame, Period } from './lotto/types.js';
 type CanonicalDrawGame = GameKey;
-export type Shape = 'five' | 'six' | 'digit2' | 'digit3' | 'digit4' | 'digit5' | 'pick10' | 'quickdraw' | 'cashpop';
+export type Shape = 'five' | 'six' | 'digit2' | 'digit3' | 'digit4' | 'digit5' | 'pick10' | 'quickdraw' | 'cashpop' | 'allornothing';
 export type SpecialTone = 'red' | 'blue' | 'green' | 'amber' | null;
 export type TagMode = 'patterns-only' | 'playtypes-only' | 'light-patterns';
 export interface GameMeta {
@@ -13,6 +13,11 @@ export interface GameMeta {
     preferEveningWhenBoth?: boolean;
     sixMainsNoSpecial?: boolean;
     isNyLotto?: boolean;
+    /**
+     * Some 5-style games actually draw fewer than 5 mains (e.g. TX Two Step = 4 + Bonus).
+     * Let callers + era logic override the main-pick this way.
+     */
+    mainPickOverride?: 4 | 5 | 6;
 }
 /** Legend config consumed by HintLegend (UI-agnostic) */
 export type LegendItem = {
@@ -35,7 +40,7 @@ export declare function usesPlayTypeTags(meta: GameMeta): boolean;
 export declare function hasColoredSpecial(meta: GameMeta): boolean;
 export declare function specialToneClass(meta: GameMeta): string;
 export declare function specialLabel(meta: GameMeta, game?: string): string;
-export type AnyPeriod = 'midday' | 'evening' | 'both' | 'all';
+export type AnyPeriod = Extract<Period, 'midday' | 'evening' | 'both' | 'all'>;
 export declare function effectivePeriod(meta: GameMeta, requested?: AnyPeriod): AnyPeriod;
 /**
  * Coerce an unknown period (e.g., app-level Period) into AnyPeriod understood by the registry.
@@ -104,22 +109,33 @@ export declare function rowToFiveView(row: FiveLikeRow, meta: GameMeta, opts?: {
 };
 /** Return k for digit shapes directly from meta; null for non-digit games. */
 export declare function digitsKFor(meta: GameMeta): 2 | 3 | 4 | 5 | null;
-export type OverviewFamily = 'fl_cashpop' | 'ny_pick10' | 'ny_quick_draw' | 'ny_take5' | 'digits_ny_numbers' | 'digits_ny_win4' | 'digits_fl_pick2' | 'digits_fl_pick3' | 'digits_fl_pick4' | 'digits_fl_pick5' | 'fl_fantasy5' | 'fl_lotto' | 'fl_jtp' | 'generic';
+/** Authoritative k for a digit logical (delegates to lotto/digits.ts). */
+export declare function kDigitsForLogical(logical?: LogicalGameKey): 2 | 3 | 4 | 5 | null;
+/**
+ * Convenience: derive digit k from either a logical or a canonical key string.
+ * - If it looks like a logical digit key, uses lotto/digits.ts mapping.
+ * - Otherwise returns null (non-digit or unknown).
+ */
+export declare function digitsKForKey(gameOrLogical?: string): 2 | 3 | 4 | 5 | null;
+export type OverviewFamily = 'fl_cashpop' | 'ny_pick10' | 'ny_quick_draw' | 'ny_take5' | 'digits_ny_numbers' | 'digits_ny_win4' | 'digits_fl_pick2' | 'digits_fl_pick3' | 'digits_fl_pick4' | 'digits_fl_pick5' | 'fl_fantasy5' | 'fl_lotto' | 'fl_jtp' | 'tx_all_or_nothing' | 'tx_lotto_texas' | 'tx_texas_two_step' | 'digits_tx_daily4' | 'digits_tx_pick3' | 'generic';
 /** High-level mode used by the Overview fetch/render pipeline */
 export type OverviewMode = 'digits' | 'pick10' | 'quickdraw' | 'cashpop' | 'fiveSix';
 /** Plan that tells the UI exactly how to behave for Overview */
 export type OverviewPlan = {
     mode: OverviewMode;
-    /** Key to use for schedule/next-draw labels (canonical, period-aware). */
-    labelKey: GameKey;
+    /**
+     * Key to use for schedule/next-draw labels.
+     * Accepts ScheduleGame or weekly/daily customs supported by schedule.ts (e.g., ny_lotto, tx_lotto_texas).
+     */
+    labelKey: ScheduleGame | Extract<GameKey | LogicalGameKey, 'ny_lotto' | 'ny_pick10' | 'fl_lotto' | 'fl_jackpot_triple_play' | 'tx_lotto_texas' | 'tx_texas_two_step' | 'tx_cash5'>;
     /** Header/display name key (usually same as labelKey for digits; otherwise page game). */
-    headerKey: GameKey;
+    headerKey: GameKey | UnderlyingKey;
     /** Effective period chosen (evening wins when both/all if policy says so) */
     effPeriod: AnyPeriod;
     /** Representative canonical to compute odds/era for logical five/six games */
     repKey?: CanonicalDrawGame;
     /** Digit logical accepted by digit fetchers, when mode==='digits' */
-    digitLogical?: 'ny_numbers' | 'ny_win4' | 'fl_pick2' | 'fl_pick3' | 'fl_pick4' | 'fl_pick5' | 'ca_daily3' | 'ca_daily4';
+    digitLogical?: 'ny_numbers' | 'ny_win4' | 'fl_pick2' | 'fl_pick3' | 'fl_pick4' | 'fl_pick5' | 'ca_daily3' | 'ca_daily4' | 'tx_pick3' | 'tx_daily4';
     /** k for digit games, if applicable */
     kDigits?: 2 | 3 | 4 | 5;
     /** Overview family for “How to play” content selection */
@@ -134,9 +150,31 @@ export declare function overviewFamilyFor(game?: GameKey | string, logical?: Log
  * Compute the canonical key used for labels/schedule given a (game, logical, period).
  * Mirrors the ad-hoc logic that used to live in GameOverview.
  */
-export declare function labelKeyFor(game: GameKey, logical?: LogicalGameKey, period?: AnyPeriod): GameKey;
+export declare function labelKeyFor(game: GameKey, logical?: LogicalGameKey, period?: AnyPeriod): OverviewPlan['labelKey'];
 /** Header/display should follow the selected digit game; otherwise the page game. */
-export declare function headerKeyFor(game: GameKey, logical?: LogicalGameKey, period?: AnyPeriod): GameKey;
+export declare function headerKeyFor(game: GameKey, logical?: LogicalGameKey, period?: AnyPeriod): GameKey | UnderlyingKey;
+/**
+ * Human-friendly schedule summary, e.g.:
+ *  - "Daily · Midday & Evening"
+ *  - "Tue/Fri ≈11:00 PM ET"
+ * Delegates to schedule.ts (authoritative).
+ */
+export declare function drawScheduleSummary(key: GameKey | LogicalGameKey, now?: Date): string;
+/**
+ * Label for the next draw time in local tz, e.g. "Wed 6:30 PM PT" or "Sat ≈11:00 PM ET".
+ * Delegates to schedule.ts (authoritative).
+ */
+export declare function nextDrawLabelForKey(key: GameKey | LogicalGameKey, now?: Date): string;
+/**
+ * True if we are within ±90 minutes of the local draw time on a valid draw day.
+ * Delegates to schedule.ts (authoritative).
+ */
+export declare function isInDrawWindow(key: GameKey | LogicalGameKey, now?: Date): boolean;
+/** Convenience for Overview: get both schedule labels from an OverviewPlan. */
+export declare function scheduleLabelsFor(plan: OverviewPlan, now?: Date): {
+    summary: string;
+    next: string;
+};
 /** One-stop “plan” for the Overview component. */
 export declare function overviewPlanFor(game: GameKey, logical?: LogicalGameKey, period?: AnyPeriod): OverviewPlan;
 /** Data-only “How to play” steps (kept UI-agnostic). */
@@ -146,10 +184,6 @@ export declare function overviewStepsFor(family: OverviewFamily, meta: GameMeta)
  * Keeps display names consistent across the app.
  */
 export declare function displayNameFor(game: GameKey | string): string;
-/** e.g., "3-Way Box" | "6-Way Box" | null (no valid box variant) */
-export declare function boxVariantLabel(digits: number[], k: 2 | 3 | 4 | 5): string | null;
-/** "Straight" when there are no Box/SB variants (e.g., AA, AAA, AAAA, etc.) */
-export declare function straightOnlyLabel(digits: number[], k: 2 | 3 | 4 | 5): string | null;
 /**
  * High-level play types shown for a game/logical (jurisdiction-aware).
  * We keep this conservative and uniform across digit games:
@@ -198,6 +232,7 @@ export declare function isGenerationReady(meta: GameMeta, deps: {
     digitStats?: unknown | null;
     p10Stats?: unknown | null;
     qdStats?: unknown | null;
+    aonStats?: unknown | null;
     cpCounts?: unknown | null;
 }): boolean;
 export declare function eraConfigFor(meta: GameMeta, eraCfg: any): any;

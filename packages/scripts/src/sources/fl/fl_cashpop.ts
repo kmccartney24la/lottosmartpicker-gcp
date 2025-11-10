@@ -1,4 +1,4 @@
-// scripts/sources/fl/fl_cashpop.ts
+// scripts/src/sources/fl/fl_cashpop.ts
 // Node 18+ ESM. Deps: pdfjs-dist.
 // Parses the official FL Cash Pop PDF into FIVE CSVs:
 //   • public/data/fl/cashpop_morning.csv

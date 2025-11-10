@@ -146,35 +146,45 @@ async function extractCells(buf: Uint8Array): Promise<Cell[]> {
 
   /**
    * Resolve the 'standard_fonts' directory for pdfjs.
+   * Make this mirror the working Cash Pop resolver so we don't end up
+   * picking a present-but-empty directory on Cloud Run.
+   *
    * Preference order:
    *  1) FL_PDFJS_STD_FONTS env (explicit override)
-   *  2) node_modules/pdfjs-dist/standard_fonts              ← your known path
-   *  3) node_modules/pdfjs-dist/legacy/build/standard_fonts ← fallback
-   *  4) alongside legacy/build/pdf.mjs                      ← final fallback
+   *  2) next to legacy/build/pdf.mjs  ← where pdfjs often ships fonts
+   *  3) <pkg root>/legacy/build/standard_fonts
+   *  4) <pkg root>/standard_fonts     ← worst fallback
    */
   function resolveStandardFontsUrl(): string | undefined {
     try {
-      // 1) explicit override
+      // 1) explicit override via env
       const envPath = (process.env.FL_PDFJS_STD_FONTS ?? "").trim();
       if (envPath && fsSync.existsSync(envPath)) {
         return String(pathToFileURL(path.resolve(envPath))) + "/";
       }
 
-      // 2) package root standard_fonts (e.g., node_modules/pdfjs-dist/standard_fonts)
+      // 2) prefer the directory right next to legacy/build/pdf.mjs
+      //    (this is where many pdfjs-dist builds place standard_fonts)
+      const pdfMjsPath = requireCJS.resolve("pdfjs-dist/legacy/build/pdf.mjs");
+      const legacyBuildDir = path.dirname(pdfMjsPath);
+      const candLegacySibling = path.join(legacyBuildDir, "standard_fonts");
+      if (fsSync.existsSync(candLegacySibling)) {
+        return String(pathToFileURL(candLegacySibling)) + "/";
+      }
+
+      // 3) try package root legacy/build/standard_fonts
       const pkgPath = requireCJS.resolve("pdfjs-dist/package.json");
       const rootDir = path.dirname(pkgPath);
-      const pRoot = path.join(rootDir, "standard_fonts");
-      if (fsSync.existsSync(pRoot)) return String(pathToFileURL(pRoot)) + "/";
+      const candPkgLegacy = path.join(rootDir, "legacy", "build", "standard_fonts");
+      if (fsSync.existsSync(candPkgLegacy)) {
+        return String(pathToFileURL(candPkgLegacy)) + "/";
+      }
 
-      // 3) legacy build standard_fonts (commonly where fonts ship)
-      const pLegacy = path.join(rootDir, "legacy", "build", "standard_fonts");
-      if (fsSync.existsSync(pLegacy)) return String(pathToFileURL(pLegacy)) + "/";
-
-      // 4) near the legacy pdf.mjs (very defensive)
-      const pdfMjsPath = requireCJS.resolve("pdfjs-dist/legacy/build/pdf.mjs");
-      const buildDir = path.dirname(pdfMjsPath);
-      const pSibling = path.join(buildDir, "standard_fonts");
-      if (fsSync.existsSync(pSibling)) return String(pathToFileURL(pSibling)) + "/";
+      // 4) finally, fall back to package root /standard_fonts
+      const candRoot = path.join(rootDir, "standard_fonts");
+      if (fsSync.existsSync(candRoot)) {
+        return String(pathToFileURL(candRoot)) + "/";
+      }
     } catch {
       // swallow and fall through to undefined
     }

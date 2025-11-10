@@ -1,3 +1,15 @@
+// Use canonical digit helpers from lotto/digits
+// If your package entrypoint already re-exports these, you can import from '@lsp/lib' instead.
+import { digitKFor as libDigitKFor, boxVariantLabel as libBoxVariantLabel, straightOnlyLabel as libStraightOnlyLabel, } from './lotto/digits.js';
+import { drawNightsLabel as schedDrawNightsLabel, isInDrawWindowFor as schedIsInDrawWindowFor, nextDrawLabelFor as schedNextDrawLabelFor, WEEKLY_CUSTOM_KEYS, } from './lotto/schedule.js';
+/** Build a "<N>-Way Box" string (kept local to avoid entrypoint coupling). */
+function wayLabel(n, base = 'Box') {
+    return `${n}-Way ${base}`;
+}
+/** Map k → Shape for digit games. */
+function kToShape(k) {
+    return ('digit' + k);
+}
 /* ===========================
    Internal helpers
    =========================== */
@@ -19,28 +31,6 @@ export function isDigitShape(shape) {
 /** Tag policy convenience */
 export function usesPlayTypeTags(meta) {
     return meta.tagMode === 'playtypes-only';
-}
-/** factorial small k (<=5) */
-function fact(n) {
-    return n <= 1 ? 1 : n * fact(n - 1);
-}
-function multiplicities(d) {
-    const m = new Map();
-    d.forEach(x => m.set(x, (m.get(x) || 0) + 1));
-    return Array.from(m.values()).sort((a, b) => b - a);
-}
-/** permutations for multiset of k digits */
-function multisetPermutationsCount(d) {
-    const k = d.length;
-    const mults = multiplicities(d);
-    return fact(k) / mults.reduce((acc, c) => acc * fact(c), 1);
-}
-function kToShape(k) {
-    return ('digit' + k);
-}
-/** Build a "<N>-Way Box" string */
-function wayLabel(n, base = 'Box') {
-    return `${n}-Way ${base}`;
 }
 // 1) Colored special presence + class
 export function hasColoredSpecial(meta) {
@@ -113,6 +103,7 @@ export function sidebarModeFor(meta, payloadKind) {
         cashpop: 'cashpop',
         pick10: 'pick10',
         quickdraw: 'quickdraw',
+        allornothing: 'quickdraw', // render like multi-number lists
         digit2: 'digits',
         digit3: 'digits',
         digit4: 'digits',
@@ -185,6 +176,10 @@ export function sidebarDateKey(s) {
 }
 /** Choose how many mains to show for a five/six style game (era-aware, NY/FL six-mains aware). */
 export function mainPickFor(meta, eraCfg) {
+    // Explicit override always wins
+    if (meta.mainPickOverride)
+        return meta.mainPickOverride;
+    // 6-main styles
     if (meta.sixMainsNoSpecial || meta.isNyLotto)
         return 6;
     const fallback = typeof eraCfg?.mainPick === 'number' ? eraCfg.mainPick : 5;
@@ -213,7 +208,48 @@ export function rowToFiveView(row, meta, opts) {
 }
 /** Return k for digit shapes directly from meta; null for non-digit games. */
 export function digitsKFor(meta) {
-    return isDigitShape(meta.shape) ? (meta.kDigits ?? null) : null;
+    if (!isDigitShape(meta.shape))
+        return null;
+    // Prefer explicit meta.kDigits, but if missing, fall back to library mapping
+    // by inferring a logical from our context where possible.
+    return (meta.kDigits ?? null);
+}
+/** Authoritative k for a digit logical (delegates to lotto/digits.ts). */
+export function kDigitsForLogical(logical) {
+    if (!logical)
+        return null;
+    try {
+        return libDigitKFor(logical);
+    }
+    catch {
+        return null;
+    }
+}
+/**
+ * Convenience: derive digit k from either a logical or a canonical key string.
+ * - If it looks like a logical digit key, uses lotto/digits.ts mapping.
+ * - Otherwise returns null (non-digit or unknown).
+ */
+export function digitsKForKey(gameOrLogical) {
+    if (!gameOrLogical)
+        return null;
+    const s = gameOrLogical.toLowerCase();
+    // Recognize known logical digit families
+    if (s.startsWith('ny_numbers'))
+        return kDigitsForLogical('ny_numbers');
+    if (s.startsWith('ny_win4'))
+        return kDigitsForLogical('ny_win4');
+    if (s.startsWith('fl_pick'))
+        return kDigitsForLogical(s.includes('pick5') ? 'fl_pick5' : s.includes('pick4') ? 'fl_pick4' : s.includes('pick3') ? 'fl_pick3' : 'fl_pick2');
+    if (s.startsWith('ca_daily3'))
+        return kDigitsForLogical('ca_daily3');
+    if (s.startsWith('ca_daily4'))
+        return kDigitsForLogical('ca_daily4');
+    if (s.startsWith('tx_pick3'))
+        return kDigitsForLogical('tx_pick3');
+    if (s.startsWith('tx_daily4'))
+        return kDigitsForLogical('tx_daily4');
+    return null;
 }
 /**
  * Decide the overview family once, centrally.
@@ -230,6 +266,8 @@ export function overviewFamilyFor(game, logical) {
         return 'ny_pick10';
     if (meta.shape === 'quickdraw')
         return 'ny_quick_draw';
+    if (meta.shape === 'allornothing')
+        return 'ny_pick10'; // closest existing content
     if (isDigitShape(meta.shape)) {
         // jurisdiction-aware digits
         if (lg.startsWith('ny_') || g.includes('ny_')) {
@@ -254,6 +292,18 @@ export function overviewFamilyFor(game, logical) {
         return 'fl_lotto';
     if (g.includes('jackpot_triple_play') || lg.includes('jackpot_triple_play'))
         return 'fl_jtp';
+    if (g.includes('tx_all_or_nothing'))
+        return 'tx_all_or_nothing';
+    // Texas-specific draw games
+    if (g.includes('tx_lotto_texas'))
+        return 'tx_lotto_texas';
+    if (g.includes('tx_texas_two_step'))
+        return 'tx_texas_two_step';
+    // Texas digits
+    if (g.includes('tx_daily4'))
+        return 'digits_tx_daily4';
+    if (g.includes('tx_pick3'))
+        return 'digits_tx_pick3';
     return 'generic';
 }
 /**
@@ -262,21 +312,45 @@ export function overviewFamilyFor(game, logical) {
  */
 export function labelKeyFor(game, logical, period) {
     const meta = resolveGameMeta(game, logical);
-    if (logical && isDigitShape(meta.shape)) {
-        const eff = effectivePeriod(meta, coerceAnyPeriod(period));
-        const per = (eff === 'midday' ? 'midday' : 'evening');
-        switch (String(logical)) {
-            case 'ny_numbers': return `ny_numbers_${per}`;
-            case 'ny_win4': return `ny_win4_${per}`;
-            case 'fl_pick2':
-            case 'fl_pick3':
-            case 'fl_pick4':
-            case 'fl_pick5': return `${logical}_${per}`;
-            case 'ca_daily3': return `ca_daily3_${per}`;
-            case 'ca_daily4': return 'ca_daily4';
-        }
+    const k = (logical ?? game);
+    const s = (x) => x.toLowerCase();
+    const { isNY, isFL, isCA, isTX } = flagsFor(k);
+    // If the page game itself is a known schedule game, use it directly.
+    const SCHEDULE_SET = new Set([
+        'multi_powerball',
+        'multi_megamillions',
+        'multi_cash4life',
+        'ga_fantasy5',
+        'ca_superlotto_plus',
+        'ca_fantasy5',
+        'fl_fantasy5',
+        'ny_take5',
+    ]);
+    if (SCHEDULE_SET.has(game))
+        return game;
+    // Weekly/single-daily customs — use canonical keys from schedule.ts
+    if (WEEKLY_CUSTOM_KEYS.has(game))
+        return game;
+    if (logical && WEEKLY_CUSTOM_KEYS.has(logical))
+        return logical;
+    // Otherwise, pick a jurisdiction-appropriate daily representative that schedule.ts knows.
+    // Digits/quickdraw/cashpop (and unknowns) proxy to a daily family for “Draw schedule”/“Next expected”.
+    if (isNY)
+        return 'ny_take5';
+    if (isFL)
+        return 'fl_fantasy5';
+    if (isCA) {
+        // Prefer SLP for variety if the logical mentions it, else Fantasy 5.
+        return s(k).includes('superlotto') ? 'ca_superlotto_plus' : 'ca_fantasy5';
     }
-    return logical ? repForLogical(logical, meta) : game;
+    if (s(k).startsWith('ga_'))
+        return 'ga_fantasy5';
+    // Texas shapes that aren't in CUSTOM_SET fall back to a daily multi-state label.
+    // Cash4Life is daily and reasonable for generic “Next expected” phrasing.
+    if (s(k).startsWith('tx_'))
+        return 'multi_cash4life';
+    // Final fallback: multistate daily schedule.
+    return 'multi_cash4life';
 }
 /** Header/display should follow the selected digit game; otherwise the page game. */
 export function headerKeyFor(game, logical, period) {
@@ -284,6 +358,37 @@ export function headerKeyFor(game, logical, period) {
     if (logical && isDigitShape(meta.shape))
         return labelKeyFor(game, logical, period);
     return game;
+}
+/* ===========================
+   Schedule wrappers (delegates to lotto/schedule.ts)
+   =========================== */
+/**
+ * Human-friendly schedule summary, e.g.:
+ *  - "Daily · Midday & Evening"
+ *  - "Tue/Fri ≈11:00 PM ET"
+ * Delegates to schedule.ts (authoritative).
+ */
+export function drawScheduleSummary(key, now = new Date()) {
+    return schedDrawNightsLabel(key, now);
+}
+/**
+ * Label for the next draw time in local tz, e.g. "Wed 6:30 PM PT" or "Sat ≈11:00 PM ET".
+ * Delegates to schedule.ts (authoritative).
+ */
+export function nextDrawLabelForKey(key, now = new Date()) {
+    return schedNextDrawLabelFor(key, now);
+}
+/**
+ * True if we are within ±90 minutes of the local draw time on a valid draw day.
+ * Delegates to schedule.ts (authoritative).
+ */
+export function isInDrawWindow(key, now = new Date()) {
+    return schedIsInDrawWindowFor(key, now);
+}
+/** Convenience for Overview: get both schedule labels from an OverviewPlan. */
+export function scheduleLabelsFor(plan, now = new Date()) {
+    const key = plan.labelKey;
+    return { summary: drawScheduleSummary(key, now), next: nextDrawLabelForKey(key, now) };
 }
 /** One-stop “plan” for the Overview component. */
 export function overviewPlanFor(game, logical, period) {
@@ -301,7 +406,8 @@ export function overviewPlanFor(game, logical, period) {
             headerKey,
             effPeriod: eff,
             digitLogical: lg,
-            kDigits: meta.kDigits,
+            // Prefer meta.kDigits, but backstop with the library’s mapping to avoid drift.
+            kDigits: (meta.kDigits ?? kDigitsForLogical(lg)),
             family,
         };
     }
@@ -320,67 +426,179 @@ export function overviewPlanFor(game, logical, period) {
 }
 /** Data-only “How to play” steps (kept UI-agnostic). */
 export function overviewStepsFor(family, meta) {
-    // Cash Pop
-    if (family === 'fl_cashpop')
+    //
+    // ===== MULTISTATE / COMMON 5+SPECIAL =====
+    //
+    if (family === 'generic' && meta.shape === 'five' && meta.hasSpecial) {
         return [
-            'Pick 1 number from 1–15.',
-            'Select your draw time (five drawings daily).',
-            'Before the draw, a prize is assigned to each number on your ticket.',
-            'Match the single winning number to win the shown prize.',
+            'Pick five (5) numbers from the game’s main pool.',
+            'Pick one (1) special ball (name varies by game).',
+            'Match all five main numbers and the special ball to win the jackpot.',
+            'Lower-tier prizes are available for matching some of the numbers.',
         ];
-    // NY Pick 10
-    if (family === 'ny_pick10')
+    }
+    // Powerball-style
+    if (family === 'generic' && String(meta.specialTone ?? '').length) {
         return [
-            'Pick 10 numbers from 1–80.',
-            '20 numbers are drawn.',
-            'Prizes depend on matches (including a prize for matching none).',
+            'Pick the required main numbers from the main pool.',
+            'Pick the special ball (Powerball, Mega Ball, Cash Ball, or similar).',
+            'Match all mains + the special to win the top prize.',
+            'You can still win for partial matches.',
         ];
-    // NY Quick Draw
-    if (family === 'ny_quick_draw')
+    }
+    //
+    // ===== TEXAS GAMES (explicitly handled) =====
+    //
+    // Lotto Texas
+    if (family === 'tx_lotto_texas')
         return [
-            'Choose your Spots (how many numbers to play) and pick from 1–80.',
-            'Each draw selects 20 numbers.',
-            'Prizes depend on Spots and matches.',
+            'Select six (6) numbers from 1 to 54.',
+            'Match 3, 4, 5, or all 6 numbers drawn to win prizes.',
+            'Match all six numbers to win the jackpot.',
+        ];
+    // Texas Two Step
+    if (family === 'tx_texas_two_step')
+        return [
+            'Select four (4) numbers from 1 to 35 in the main play area.',
+            'Select one (1) Bonus Ball number from 1 to 35.',
+            'Win by matching the Bonus Ball and some/all of your main numbers.',
+            'Match all four main numbers plus the Bonus Ball to win the jackpot.',
+        ];
+    // Texas Cash Five (5 from 35, no special)
+    if (family === 'generic' && String(meta ?? '').includes('tx_cash5')) {
+        return [
+            'Pick 5 numbers from the game’s range (typically 1–35).',
+            'No special/bonus ball.',
+            'Match 2–5 numbers to win; all 5 wins the top prize.',
+        ];
+    }
+    // Texas All or Nothing
+    if (family === 'tx_all_or_nothing')
+        return [
+            'Select twelve (12) numbers from 1 to 24.',
+            'Twenty-four (24) numbers are drawn — you win by matching all 12 or none of the 12.',
+            'Prizes are also awarded for near-misses (11 or 1, 10 or 2, 9 or 3, etc.).',
+        ];
+    // Texas Daily 4
+    if (family === 'digits_tx_daily4')
+        return [
+            'Pick four (4) single-digit numbers from 0 to 9, or ask for a Quick Pick.',
+            'Choose a play type: Straight (Exact Order), Box (Any Order), Straight/Box (Exact + Any), Combo, or Front/Mid/Back Pair.',
+            'STRAIGHT: Match all 4 digits in exact order.',
+            'BOX: Match all 4 digits in any order (prize depends on number of unique digits).',
+            'COMBO: Buys every Straight combination for the digits you picked.',
+            'PAIR options: Win by matching just two digits in the correct position.',
+            'You may also add Fireball on Texas digits to create extra winning combinations.',
+        ];
+    // Texas Pick 3
+    if (family === 'digits_tx_pick3')
+        return [
+            'Pick three (3) single-digit numbers from 0 to 9, or ask for a Quick Pick.',
+            'Choose a play type: Straight, Box, Straight/Box, or Combo.',
+            'STRAIGHT: Match all 3 digits in exact order.',
+            'BOX: Match all 3 digits in any order.',
+            'STRAIGHT/BOX: Play both exact and any for more coverage.',
+            'COMBO: Buys every Straight combination of your 3 digits.',
+            'You may also add Fireball on Texas digits to create extra winning combinations.',
+        ];
+    //
+    // ===== FLORIDA / CA / NY-LIKE 5-NO-SPECIAL GAMES =====
+    //
+    // FL Fantasy 5
+    if (family === 'fl_fantasy5')
+        return [
+            'Pick 5 numbers from 1–36.',
+            'There is no special or bonus ball.',
+            'Match 2–5 numbers to win; all 5 wins the top prize.',
+            'Draws twice daily.',
         ];
     // NY Take 5
     if (family === 'ny_take5')
         return [
             'Pick 5 numbers from 1–39.',
-            'No special ball. Match 2–5 to win; all 5 wins the jackpot.',
+            'No special/bonus ball.',
+            'Match 2–5 numbers to win; all 5 wins the jackpot.',
             'Draws twice daily.',
         ];
-    // Digits (jurisdiction differences are reflected in meta)
-    if (isDigitShape(meta.shape)) {
-        const k = meta.kDigits ?? 3;
-        const core = [
-            `Pick ${k} digit${k > 1 ? 's' : ''} from 0–9.`,
-            'Pick a play type (e.g., Straight, Box).',
-            'Choose your draw time (Midday or Evening).',
-        ];
-        if (meta.usesFireball)
-            core.push('Optionally add FIREBALL for extra winning combinations.');
-        else
-            core.push('Optionally cover more orderings on one ticket (cost varies).');
-        core.push('Win by matching according to your chosen play type.');
-        return core;
-    }
-    // FL Fantasy 5 (uses family routing)
-    if (family === 'fl_fantasy5')
+    //
+    // ===== CA GAMES =====
+    //
+    if (family === 'generic' && String(meta ?? '').includes('ca_superlotto_plus')) {
         return [
-            'Pick 5 numbers from 1–36.',
-            'No special ball. Match 2–5 to win; all 5 wins the top prize.',
-            'Draws twice daily.',
+            'Pick five (5) numbers from 1–47.',
+            'Pick one (1) MEGA number from 1–27.',
+            'Match all 5 numbers plus the MEGA to win the jackpot.',
+            'Partial matches still win prizes.',
         ];
-    // 6-number games with no special (FL LOTTO/JTP) are identified via meta
+    }
+    if (family === 'generic' && String(meta ?? '').includes('ca_fantasy5')) {
+        return [
+            'Pick 5 numbers from the game’s range.',
+            'No special/bonus ball.',
+            'Match 2–5 numbers to win; all 5 wins the top prize.',
+        ];
+    }
+    //
+    // ===== FL 6-NO-SPECIAL (LOTTO / JTP) =====
+    //
     if (meta.shape === 'six' && meta.sixMainsNoSpecial)
         return [
             'Pick 6 numbers from the game’s range.',
-            'No special ball. More matches → bigger prizes; all 6 wins the jackpot.',
+            'No special or bonus ball — all 6 drawn numbers are main numbers.',
+            'Match more numbers to win bigger prizes; match all 6 to win the jackpot.',
         ];
-    // Generic 5/6 with colored special (PB/MM/C4L/etc.)
+    //
+    // ===== CASH POP =====
+    //
+    if (family === 'fl_cashpop')
+        return [
+            'Pick 1 number from 1–15.',
+            'Select your draw time (multiple drawings daily).',
+            'Each number on your ticket gets a prize amount before the draw.',
+            'Match the single winning number to win the shown prize.',
+        ];
+    //
+    // ===== PICK 10 / QUICK DRAW =====
+    //
+    if (family === 'ny_pick10')
+        return [
+            'Pick 10 numbers from 1–80.',
+            '20 numbers are drawn.',
+            'Prizes depend on how many of your 10 numbers match (including a prize for 0 matches).',
+        ];
+    if (family === 'ny_quick_draw')
+        return [
+            'Choose how many Spots you want to play (1–10 usually).',
+            'Select your numbers from 1–80.',
+            'Each draw selects 20 numbers.',
+            'Prizes depend on your Spot selection and how many matches you get.',
+        ];
+    //
+    // ===== DIGITS (generic fallback) =====
+    //
+    if (isDigitShape(meta.shape)) {
+        const k = meta.kDigits ?? 3;
+        const core = [
+            `Pick ${k} digit${k > 1 ? 's' : ''} from 0–9 (or ask for Quick Pick).`,
+            'Choose a play type (Straight, Box, etc.).',
+            'Choose your draw time (Midday, Evening, or as offered).',
+        ];
+        if (meta.usesFireball) {
+            core.push('Pay extra to add FIREBALL to form extra winning combinations from the drawn numbers.');
+        }
+        else {
+            core.push('You can cover more orderings on one ticket; cost varies by play type.');
+        }
+        core.push('Win by matching the drawn digits according to your chosen play type.');
+        return core;
+    }
+    //
+    // ===== LAST-RESORT GENERIC =====
+    //
     return [
-        'Pick the required main numbers (and a special ball when the game uses one).',
-        'More matches → bigger prizes; jackpots require all mains (special may apply).',
+        'Pick the required main numbers shown for the game.',
+        'If the game uses a special/bonus ball, pick that too.',
+        'Match the drawn numbers to win — more matches = bigger prizes.',
     ];
 }
 /**
@@ -437,26 +655,6 @@ export function displayNameFor(game) {
     if (s.startsWith('fl_pick5'))
         return withPeriodSuffix(g, 'Pick 5');
     return g; // debug-friendly fallback
-}
-/* ===========================
-   Digit play-type helpers (single source of truth)
-   =========================== */
-/** e.g., "3-Way Box" | "6-Way Box" | null (no valid box variant) */
-export function boxVariantLabel(digits, k) {
-    if (!Array.isArray(digits) || digits.length !== k)
-        return null;
-    const ways = multisetPermutationsCount(digits);
-    // if there is only one unique arrangement, there's no "Box" variant
-    if (ways <= 1)
-        return null;
-    return wayLabel(ways, 'Box');
-}
-/** "Straight" when there are no Box/SB variants (e.g., AA, AAA, AAAA, etc.) */
-export function straightOnlyLabel(digits, k) {
-    if (!Array.isArray(digits) || digits.length !== k)
-        return null;
-    const maxMult = Math.max(...multiplicities(digits));
-    return maxMult === k ? 'Straight' : null;
 }
 /* ===========================
    Play-type menus (moved from HintLegend)
@@ -523,7 +721,7 @@ export function legendGroupsFor(meta, opts) {
             4: ['4-Way Box', '6-Way Box', '12-Way Box', '24-Way Box'],
             5: ['5-Way Box', '10-Way Box', '20-Way Box', '30-Way Box', '60-Way Box', '120-Way Box'],
         };
-        const { isFL, isNY, isCA } = flagsFor(opts?.gameStr);
+        const { isFL, isNY, isCA, isTX } = flagsFor(opts?.gameStr);
         // Always start with Straight + Box
         const items = [
             { label: 'Straight' },
@@ -533,9 +731,14 @@ export function legendGroupsFor(meta, opts) {
         if (!isCA) {
             // Jurisdiction-specific extras
             if (isFL && (k === 3 || k === 4))
-                items.push({ label: 'Combo (FL)' });
+                items.push({ label: 'Combo' });
             if (isNY && (k === 3 || k === 4))
-                items.push({ label: 'Combination (NY)' });
+                items.push({ label: 'Combination' });
+            // Texas digits (Daily 4 / Pick 3): reuse existing combo semantics.
+            // TX's "Combo" is functionally the same idea as FL's — cover all Straight orders.
+            if (isTX && (k === 3 || k === 4)) {
+                items.push({ label: 'Combo' });
+            }
             // Pair-style variants (keep for FL/NY where applicable, but not CA)
             if (k === 2) {
                 items.push({ label: 'Front Number' }, { label: 'Back Number' });
@@ -554,6 +757,7 @@ export function legendGroupsFor(meta, opts) {
         six: ['3-in-a-row', '4-in-a-row', 'Arithmetic sequence', 'Birthday-heavy', 'Tight span'],
         pick10: ['3-in-a-row', 'Tight span', 'Birthday-heavy'],
         quickdraw: ['3-in-a-row', 'Tight span'],
+        allornothing: ['3-in-a-row', '4-in-a-row', 'Tight span', 'Balanced'],
         cashpop: [],
         digit2: [], digit3: [], digit4: [], digit5: [],
     };
@@ -605,11 +809,17 @@ const REGISTRY = {
     tx_lotto_texas: { ...sixNoSpecial },
     // Cash Five: 5 mains, no special
     tx_cash5: { ...fiveNoSpecial },
-    tx_texas_two_step: fiveWithTone('amber'), // 4 + Bonus Ball
+    // Texas Two Step: 4 mains + Bonus Ball (colored)
+    // we mark it as a "5-style" game (so it flows through regular 5+special UI),
+    // but override to 4 mains so sidebars/lists don't try to show a 5th main.
+    tx_texas_two_step: {
+        ...fiveWithTone('amber'),
+        mainPickOverride: 4,
+    },
     // ----- Texas digits & All or Nothing -----
-    // Treat All or Nothing as keno-like (multi-number) for now, using the quickdraw shape & light patterns.
-    // (Rendering for AON is handled by its own pipeline; this keeps legends/simple tags sane.)
-    tx_all_or_nothing: shapeOnly('quickdraw', 'light-patterns'),
+    // All or Nothing is a 12-from-24 k-of-N game; give it its own shape.
+    // We still keep tags light to avoid noisy chips.
+    tx_all_or_nothing: { shape: 'allornothing', hasSpecial: false, specialTone: null, tagMode: 'light-patterns' },
     // Texas digits use Fireball
     tx_pick3: digits(3, true),
     tx_daily4: digits(4, true),
@@ -684,11 +894,23 @@ export function repForLogical(lg, meta) {
         return 'ny_lotto'; // NY Lotto era (6 + Bonus)
     if (lg === 'ny_take5')
         return 'ny_take5'; // Take 5 era
-    if (String(lg).startsWith('fl_'))
-        return 'fl_fantasy5_evening'; // FL anchor
+    // Florida logicals:
+    // - Six-mains (no special) draw games should anchor to themselves for odds/era.
+    // - Digits + Fantasy 5 can still anchor to Fantasy 5 for consistency.
+    if (String(lg).startsWith('fl_')) {
+        if (lg === 'fl_lotto')
+            return 'fl_lotto';
+        if (lg === 'fl_jackpot_triple_play')
+            return 'fl_jackpot_triple_play';
+        if (lg === 'fl_fantasy5')
+            return 'fl_fantasy5';
+        // FL digits fall back to Fantasy 5 for a stable daily-era anchor
+        return 'fl_fantasy5';
+    }
     // California logicals (digits) need a canonical representative for odds/era anchor
     if (lg === 'ca_daily3' || lg === 'ca_daily4')
         return 'ca_fantasy5';
+    // Texas digit logicals fall back to themselves for odds context or can be anchored later if needed
     // Multistate logicals are already canonical
     return lg;
 }
@@ -760,8 +982,8 @@ export function playTypeLabelsForDigits(digits, meta) {
         return [];
     const k = meta.kDigits;
     const out = [];
-    const st = straightOnlyLabel(digits, k);
-    const bx = boxVariantLabel(digits, k);
+    const st = libStraightOnlyLabel(digits, k);
+    const bx = libBoxVariantLabel(digits, k);
     if (st)
         out.push(st);
     if (bx)
@@ -775,6 +997,8 @@ export function isGenerationReady(meta, deps) {
         return !!deps.p10Stats;
     if (meta.shape === 'quickdraw')
         return !!deps.qdStats;
+    if (meta.shape === 'allornothing')
+        return !!deps.aonStats;
     if (meta.shape === 'cashpop')
         return !!deps.cpCounts;
     // five/six
@@ -818,3 +1042,32 @@ export function validateRegistry() {
 // Run a lightweight self-check in dev builds once on import
 if (inDev())
     validateRegistry();
+// Extra guard: validate schedule label keys in dev
+function validateScheduleMapping() {
+    try {
+        const scheduleKnown = new Set([
+            'multi_powerball', 'multi_megamillions', 'multi_cash4life',
+            'ga_fantasy5', 'ca_superlotto_plus', 'ca_fantasy5', 'fl_fantasy5', 'ny_take5',
+        ]);
+        // Quick probe over representative keys you commonly pass in
+        const probe = [
+            'ny_lotto', 'ny_pick10', 'fl_lotto', 'fl_jackpot_triple_play',
+            'tx_lotto_texas', 'tx_texas_two_step', 'tx_cash5',
+            'multi_powerball', 'fl_fantasy5', 'ny_take5',
+        ];
+        const problems = [];
+        for (const key of probe) {
+            const label = labelKeyFor(key, undefined, undefined);
+            const ok = scheduleKnown.has(label) || WEEKLY_CUSTOM_KEYS.has(label);
+            if (!ok)
+                problems.push(`labelKeyFor(${key}) → ${String(label)} not recognized by schedule.ts`);
+        }
+        if (problems.length) {
+            // eslint-disable-next-line no-console
+            console.warn('Schedule mapping warnings:\n' + problems.map(s => ' - ' + s).join('\n'));
+        }
+    }
+    catch { /* noop in prod */ }
+}
+if (inDev())
+    validateScheduleMapping();

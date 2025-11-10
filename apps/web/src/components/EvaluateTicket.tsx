@@ -11,14 +11,22 @@ import {
   ticketHintsPick10,
   // worker-offloaded fallback when precomputedStats is absent
   computeStatsAsync,
+  prizeTableFor,           
+  resolveEraGame, 
 } from '@lsp/lib';
 // type-only imports to keep bundle clean but fix TS types
 import type {
-  GameKey, LogicalGameKey, LottoRow, 
+  GameKey,
+  LogicalGameKey,
+  LottoRow,
+  DigitRow,
+  Pick10Row,
+  QuickDrawRow,
   computeStats,
   computeDigitStats,
   computePick10Stats,
   computeQuickDrawStats,
+  PrizeTier,
 } from '@lsp/lib';
 import {
   resolveGameMeta,
@@ -36,16 +44,31 @@ import {
 
 type StatsT = ReturnType<typeof computeStats>;
 
+// What we show in the "your numbers would have hit..." summary.
+// We now preserve payoutKind/notes from the new prizes.ts so the UI can
+// print "2nd-level prize (pari-mutuel)" etc.
+type HistoryResult = {
+  code: string;
+  label: string;
+  amount?: number | 'JACKPOT';
+  payoutKind?: 'jackpot' | 'fixed' | 'pari-mutuel' | 'fixed-with-multiplier' | 'fixed-or-pari-mutuel';
+  notes?: string;
+  count: number;
+  bestDate?: string;
+};
+
 export default function EvaluateTicket({
   game,
   rowsForGenerator,           // pass the same rows the Generator uses
   precomputedStats,           // 5-ball stats (from Generator)
-  // NEW (optional shape-aware inputs)
   logical,
   precomputedDigitStats,
   precomputedPick10Stats,
   precomputedQuickDrawStats,
   quickDrawSpots,
+  digitRowsForEvaluate,
+  pick10RowsForEvaluate,
+  quickDrawRowsForEvaluate,
 }: {
   game: GameKey;
   rowsForGenerator: LottoRow[];
@@ -55,7 +78,53 @@ export default function EvaluateTicket({
   precomputedPick10Stats?: ReturnType<typeof computePick10Stats> | null;
   precomputedQuickDrawStats?: ReturnType<typeof computeQuickDrawStats> | null;
   quickDrawSpots?: 1|2|3|4|5|6|7|8|9|10;
+  digitRowsForEvaluate?: DigitRow[] | null;
+  pick10RowsForEvaluate?: Pick10Row[] | null;
+  quickDrawRowsForEvaluate?: QuickDrawRow[] | null;
 }) {
+
+  const [historyResults, setHistoryResults] = useState<HistoryResult[] | null>(null);
+
+    // figure out the date window from whatever history source we actually had
+  const historyWindow = useMemo(() => {
+    const dates: string[] = [];
+
+    if (rowsForGenerator && rowsForGenerator.length > 0) {
+      for (const r of rowsForGenerator) {
+        if (r.date) dates.push(r.date);
+      }
+    }
+    if (digitRowsForEvaluate && digitRowsForEvaluate.length > 0) {
+      for (const r of digitRowsForEvaluate) {
+        if (r.date) dates.push(r.date);
+      }
+    }
+    if (pick10RowsForEvaluate && pick10RowsForEvaluate.length > 0) {
+      for (const r of pick10RowsForEvaluate) {
+        if (r.date) dates.push(r.date);
+      }
+    }
+    if (quickDrawRowsForEvaluate && quickDrawRowsForEvaluate.length > 0) {
+      for (const r of quickDrawRowsForEvaluate) {
+        if (r.date) dates.push(r.date);
+      }
+    }
+
+    if (dates.length === 0) return null;
+
+    // ISO dates from your feeds should sort correctly
+    dates.sort();
+    return {
+      start: dates[0]!,
+      end: dates[dates.length - 1]!,
+      totalDraws: dates.length,
+    };
+  }, [
+    rowsForGenerator,
+    digitRowsForEvaluate,
+    pick10RowsForEvaluate,
+    quickDrawRowsForEvaluate,
+  ]);
 
   // ---- Registry-driven shape detection ----
   const meta = useMemo(() => resolveGameMeta(game, logical), [game, logical]);
@@ -243,6 +312,36 @@ export default function EvaluateTicket({
       const labels = playTypeLabelsForDigits(ok.digits, meta)
         .filter(l => !!HINT_EXPLAIN[l]); // only keep labels we explain
       setResultHints(labels);
+
+            const prizeTable = prizeTableFor(logical ?? game);
+      if (prizeTable.length > 0 && digitRowsForEvaluate && digitRowsForEvaluate.length > 0) {
+        const tallies = new Map<string, HistoryResult>();
+        const userDigits = ok.digits;
+
+        for (const row of digitRowsForEvaluate) {
+          const code = matchDigitsToPrize(prizeTable, userDigits, row.digits);
+          if (!code) continue;
+          const tier = prizeTable.find(t => t.code === code)!;
+          const prev = tallies.get(code);
+          if (!prev) {
+            // digits tiers won't have payoutKind, but we keep the shape consistent
+            tallies.set(code, {
+              code,
+              label: tier.label,
+              count: 1,
+              bestDate: row.date,
+            });
+          } else {
+            prev.count += 1;
+            if (!prev.bestDate || row.date > prev.bestDate) prev.bestDate = row.date;
+          }
+        }
+
+        setHistoryResults(Array.from(tallies.values()));
+      } else {
+        setHistoryResults(null);
+      }
+
       return;
     }
 
@@ -254,6 +353,30 @@ export default function EvaluateTicket({
       if (!stats) { setErrors(['Stats unavailable for Pick 10.']); return; }
       const hints = ticketHintsPick10(ok.values, stats);
       setResultHints(hints);
+
+            const prizeTable = prizeTableFor(logical ?? game);
+      if (prizeTable.length > 0 && pick10RowsForEvaluate && pick10RowsForEvaluate.length > 0) {
+        const userVals = ok.values;
+        const tallies = new Map<string, HistoryResult>();
+
+        for (const row of pick10RowsForEvaluate) {
+          const matchCount = row.values.reduce((acc, v) => acc + (userVals.includes(v) ? 1 : 0), 0);
+          const tier = prizeTable.find(t => t.kind === 'pool' && t.matches === matchCount);
+          if (!tier) continue;
+          const prev = tallies.get(tier.code);
+          if (!prev) {
+            tallies.set(tier.code, { code: tier.code, label: tier.label, count: 1, bestDate: row.date });
+          } else {
+            prev.count += 1;
+            if (!prev.bestDate || row.date > prev.bestDate) prev.bestDate = row.date;
+          }
+        }
+
+        setHistoryResults(Array.from(tallies.values()));
+      } else {
+        setHistoryResults(null);
+      }
+
       return;
     }
 
@@ -270,6 +393,35 @@ export default function EvaluateTicket({
       // Keep a generic "Balanced" tag if neither flag tripped
       if (flags.length === 0) flags.push('Balanced');
       setResultHints(flags);
+
+            const prizeTable = prizeTableFor(logical ?? game, { poolSpots: qdSpotsLocal });
+      if (prizeTable.length > 0 && quickDrawRowsForEvaluate && quickDrawRowsForEvaluate.length > 0) {
+        const userVals = ok.values;
+        const tallies = new Map<string, HistoryResult>();
+
+        for (const row of quickDrawRowsForEvaluate) {
+          const matchCount = row.values.reduce((acc, v) => acc + (userVals.includes(v) ? 1 : 0), 0);
+          const tier = prizeTable.find(t => t.kind === 'pool' && t.matches === matchCount);
+          if (!tier) continue;
+          const prev = tallies.get(tier.code);
+          if (!prev) {
+            tallies.set(tier.code, {
+              code: tier.code,
+              label: tier.label,
+              count: 1,
+              bestDate: row.date,
+            });
+          } else {
+            prev.count += 1;
+            if (!prev.bestDate || row.date > prev.bestDate) prev.bestDate = row.date;
+          }
+        }
+
+        setHistoryResults(Array.from(tallies.values()));
+      } else {
+        setHistoryResults(null);
+      }
+
       return;
     }
 
@@ -308,6 +460,78 @@ export default function EvaluateTicket({
     const hintsRaw = ticketHints(game, ok.mains, ok.special ?? 0, stats);
     const hints = filterHintsForGame(meta, hintsRaw);
     setResultHints(hints);
+
+        // --- full-history scan for lotto-style games ---
+    const prizeTable = prizeTableFor(logical ?? game);
+    if (prizeTable.length > 0 && rowsForGenerator && rowsForGenerator.length > 0) {
+      const eraKey = resolveEraGame(logical ?? game);
+      const tallies = new Map<string, HistoryResult>();
+      const userMains = ok.mains;
+      const userSpecial = ok.special;
+
+      for (const row of rowsForGenerator) {
+        if (resolveEraGame(row.game) !== eraKey) continue;
+
+        // build draw mains
+        const drawMains = [row.n1, row.n2, row.n3, row.n4, row.n5];
+        if (meta.shape === 'six' && typeof row.special === 'number') {
+          drawMains.push(row.special);
+        }
+
+        // count main matches
+        let mainMatches = 0;
+        for (const m of userMains) {
+          if (drawMains.includes(m)) mainMatches++;
+        }
+
+        // special match
+        let specialMatched = false;
+        if (hasSpecial && typeof userSpecial === 'number' && typeof row.special === 'number') {
+          specialMatched = userSpecial === row.special;
+        }
+
+        const tier = findLottoTier(prizeTable, mainMatches, specialMatched);
+        if (!tier) continue;
+
+        const prev = tallies.get(tier.code);
+        if (!prev) {
+          const isLotto = tier.kind === 'lotto';
+          tallies.set(tier.code, {
+            code: tier.code,
+            label: tier.label,
+            amount: 'amount' in tier ? tier.amount : undefined,
+            payoutKind: isLotto ? tier.payoutKind : undefined,
+            notes: isLotto ? tier.notes : undefined,
+            count: 1,
+            bestDate: row.date,
+          });
+        } else {
+          prev.count += 1;
+          if (!prev.bestDate || row.date > prev.bestDate) {
+            prev.bestDate = row.date;
+          }
+        }
+      }
+
+      const ordered = Array.from(tallies.values()).sort((a, b) => {
+        const aJack = a.amount === 'JACKPOT' || a.code === 'JACKPOT';
+        const bJack = b.amount === 'JACKPOT' || b.code === 'JACKPOT';
+        if (aJack && !bJack) return -1;
+        if (!aJack && bJack) return 1;
+        if (typeof a.amount === 'number' && typeof b.amount === 'number') {
+          return b.amount - a.amount;
+        }
+        // If neither has a numeric amount, keep deterministic order but prefer jackpot-like
+        if (a.payoutKind === 'jackpot' && b.payoutKind !== 'jackpot') return -1;
+        if (a.payoutKind !== 'jackpot' && b.payoutKind === 'jackpot') return 1;
+        return a.code.localeCompare(b.code);
+      });
+
+      setHistoryResults(ordered);
+    } else {
+      setHistoryResults(null);
+    }
+
   }
 
   return (
@@ -585,7 +809,90 @@ export default function EvaluateTicket({
           </div>
         </div>
       )}
-      </div>{/* /ticket sheet */}
+
+      {/* Lucky numbers back-tester */}
+      {historyResults && historyResults.length > 0 && (
+        <div className="evaluate-history">
+          <div className="section-title">Lucky Numbers Back-Tester</div>
+          <p className="evaluate-hint">
+            {historyWindow
+              ? <>Based on draws from <strong>{historyWindow.start}</strong> to <strong>{historyWindow.end}</strong>.</>
+              : <>Based on the available draw history for this game.</>}
+          </p>
+          <ul className="evaluate-history-list">
+            {historyResults.map((res) => (
+              <li key={res.code} className="evaluate-history-item">
+                <div className="evaluate-history-label">
+                  {res.label}
+                  {res.payoutKind && res.payoutKind !== 'fixed' ? (
+                    <span className="evaluate-history-note">
+                      {' '}
+                      ({res.payoutKind === 'pari-mutuel'
+                        ? 'pari-mutuel'
+                        : res.payoutKind === 'fixed-or-pari-mutuel'
+                        ? 'variable'
+                        : res.payoutKind})
+                    </span>
+                  ) : null}
+                </div>
+                <div className="evaluate-history-meta">
+                  Hit <strong>{res.count}</strong>{' '}
+                  {res.count === 1 ? 'time' : 'times'}
+                  {res.bestDate ? (
+                    <>
+                      {' '}
+                      — latest on <strong>{res.bestDate}</strong>
+                    </>
+                  ) : null}
+                  {typeof res.amount === 'number'
+                    ? ` — approx $${res.amount.toLocaleString()} tier`
+                    : res.amount === 'JACKPOT'
+                    ? ' — JACKPOT tier'
+                    : null}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+            </div>{/* /ticket sheet */}
     </div>
   );
 }
+
+function findLottoTier(
+  tiers: ReturnType<typeof prizeTableFor>,
+  mains: number,
+  specialMatched: boolean
+) {
+  for (const t of tiers) {
+    if (t.kind !== 'lotto') continue;
+    if (t.mains !== mains) continue;
+    const s = t.special;
+    if (s === undefined || s === 'any') return t;
+    if (s === true && specialMatched) return t;
+    if (s === false && !specialMatched) return t;
+  }
+  return null;
+}
+
+function matchDigitsToPrize(
+  tiers: ReturnType<typeof prizeTableFor>,
+  user: number[],
+  draw: number[]
+): string | null {
+  for (const t of tiers) {
+    if (t.kind !== 'digits') continue;
+    if (t.exact) {
+      const exact = user.length === draw.length && user.every((d,i)=>d === draw[i]);
+      if (exact) return t.code;
+    }
+    if (t.anyOrder) {
+      const s1 = [...user].sort().join(',');
+      const s2 = [...draw].sort().join(',');
+      if (s1 === s2) return t.code;
+    }
+  }
+  return null;
+}
+

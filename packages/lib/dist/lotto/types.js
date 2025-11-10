@@ -26,6 +26,8 @@ export const LOGICAL_TO_UNDERLYING = {
     ca_daily4: { all: ['ca_daily4'] },
     // ---- Florida (classic draws) ----
     fl_fantasy5: { all: ['fl_fantasy5_midday', 'fl_fantasy5_evening'], midday: ['fl_fantasy5_midday'], evening: ['fl_fantasy5_evening'] },
+    fl_jackpot_triple_play: { all: ['fl_jackpot_triple_play'] },
+    fl_lotto: { all: ['fl_lotto'] },
     // ---- Florida digits ----
     fl_pick5: { all: ['fl_pick5_midday', 'fl_pick5_evening'], midday: ['fl_pick5_midday'], evening: ['fl_pick5_evening'] },
     fl_pick4: { all: ['fl_pick4_midday', 'fl_pick4_evening'], midday: ['fl_pick4_midday'], evening: ['fl_pick4_evening'] },
@@ -40,6 +42,8 @@ export const LOGICAL_TO_UNDERLYING = {
         evening: ['fl_cashpop_evening'],
         latenight: ['fl_cashpop_latenight'],
     },
+    // ---- Texas Two Step ----
+    tx_texas_two_step: { all: ['tx_texas_two_step'] },
     // ---- Texas All or Nothing (4 periods) ----
     tx_all_or_nothing: {
         all: ['tx_all_or_nothing_morning', 'tx_all_or_nothing_day', 'tx_all_or_nothing_evening', 'tx_all_or_nothing_night'],

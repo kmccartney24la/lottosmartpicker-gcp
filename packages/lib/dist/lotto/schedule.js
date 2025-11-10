@@ -8,6 +8,7 @@ export const DRAW_DOWS = {
     ga_fantasy5: new Set([0, 1, 2, 3, 4, 5, 6]), // daily 11:34 p.m. ET
     fl_fantasy5: new Set([0, 1, 2, 3, 4, 5, 6]),
     ny_take5: new Set([0, 1, 2, 3, 4, 5, 6]), // treat as "daily" (twice daily in UI)
+    tx_texas_two_step: new Set([1, 4]), // every Monday and Thursday at 10:12 p.m. CT.
 };
 // ---- Internal schedule selector (logical -> scheduling family) ----
 function getScheduleGame(game) {
@@ -15,13 +16,20 @@ function getScheduleGame(game) {
         game === 'multi_megamillions' ||
         game === 'multi_cash4life' ||
         game === 'ga_fantasy5' ||
-        game === 'fl_fantasy5_midday' ||
-        game === 'fl_fantasy5_evening' ||
+        game === 'fl_fantasy5' ||
         game === 'ca_superlotto_plus' ||
         game === 'ca_fantasy5') {
-        return (game === 'fl_fantasy5_midday' || game === 'fl_fantasy5_evening') ? 'fl_fantasy5' : game;
+        return game === 'fl_fantasy5' ? 'fl_fantasy5' : game;
     }
-    // Use Take 5’s “daily/twice daily” semantics for NY logicals by default.
+    // Jurisdictional fallback for “daily” schedule family:
+    //  - FL keys → use fl_fantasy5 daily semantics (twice daily in UI)
+    //  - CA keys → use ca_fantasy5 daily semantics
+    //  - Otherwise → use ny_take5 daily semantics (twice daily in UI)
+    const s = String(game);
+    if (s.startsWith('fl_'))
+        return 'fl_fantasy5';
+    if (s.startsWith('ca_'))
+        return 'ca_fantasy5';
     return 'ny_take5';
 }
 const DOW_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -39,19 +47,36 @@ const GAME_TIME_INFO = {
     // Logical daily reps
     fl_fantasy5: { tz: 'America/New_York', hour: 23, minute: 0, approx: true }, // evening rep
     ny_take5: { tz: 'America/New_York', hour: 23, minute: 0, approx: true }, // evening rep
+    // Texas
+    tx_texas_two_step: { tz: 'America/Chicago', hour: 22, minute: 2, approx: true },
 };
+// ---------- Additional coverage for games not in ScheduleGame ----------
+// Weekly (or daily single) games that aren’t represented by ScheduleGame.
+// We include best-effort local-time approximations; times are used for labels and a ±90m window.
+// DOWs use 0=Sun..6=Sat.
+const WEEKLY_CUSTOM = {
+    // ---- New York ----
+    ny_lotto: { dows: [3, 6], tz: 'America/New_York', hour: 20, minute: 15, approx: true }, // Wed/Sat ≈8:15 PM ET
+    ny_pick10: { dows: [0, 1, 2, 3, 4, 5, 6], tz: 'America/New_York', hour: 20, minute: 0, approx: true }, // Daily ≈8:00 PM ET
+    // ---- Florida ----
+    fl_lotto: { dows: [3, 6], tz: 'America/New_York', hour: 23, minute: 15, approx: true }, // Wed/Sat ≈11:15 PM ET
+    fl_jackpot_triple_play: { dows: [2, 5], tz: 'America/New_York', hour: 23, minute: 15, approx: true }, // Tue/Fri ≈11:15 PM ET
+    // ---- Texas (Central Time) ----
+    // Local draws are ≈10:12 PM CT; store as local time in America/Chicago.
+    tx_lotto_texas: { dows: [3, 6], tz: 'America/Chicago', hour: 22, minute: 12, approx: true }, // Wed/Sat ≈10:12 PM CT
+    tx_texas_two_step: { dows: [1, 4], tz: 'America/Chicago', hour: 22, minute: 12, approx: true }, // Mon/Thu ≈10:12 PM CT
+    tx_cash5: { dows: [1, 2, 3, 4, 5, 6], tz: 'America/Chicago', hour: 22, minute: 12, approx: true }, // Mon–Sat ≈10:12 PM CT
+};
+// Export a Set of keys to avoid duplicating this list elsewhere.
+export const WEEKLY_CUSTOM_KEYS = new Set(Object.keys(WEEKLY_CUSTOM));
 // ---------- Internals: timezone helpers ----------
-function tzAbbrev(tz, d = new Date()) {
-    const fmt = new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: 'short', hour: '2-digit' });
-    const str = fmt.format(d);
-    const abbr = str.split(' ').pop() || '';
-    if (/ET/i.test(abbr))
-        return 'ET';
-    if (/PT/i.test(abbr))
-        return 'PT';
-    if (/GMT[+-]\d+/.test(abbr))
-        return tz === 'America/New_York' ? 'ET' : 'PT';
-    return abbr.toUpperCase();
+// Deterministic abbreviation (no Intl-dependent surprises)
+function tzAbbrev(tz) {
+    switch (tz) {
+        case 'America/New_York': return 'ET';
+        case 'America/Los_Angeles': return 'PT';
+        case 'America/Chicago': return 'CT';
+    }
 }
 function getLocalParts(tz, d = new Date()) {
     const fmt = new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false });
@@ -69,7 +94,7 @@ function formatTimeLabel(tz, hour, minute, approx, base) {
     d.setHours(hour, minute, 0, 0);
     const timeFmt = new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: 'numeric', minute: '2-digit' });
     const timeStr = timeFmt.format(d);
-    const tzStr = tzAbbrev(tz, d);
+    const tzStr = tzAbbrev(tz);
     return (approx ? `≈${timeStr}` : timeStr) + ` ${tzStr}`;
 }
 function dayPatternFor(sched) {
@@ -83,10 +108,27 @@ function dayPatternFor(sched) {
 // ---------- Public schedule helpers ----------
 /** Human-friendly schedule label derived from DRAW_DOWS + GAME_TIME_INFO. */
 export function drawNightsLabel(game, now = new Date()) {
-    // Twice-daily games: keep explicit wording
-    if (game === 'ny_take5' || game === 'ny_take5_midday' || game === 'ny_take5_evening' ||
-        game === 'fl_fantasy5_midday' || game === 'fl_fantasy5_evening') {
+    // ---- Multi-draw families shown as frequencies rather than a single time ----
+    // 2x daily (midday + evening)
+    if (game === 'ny_take5' || game === 'ny_numbers' || game === 'ny_win4' ||
+        game === 'fl_fantasy5' || game === 'fl_pick5' || game === 'fl_pick4' || game === 'fl_pick3' || game === 'fl_pick2' ||
+        game === 'ca_daily3') {
         return 'Daily · Midday & Evening';
+    }
+    // 4x daily (TX)
+    if (game === 'tx_all_or_nothing' || game === 'tx_pick3' || game === 'tx_daily4') {
+        return '4x Daily · Morning/Day/Evening/Night';
+    }
+    // 5x daily (FL Cash Pop)
+    if (game === 'fl_cashpop') {
+        return '5x Daily · Morning/Matinee/Afternoon/Evening/Late Night';
+    }
+    // ---- Weekly / single-daily customs not covered by ScheduleGame ----
+    const custom = WEEKLY_CUSTOM[game];
+    if (custom) {
+        const dayPart = dayPatternFor(new Set(custom.dows));
+        const t = formatTimeLabel(custom.tz, custom.hour, custom.minute, custom.approx, now);
+        return `${dayPart} · ${t}`;
     }
     const schedKey = getScheduleGame(game);
     const sched = DRAW_DOWS[schedKey];
@@ -106,6 +148,28 @@ export function drawNightsLabel(game, now = new Date()) {
 }
 /** Returns true if we’re within a ±90 minute window around the local draw time on a valid draw day. */
 export function isInDrawWindowFor(game, now = new Date()) {
+    // Custom weekly/single-daily overrides
+    const cust = WEEKLY_CUSTOM[game];
+    if (cust) {
+        const sched = new Set(cust.dows);
+        const { tz, hour, minute } = cust;
+        const { dow, hour: h, minute: m } = getLocalParts(tz, now);
+        const isDrawDay = sched.has(dow);
+        const windowMinutes = 90;
+        const minutesNow = h * 60 + m;
+        const minutesDraw = hour * 60 + minute;
+        const start = minutesDraw - windowMinutes;
+        const end = minutesDraw + windowMinutes;
+        const inTodayWindow = minutesNow >= start && minutesNow <= end && isDrawDay;
+        const prevDow = (dow + 6) % 7;
+        const isPrevDrawDay = sched.has(prevDow);
+        const afterMidnight = minutesNow < Math.max(end - 24 * 60, 0);
+        const inPrevWindow = isPrevDrawDay &&
+            afterMidnight &&
+            (minutesNow + 24 * 60) <= end &&
+            (minutesNow + 24 * 60) >= start;
+        return inTodayWindow || inPrevWindow;
+    }
     const sched = DRAW_DOWS[getScheduleGame(game)];
     const info = GAME_TIME_INFO[getScheduleGame(game)];
     if (!sched || !info)
@@ -131,6 +195,28 @@ export function isInDrawWindowFor(game, now = new Date()) {
 }
 /** Build a label like "Wed 6:30 PM PT" for the next draw in the game’s local timezone. */
 export function nextDrawLabelFor(game, now = new Date()) {
+    // Custom weekly/single-daily overrides
+    const cust = WEEKLY_CUSTOM[game];
+    if (cust) {
+        const sched = new Set(cust.dows);
+        const { tz, hour, minute, approx } = cust;
+        for (let i = 0; i < 8; i++) {
+            const d = new Date(now);
+            d.setDate(d.getDate() + i);
+            const { dow } = getLocalParts(tz, d);
+            if (sched.has(dow)) {
+                const labelDay = DOW_NAMES[dow];
+                const t = new Date(d);
+                t.setHours(hour, minute, 0, 0);
+                const timeFmt = new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: 'numeric', minute: '2-digit' });
+                const timeStr = timeFmt.format(t);
+                const tzStr = tzAbbrev(tz);
+                return approx ? `${labelDay} ≈${timeStr} ${tzStr}` : `${labelDay} ${timeStr} ${tzStr}`;
+            }
+        }
+        // Fallback if something goes wrong
+        return 'See local draw time';
+    }
     const sched = DRAW_DOWS[getScheduleGame(game)];
     const info = GAME_TIME_INFO[getScheduleGame(game)];
     if (!sched || !info)
@@ -147,7 +233,7 @@ export function nextDrawLabelFor(game, now = new Date()) {
             t.setHours(hour, minute, 0, 0);
             const timeFmt = new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: 'numeric', minute: '2-digit' });
             const timeStr = timeFmt.format(t);
-            const tzStr = tzAbbrev(tz, t);
+            const tzStr = tzAbbrev(tz);
             return approx ? `${labelDay} ≈${timeStr} ${tzStr}` : `${labelDay} ${timeStr} ${tzStr}`;
         }
     }

@@ -1,32 +1,3 @@
-/** Map any GameKey to the EraGame we use for analysis (generator, stats, labels). */
-export function resolveEraGame(game) {
-    // Twice-daily Take 5 representatives & underlying collapse to 'ny_take5'
-    if (game === 'ny_take5' || game === 'ny_take5_midday' || game === 'ny_take5_evening')
-        return 'ny_take5';
-    // Florida Fantasy 5 (midday/evening) collapse to 'fl_fantasy5'
-    if (game === 'fl_fantasy5_midday' || game === 'fl_fantasy5_evening')
-        return 'fl_fantasy5';
-    // NY Lotto maps to its own era (6 + Bonus)
-    if (game === 'ny_lotto' || game === 'ny_nylotto')
-        return 'ny_lotto';
-    // NEW: CA Fantasy 5 is canonical 5/39
-    if (game === 'ca_fantasy5')
-        return 'ca_fantasy5';
-    // All these are already EraGame members
-    if (game === 'multi_powerball' ||
-        game === 'multi_megamillions' ||
-        game === 'multi_cash4life' ||
-        game === 'ga_fantasy5' ||
-        game === 'ca_superlotto_plus' ||
-        game === 'fl_lotto' ||
-        game === 'fl_jackpot_triple_play' ||
-        game === 'tx_lotto_texas' ||
-        game === 'tx_cash5') {
-        return game;
-    }
-    // Fallback: use Cash4Life era (safe, 5+1) if someone passes a non-era NY key by mistake.
-    return 'multi_cash4life';
-}
 /* ---------------- Era definitions (CURRENT ERA ONLY) ----------------
    We always analyze/generate using the current matrices:
    - Powerball:    5/69 + 1/26 since 2015-10-07
@@ -42,7 +13,7 @@ export const CURRENT_ERA = {
         description: 'Powerball’s current matrix took effect on Oct 7, 2015: 5 mains from 1–69 and Powerball 1–26 (changed from 59/35).',
     },
     multi_megamillions: {
-        start: '2025-04-08',
+        start: '2017-10-28',
         mainMax: 70,
         specialMax: 24,
         mainPick: 5,
@@ -76,7 +47,7 @@ export const CURRENT_ERA = {
     ny_lotto: {
         start: '2001-09-12',
         mainMax: 59,
-        specialMax: 59, // use the same domain for the Bonus UI
+        specialMax: 0,
         mainPick: 6, // six mains
         label: '6/59 + Bonus (1–59)',
         description: 'NY Lotto: 6 mains from 1–59 plus a Bonus ball (also 1–59). Jackpot odds = C(59,6); Bonus used for 2nd prize.',
@@ -84,18 +55,18 @@ export const CURRENT_ERA = {
     fl_lotto: {
         start: '1999-10-24',
         mainMax: 53,
-        specialMax: 53, // store the 6th main in `special` (schema compatibility)
+        specialMax: 0,
         mainPick: 6, // six mains
         label: '6/53 (no bonus; 6th stored as special)',
-        description: 'Florida LOTTO: 6 mains from 1–53. We store the 6th main in “special” to match the 5+special CSV schema. Double Play rows are excluded.',
+        description: 'Florida LOTTO: 6 mains from 1–53. Double Play rows are excluded.',
     },
     fl_jackpot_triple_play: {
         start: '2019-01-30',
         mainMax: 46,
-        specialMax: 46, // store 6th main in `special`
+        specialMax: 0,
         mainPick: 6,
         label: '6/46 (no bonus; 6th stored as special)',
-        description: 'Florida Jackpot Triple Play: 6 mains from 1–46, no bonus ball. We store the 6th main in “special” to match the canonical 5+special schema.',
+        description: 'Florida Jackpot Triple Play: 6 mains from 1–46, no bonus ball.',
     },
     fl_fantasy5: {
         start: '1999-04-25',
@@ -124,7 +95,7 @@ export const CURRENT_ERA = {
     tx_lotto_texas: {
         start: '2006-04-19',
         mainMax: 54,
-        specialMax: 54, // store the 6th main in `special`
+        specialMax: 0,
         mainPick: 6,
         label: '6/54 (no bonus; 6th stored as special)',
         description: 'Lotto Texas: 6 mains from 1–54. We store the 6th main in “special” to match the 5+special CSV schema.',
@@ -137,8 +108,68 @@ export const CURRENT_ERA = {
         label: '5/35 (no bonus)',
         description: 'Texas Cash Five: 5 mains from 1–35, no bonus ball. Draws daily.',
     },
+    tx_texas_two_step: {
+        start: '2001-01-01',
+        mainMax: 35,
+        specialMax: 35,
+        mainPick: 4,
+        label: '4/35 + 1/35',
+        description: 'Four mains from 1–35 plus a separate 1–35 Bonus Ball.',
+    },
 };
-/** Return the current-era config for any (canonical or rep) GameKey. */
+/** Map any canonical or logical key to the EraGame we use for analysis (generator, stats, labels). */
+export function resolveEraGame(game) {
+    const g = String(game);
+    const eraTable = CURRENT_ERA;
+    // 1) Exact match: canonical era-backed game
+    if (eraTable[g]) {
+        return g;
+    }
+    const gl = g.toLowerCase();
+    // 2) NY — anchor everything to Take 5, except Lotto which has its own era
+    if (gl.startsWith('ny_')) {
+        if (g === 'ny_lotto')
+            return 'ny_lotto';
+        return 'ny_take5';
+    }
+    // 3) CA — digits and other CA logicals can lean on Fantasy 5
+    if (gl.startsWith('ca_')) {
+        if (g === 'ca_superlotto_plus')
+            return 'ca_superlotto_plus';
+        if (g === 'ca_fantasy5')
+            return 'ca_fantasy5';
+        return 'ca_fantasy5';
+    }
+    // 4) FL — we have several real era entries here, lean on those
+    if (gl.startsWith('fl_')) {
+        if (g === 'fl_lotto')
+            return 'fl_lotto';
+        if (g === 'fl_jackpot_triple_play')
+            return 'fl_jackpot_triple_play';
+        if (g === 'fl_fantasy5')
+            return 'fl_fantasy5';
+        // digits / cashpop → use the daily 5-ball as stable anchor
+        return 'fl_fantasy5';
+    }
+    // 5) TX — use real entries when present, else Cash Five as the daily anchor
+    if (gl.startsWith('tx_')) {
+        if (g === 'tx_lotto_texas')
+            return 'tx_lotto_texas';
+        if (g === 'tx_cash5')
+            return 'tx_cash5';
+        if (g === 'tx_texas_two_step')
+            return 'tx_texas_two_step';
+        // tx_all_or_nothing, tx_pick3, tx_daily4 → stable daily anchor
+        return 'tx_cash5';
+    }
+    // 6) Multi-state logicals should already be in CURRENT_ERA, but keep a fallback
+    if (gl.startsWith('multi_') && eraTable[g]) {
+        return g;
+    }
+    // 7) Final safety net
+    return 'multi_cash4life';
+}
+/** Return the current-era config for any (canonical or logical) key. */
 export function getCurrentEraConfig(game) {
     return CURRENT_ERA[resolveEraGame(game)];
 }
@@ -146,19 +177,29 @@ export function getCurrentEraConfig(game) {
 export function filterRowsForCurrentEra(rows, game) {
     const eraKey = resolveEraGame(game);
     const era = CURRENT_ERA[eraKey];
-    // Accept any row whose game resolves to the same era group & falls on/after start.
-    return rows.filter(r => resolveEraGame(r.game) === eraKey && r.date >= era.start);
+    return rows.filter((r) => resolveEraGame(r.game) === eraKey && r.date >= era.start);
 }
 /** Friendly tooltip text describing the active era for a game (unchanged content). */
 export function eraTooltipFor(game) {
-    const era = CURRENT_ERA[resolveEraGame(game)];
-    const name = game === 'multi_powerball' ? 'Powerball' :
-        game === 'multi_megamillions' ? 'Mega Millions' :
-            game === 'multi_cash4life' ? 'Cash4Life (GA)' :
-                game === 'ca_superlotto_plus' ? 'SuperLotto Plus (CA)' :
-                    game === 'ca_fantasy5' ? 'Fantasy 5 (CA)' :
-                        (game === 'fl_fantasy5_midday' || game === 'fl_fantasy5_evening') ? 'Fantasy 5 (FL)' :
-                            'Fantasy 5 (GA)';
+    const eraKey = resolveEraGame(game);
+    const era = CURRENT_ERA[eraKey];
+    const DISPLAY_NAME = {
+        multi_powerball: 'Powerball',
+        multi_megamillions: 'Mega Millions',
+        multi_cash4life: 'Cash4Life',
+        ga_fantasy5: 'Fantasy 5 (GA)',
+        ca_superlotto_plus: 'SuperLotto Plus',
+        ca_fantasy5: 'Fantasy 5 (CA)',
+        ny_take5: 'Take 5',
+        ny_lotto: 'New York LOTTO',
+        fl_fantasy5: 'Fantasy 5 (FL)',
+        fl_lotto: 'Florida LOTTO',
+        fl_jackpot_triple_play: 'Jackpot Triple Play',
+        tx_lotto_texas: 'Lotto Texas',
+        tx_cash5: 'Cash Five',
+        tx_texas_two_step: 'Texas Two Step',
+    };
+    const name = DISPLAY_NAME[eraKey];
     return [
         `${name} (current era: ${era.label})`,
         `Effective date: ${era.start}`,

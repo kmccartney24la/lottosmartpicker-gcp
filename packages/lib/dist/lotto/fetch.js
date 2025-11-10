@@ -8,8 +8,13 @@ import { apiPathForGame, latestApiPathForGame, apiPathForUnderlying, } from './p
    =========================================================== */
 import { computeStats, analyzeGame, generateTicket, } from './stats.js';
 import { digitKFor, computeDigitStats, toPastDrawsDigitsView, ticketHintsDigits, } from './digits.js';
-import { computePick10Stats, buildPick10Weights, generatePick10Ticket, ticketHintsPick10, } from './pick10.js';
+import { computePick10Stats, buildPick10Weights, generatePick10Ticket, ticketHintsPick10, computeAllOrNothingStats, generateAllOrNothingTicket, recommendAllOrNothingFromStats, } from './pick10.js';
 import { computeQuickDrawStats, buildQuickDrawWeights, generateQuickDrawTicket, recommendQuickDrawFromStats, jackpotOddsQuickDraw, } from './quickdraw.js';
+/* ===========================================================
+   Shape/meta helpers from the central registry
+   =========================================================== */
+// Keep this import thin to avoid accidental circulars.
+import { resolveGameMeta, isDigitShape } from '../gameRegistry.js';
 /* ===========================================================
    Tiny utilities
    =========================================================== */
@@ -152,18 +157,19 @@ function cachedLatestISO(env, game) {
    =========================================================== */
 export async function fetchRowsWithCache(options) {
     const { game, since, until, token } = options;
-    // 🚧 Guard: digit & non-5-ball games are handled elsewhere.
-    if (game.startsWith('fl_pick') ||
-        game === 'tx_texas_two_step' ||
-        game.startsWith('ny_numbers') ||
-        game.startsWith('ny_win4') ||
-        game === 'ny_quick_draw' ||
-        game === 'ny_pick10' ||
-        game === 'ca_daily3' ||
-        game === 'ca_daily4') {
-        // eslint-disable-next-line no-console
-        console.warn('BUG: fetchRowsWithCache called for non-canonical game:', game, new Error().stack);
-        return [];
+    // 🚧 Guard: use registry meta instead of hard-coded lists.
+    // Only canonical 5/6-style draw files are supported here; digits/keno/cashpop/logicals have their own fetchers.
+    {
+        const meta = resolveGameMeta(game);
+        const nonCanonical = isDigitShape(meta.shape) ||
+            meta.shape === 'pick10' ||
+            meta.shape === 'quickdraw' ||
+            meta.shape === 'cashpop';
+        if (nonCanonical) {
+            // eslint-disable-next-line no-console
+            console.warn('fetchRowsWithCache called for non-canonical shape:', game, meta.shape, new Error().stack);
+            return [];
+        }
     }
     // 🔁 If CI asked to seed, force full history for PB/MM (server-side only)
     const effectiveLatestOnly = options.latestOnly && !(isMultiGame(game) && shouldSeedFullHistory());
@@ -302,36 +308,39 @@ function toLottoShim(fr, rep) {
         fr.values[3] || 0,
         fr.values[4] || 0,
     ];
-    // For Lotto-style 6-main games, keep 6th main in `special`
+    // For 6-main games, keep the 6th main in `special` (registry decides who qualifies).
+    const repMeta = resolveGameMeta(rep);
     const sixth = fr.values[5];
-    const special = (rep === 'ny_lotto' && Number.isFinite(sixth))
-        ? Number(sixth)
-        : fr.special;
+    const treatAsSixMains = !!(repMeta.sixMainsNoSpecial || repMeta.isNyLotto);
+    const special = (treatAsSixMains && Number.isFinite(sixth)) ? Number(sixth) : fr.special;
     return { game: rep, date: fr.date, n1, n2, n3, n4, n5, special };
 }
 /** Merge one or more underlying files into canonical LottoRow "shims". */
 export async function fetchLogicalRows(opts) {
     const { logical, period, until } = opts;
-    // Digit/Keno-style logicals are handled by dedicated helpers below
-    if (logical === 'ny_numbers' ||
-        logical === 'ny_win4' ||
-        logical === 'fl_pick2' ||
-        logical === 'fl_pick3' ||
-        logical === 'fl_pick4' ||
-        logical === 'fl_pick5' ||
-        logical === 'fl_cashpop' ||
-        logical === 'tx_all_or_nothing' ||
-        logical === 'ny_quick_draw' ||
-        logical === 'ny_pick10' ||
-        logical === 'ca_daily3' ||
-        logical === 'ca_daily4') {
-        return [];
+    // Use registry to route non-5/6 logicals away (digits/quickdraw/pick10/cashpop/AoN handled elsewhere).
+    {
+        const meta = resolveGameMeta(undefined, logical);
+        const nonFiveSix = isDigitShape(meta.shape) ||
+            meta.shape === 'pick10' ||
+            meta.shape === 'quickdraw' ||
+            meta.shape === 'cashpop' ||
+            logical === 'tx_all_or_nothing';
+        if (nonFiveSix)
+            return [];
     }
     const keys = underlyingKeysFor(logical, period);
     // Choose a representative GameKey for shimming
     const REP_FOR_LOGICAL = {
         ny_take5: 'ny_take5',
         ny_lotto: 'ny_lotto',
+        fl_fantasy5: 'fl_fantasy5',
+        ca_fantasy5: 'ca_fantasy5',
+        ca_superlotto_plus: 'ca_superlotto_plus',
+        multi_powerball: 'multi_powerball',
+        multi_megamillions: 'multi_megamillions',
+        multi_cash4life: 'multi_cash4life',
+        // add others here if you introduce more 5/6-ball logicals
     };
     const rep = REP_FOR_LOGICAL[logical] ??
         ['multi_powerball', 'multi_megamillions', 'multi_cash4life'][0];
@@ -372,8 +381,6 @@ export async function fetchDigitRowsFor(logical, period) {
     }));
     return [].concat(...parts).sort((a, b) => a.date.localeCompare(b.date));
 }
-// Re-export UI helper (kept here for convenience)
-export { toPastDrawsDigitsView, ticketHintsDigits };
 /* ---------------- NY Pick 10 ---------------- */
 export async function fetchPick10RowsFor(logical) {
     const keys = underlyingKeysFor(logical, 'all');
@@ -415,6 +422,27 @@ export async function fetchAllOrNothingRows(period) {
             .filter(Boolean);
     }));
     return [].concat(...parts).sort((a, b) => a.date.localeCompare(b.date));
+}
+// Logical-style helper to mirror Pick 10 / Quick Draw API shape.
+// (Generator calls this form.)
+export async function fetchAllOrNothingRowsFor(logical, period) {
+    // internally it’s identical to fetchAllOrNothingRows, but we keep the
+    // signature parallel to fetchPick10RowsFor / fetchQuickDrawRowsFor
+    return fetchAllOrNothingRows(period);
+}
+// Re-export AON helpers (analytics live in pick10.ts generic k-of-N).
+export { computeAllOrNothingStats, generateAllOrNothingTicket, recommendAllOrNothingFromStats, };
+export async function computeAllOrNothingStatsAsync(rows, signal) {
+    if (!USE_WORKER)
+        return computeAllOrNothingStats(rows);
+    const { runTask } = await _bridge();
+    return runTask('computeAllOrNothingStats', { rows }, signal);
+}
+export async function generateAllOrNothingTicketAsync(stats, opts, signal) {
+    if (!USE_WORKER)
+        return generateAllOrNothingTicket(stats, opts);
+    const { runTask } = await _bridge();
+    return runTask('generateAllOrNothingTicket', { stats, opts }, signal);
 }
 /* ---------------- Quick Draw (20/80) ---------------- */
 export async function fetchQuickDrawRowsFor(logical) {
@@ -526,10 +554,9 @@ export function defaultSinceFor(game) {
     if (game === 'multi_powerball' || game === 'multi_megamillions' || game === 'multi_cash4life')
         return since(24);
     if (game === 'ga_fantasy5' || game === 'ca_superlotto_plus' || game === 'ca_fantasy5'
-        || game === 'fl_fantasy5_midday' || game === 'fl_fantasy5_evening' || game === 'ny_take5'
-        || game === 'tx_cash5')
+        || game === 'fl_fantasy5' || game === 'ny_take5' || game === 'tx_cash5')
         return since(18);
-    if (game === 'fl_lotto' || game === 'fl_jackpot_triple_play' || game === 'tx_lotto_texas' || game === 'ny_lotto')
+    if (game === 'fl_lotto' || game === 'fl_jackpot_triple_play' || game === 'tx_lotto_texas' || game === 'tx_texas_two_step' || game === 'ny_lotto')
         return since(24);
     return null;
 }

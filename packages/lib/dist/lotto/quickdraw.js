@@ -7,20 +7,26 @@ export function computeQuickDrawStats(rows) {
         counts.set(n, 0);
         lastSeen.set(n, Infinity);
     }
-    // rows expected ascending; iterate newest→oldest without copying
+    // rows expected ascending; iterate newest→oldest without copying.
+    // Skip malformed rows instead of bailing out entirely.
+    let validDraws = 0;
     for (let i = rows.length - 1, idx = 0; i >= 0; i--, idx++) {
         const r = rows[i];
         if (!r)
             continue;
         const v = (r.values || []).filter(n => Number.isFinite(n) && n >= 1 && n <= 80);
         if (v.length !== 20)
-            return;
+            continue;
+        validDraws++;
         v.forEach(n => {
             counts.set(n, (counts.get(n) || 0) + 1);
             lastSeen.set(n, Math.min(lastSeen.get(n) || Infinity, idx));
         });
     }
-    const totalDraws = rows.length;
+    const totalDraws = validDraws;
+    // Guard against empty input after filtering
+    if (totalDraws === 0)
+        return { counts, lastSeen, totalDraws: 0, z: new Map() };
     const expected = (totalDraws * 20) / 80;
     const p = 20 / 80;
     const variance = totalDraws * p * (1 - p);
@@ -70,7 +76,7 @@ export function recommendQuickDrawFromStats(stats) {
     else
         rec = { mode: 'hot', alpha: 0.60 };
     if (stats)
-        rec.alpha = clampAlphaGeneric(rec.alpha, stats.totalDraws, 80, 0.50, 0.70);
+        rec.alpha = clampAlphaGeneric(rec.alpha, stats.totalDraws || 0, 80, 0.50, 0.70);
     return rec;
 }
 /** Spots-aware top-prize odds (hit-all) for Quick Draw. */

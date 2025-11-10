@@ -2,7 +2,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 
-export type DisplayMode = 'compact' | 'detailed' | 'expanded';
+export type DisplayMode = 'compact' | 'detailed';
 const LS_KEY = 'lsp.displayMode';
 
 export default function DisplayModeSwitcher({
@@ -24,7 +24,7 @@ export default function DisplayModeSwitcher({
 
   useEffect(() => {
     const saved = (typeof window !== 'undefined' && localStorage.getItem(LS_KEY)) as DisplayMode | null;
-    if (!isControlled && (saved === 'compact' || saved === 'detailed' || saved === 'expanded')) {
+    if (!isControlled && (saved === 'compact' || saved === 'detailed')) {
       setInternal(saved);
     }
   }, [isControlled]);
@@ -50,7 +50,6 @@ export default function DisplayModeSwitcher({
         >
         <option value="compact">Compact</option>
         <option value="detailed">Detailed</option>
-        <option value="expanded">Expanded</option>
         </select>
     </label>
   );

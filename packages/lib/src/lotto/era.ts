@@ -26,7 +26,7 @@ export const CURRENT_ERA: Record<EraGame, EraConfig> = {
       'Powerball’s current matrix took effect on Oct 7, 2015: 5 mains from 1–69 and Powerball 1–26 (changed from 59/35).',
   },
   multi_megamillions: {
-    start: '2025-04-08',
+    start: '2017-10-28',
     mainMax: 70,
     specialMax: 24,
     mainPick: 5,
@@ -64,7 +64,7 @@ export const CURRENT_ERA: Record<EraGame, EraConfig> = {
   ny_lotto: {
     start: '2001-09-12',
     mainMax: 59,
-    specialMax: 59,       // use the same domain for the Bonus UI
+    specialMax: 0,      
     mainPick: 6,          // six mains
     label: '6/59 + Bonus (1–59)',
     description:
@@ -73,20 +73,20 @@ export const CURRENT_ERA: Record<EraGame, EraConfig> = {
   fl_lotto: {
     start: '1999-10-24',
     mainMax: 53,
-    specialMax: 53,       // store the 6th main in `special` (schema compatibility)
+    specialMax: 0,      
     mainPick: 6,          // six mains
     label: '6/53 (no bonus; 6th stored as special)',
     description:
-      'Florida LOTTO: 6 mains from 1–53. We store the 6th main in “special” to match the 5+special CSV schema. Double Play rows are excluded.',
+      'Florida LOTTO: 6 mains from 1–53. Double Play rows are excluded.',
   },
   fl_jackpot_triple_play: {
     start: '2019-01-30',
     mainMax: 46,
-    specialMax: 46,       // store 6th main in `special`
+    specialMax: 0,       
     mainPick: 6,
     label: '6/46 (no bonus; 6th stored as special)',
     description:
-      'Florida Jackpot Triple Play: 6 mains from 1–46, no bonus ball. We store the 6th main in “special” to match the canonical 5+special schema.',
+      'Florida Jackpot Triple Play: 6 mains from 1–46, no bonus ball.',
   },
   fl_fantasy5: {
     start: '1999-04-25',
@@ -118,7 +118,7 @@ export const CURRENT_ERA: Record<EraGame, EraConfig> = {
   tx_lotto_texas: {
     start: '2006-04-19',
     mainMax: 54,
-    specialMax: 54,       // store the 6th main in `special`
+    specialMax: 0,     
     mainPick: 6,
     label: '6/54 (no bonus; 6th stored as special)',
     description:

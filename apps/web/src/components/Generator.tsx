@@ -28,6 +28,9 @@ import {
   LottoRow,
   GameKey,
   LogicalGameKey,
+  DigitRow,
+  Pick10Row,
+  QuickDrawRow,
 } from '@lsp/lib';
 import {
   resolveGameMeta, isDigitShape, usesPlayTypeTags,
@@ -96,6 +99,10 @@ function GeneratorInner({
   const [digitStats, setDigitStats] = useState<DigitStatsT | null>(null);
   const [p10Stats,   setP10Stats]   = useState<Pick10StatsT | null>(null);
   const [qdStats,    setQdStats]    = useState<QuickDrawStatsT | null>(null);
+  // raw rows to feed into EvaluateTicket
+  const [digitRowsForEvaluate, setDigitRowsForEvaluate] = useState<DigitRow[] | null>(null);
+  const [pick10RowsForEvaluate, setPick10RowsForEvaluate] = useState<Pick10Row[] | null>(null);
+  const [quickDrawRowsForEvaluate, setQuickDrawRowsForEvaluate] = useState<QuickDrawRow[] | null>(null);
   const [aonStats,   setAonStats]   = useState<AllOrNothingStatsT | null>(null);
   // Cash Pop: keep raw frequency counts (1..15)
   const [cpCounts,   setCpCounts]   = useState<number[] | null>(null); // length 16, index 1..15
@@ -211,32 +218,38 @@ useEffect(() => {
         const period = effectivePeriod(meta, coerceAnyPeriod(undefined));
         const rows = await fetchDigitRowsFor(lg, period);
         if (cancelled()) return;
+          setDigitRowsForEvaluate(rows);
         const k = meta.kDigits!;
         const s = await computeDigitStatsAsync(rows, k as 2|3|4|5, signal);
         if (cancelled()) return;
         setDigitStats(s);
       } else {
         setDigitStats(null);
+          setDigitRowsForEvaluate(null);
       }
 
       if (isPick10) {
         const rows = await fetchPick10RowsFor('ny_pick10');
         if (cancelled()) return;
+          setPick10RowsForEvaluate(rows);
         const s = await computePick10StatsAsync(rows, signal);
         if (cancelled()) return;
         setP10Stats(s);
       } else {
         setP10Stats(null);
+          setPick10RowsForEvaluate(null);
       }
 
       if (isQuickDraw) {
         const rows = await fetchQuickDrawRowsFor('ny_quick_draw');
         if (cancelled()) return;
+          setQuickDrawRowsForEvaluate(rows);
         const s = await computeQuickDrawStatsAsync(rows, signal);
         if (cancelled()) return;
         setQdStats(s);
       } else {
         setQdStats(null);
+          setQuickDrawRowsForEvaluate(null);
       }
 
       // ---- TX All or Nothing (12-from-24) ----
@@ -872,13 +885,15 @@ useEffect(() => {
           Copy tickets
         </button>
         <button
-          className="btn btn-ghost"
+          className="btn btn-ghost generator-evaluate-toggle"
           aria-pressed={showEvaluate}
+          aria-expanded={showEvaluate}
           aria-controls="evaluate-panel"
           onClick={() => setShowEvaluate(v => !v)}
           title={showEvaluate ? 'Hide Evaluate My Numbers' : 'Show Evaluate My Numbers'}
         >
-          Evaluate
+          <span>Evaluate</span>
+          <span className="generator-evaluate-caret" aria-hidden>▾</span>
         </button>
       </div>
       
@@ -894,6 +909,9 @@ useEffect(() => {
       precomputedPick10Stats={p10Stats}
       precomputedQuickDrawStats={qdStats}
       quickDrawSpots={qdSpots}
+      digitRowsForEvaluate={digitRowsForEvaluate}
+     pick10RowsForEvaluate={pick10RowsForEvaluate}
+     quickDrawRowsForEvaluate={quickDrawRowsForEvaluate}
     />
   </div>
 )}

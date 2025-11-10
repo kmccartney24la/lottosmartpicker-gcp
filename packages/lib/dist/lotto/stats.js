@@ -48,8 +48,10 @@ export function computeStats(rows, game, overrideCfg) {
         const mains = [d.n1, d.n2, d.n3, d.n4, d.n5];
         // Lotto-style 6-main games store the 6th main in `special` for CSV compatibility.
         // Treat that `special` as a MAIN for stats purposes (do NOT count it as a special).
-        const isSixMainGame = (game === 'ny_lotto' || game === 'ny_nylotto' ||
-            game === 'fl_lotto' || game === 'fl_jackpot_triple_play');
+        const isSixMainGame = (game === 'ny_lotto' ||
+            game === 'fl_lotto' ||
+            game === 'fl_jackpot_triple_play' ||
+            game === 'tx_lotto_texas');
         if ((overrideCfg?.mainPick ?? getCurrentEraConfig(game).mainPick) > 5
             && isSixMainGame
             && typeof d.special === 'number') {
@@ -65,9 +67,9 @@ export function computeStats(rows, game, overrideCfg) {
             lastSeenSpecial.set(d.special, Math.min(lastSeenSpecial.get(d.special) || Infinity, idx));
         }
     }
-    const expectedMain = (totalDraws * 5) / cfg.mainMax;
+    const expectedMain = (totalDraws * cfg.mainPick) / cfg.mainMax;
     const expectedSpecial = cfg.specialMax > 0 ? totalDraws / cfg.specialMax : 0;
-    const varMain = totalDraws * (5 / cfg.mainMax) * (1 - 5 / cfg.mainMax);
+    const varMain = totalDraws * (cfg.mainPick / cfg.mainMax) * (1 - cfg.mainPick / cfg.mainMax);
     const sdMain = Math.sqrt(Math.max(varMain, 1e-9));
     const varSpecial = cfg.specialMax > 0 ? totalDraws * (1 / cfg.specialMax) * (1 - 1 / cfg.specialMax) : 0;
     const sdSpecial = cfg.specialMax > 0 ? Math.sqrt(Math.max(varSpecial, 1e-9)) : 1; // avoid div/0
@@ -167,10 +169,13 @@ function hasConsecutiveRun(mains, runLen) {
 }
 function isArithmeticSequence(mains) {
     const a = [...mains].sort((x, y) => x - y);
+    if (a.length < 3)
+        return false;
     const d = a[1] - a[0];
-    for (let i = 2; i < a.length; i++)
-        if (a[i] - a[i - 1] !== d)
+    for (let i = 2; i < a.length; i++) {
+        if ((a[i] - a[i - 1]) !== d)
             return false;
+    }
     return true;
 }
 function isBirthdayHeavy(mains) {
@@ -319,7 +324,7 @@ export function jackpotOddsForLogical(logical) {
         case 'tx_pick3': return Math.pow(10, 3); // straight, exact order
         case 'tx_daily4': return Math.pow(10, 4); // straight, exact order
         case 'ny_pick10': return Math.round(nCk(80, 10) / nCk(20, 10));
-        case 'ny_lotto': return nCk(59, 6);
+        case 'ny_lotto': return jackpotOdds('ny_lotto');
         case 'ny_quick_draw': return null;
         case 'tx_all_or_nothing':
             // Top prize if you match ALL 12 or NONE of 12 (two winning subsets).

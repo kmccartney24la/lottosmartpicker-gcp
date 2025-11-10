@@ -23,7 +23,7 @@ export function digitKFor(logical) {
     // sensible fallback; callers only pass digit games here
     return 3;
 }
-/** Basic stats for digit games (domain 0..9, repetition allowed). */
+// k now supports 2|3|4|5 to match types.ts and callers (worker + fetch).
 export function computeDigitStats(rows, k) {
     const counts = new Array(10).fill(0);
     let totalDraws = 0;
@@ -33,8 +33,9 @@ export function computeDigitStats(rows, k) {
         const r = rows[i];
         if (!r)
             continue;
+        // Skip malformed rows instead of returning undefined (normalizes return type)
         if (!Array.isArray(r.digits) || r.digits.length !== k)
-            return;
+            continue;
         totalDraws++;
         r.digits.forEach(d => {
             if (d >= 0 && d <= 9) {
@@ -65,9 +66,9 @@ export function toPastDrawsDigitsView(r, k) {
     }
     return view;
 }
-// ------------- Hint helpers (digits) -------------
-function isPalindrome(d) { return d.join('') === [...d].reverse().join(''); }
-function longestRunLen(d) {
+// ------------- Shared digit helpers (exported) -------------
+export function isPalindrome(d) { return d.join('') === [...d].reverse().join(''); }
+export function longestRunLen(d) {
     let best = 1, cur = 1;
     for (let i = 1; i < d.length; i++) {
         if (d[i] === d[i - 1] + 1 || d[i] === d[i - 1] - 1) {
@@ -79,13 +80,41 @@ function longestRunLen(d) {
     }
     return best;
 }
-function multiplicity(d) {
+/** Max digit multiplicity (e.g., AAAB → 3). */
+export function maxMultiplicity(d) {
     const m = new Map();
     d.forEach(x => m.set(x, (m.get(x) || 0) + 1));
     const counts = Array.from(m.values()).sort((a, b) => b - a);
     return counts[0] ?? 1; // max multiplicity
 }
-function digitSum(d) { return d.reduce((a, b) => a + b, 0); }
+export function digitSum(d) { return d.reduce((a, b) => a + b, 0); }
+/** Internal factorial for small k (<=5). */
+function fact(n) { return n <= 1 ? 1 : n * fact(n - 1); }
+/** Multiset permutation count for a k-digit selection (with replacement). */
+export function multisetPermutationsCount(d) {
+    const k = d.length;
+    const m = new Map();
+    d.forEach(x => m.set(x, (m.get(x) || 0) + 1));
+    const denom = Array.from(m.values()).reduce((acc, c) => acc * fact(c), 1);
+    return fact(k) / denom;
+}
+/** Build a "<N>-Way Box" label. */
+export function wayLabel(n, base = 'Box') {
+    return `${n}-Way ${base}`;
+}
+/** Box variant label from the digits themselves. */
+export function boxVariantLabel(digits, k) {
+    if (!Array.isArray(digits) || digits.length !== k)
+        return null;
+    const ways = multisetPermutationsCount(digits);
+    return ways <= 1 ? null : wayLabel(ways, 'Box');
+}
+/** "Straight" when all digits equal (AA, AAA, AAAA, AAAAA). */
+export function straightOnlyLabel(digits, k) {
+    if (!Array.isArray(digits) || digits.length !== k)
+        return null;
+    return maxMultiplicity(digits) === k ? 'Straight' : null;
+}
 /**
  * Native digit-game hints (3 or 4 digits). Independent of GameKey.
  * Emits stable labels aligned with HINT_EXPLAIN.
@@ -96,7 +125,7 @@ export function ticketHintsDigits(digits, stats) {
         return ['Insufficient data'];
     if (digits.length !== stats.k)
         return ['Invalid'];
-    const maxMult = multiplicity(digits); // 2=pair, 3=triple, 4=quad
+    const maxMult = maxMultiplicity(digits); // 2=pair, 3=triple, 4=quad
     if (maxMult === 4)
         hints.push('Quad');
     else if (maxMult === 3)

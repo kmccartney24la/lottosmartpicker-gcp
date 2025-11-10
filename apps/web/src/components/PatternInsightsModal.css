@@ -1,0 +1,704 @@
+/* apps/web/src/components/PatternInsightsModal.css */
+
+@layer components {
+.pattern-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(5, 6, 15, 0.45);
+  z-index: var(--z-overlay, 9990);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+}
+
+.pattern-modal {
+  background: var(--card);
+  border: 1px solid var(--card-bd);
+  border-radius: var(--radius-card, 1rem);
+  width: min(1100px, 100%);
+  max-height: 100%;
+  max-height: min(100%, 96vh);
+  overflow-y: auto;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.pattern-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-4) var(--space-4) var(--space-2);
+  border-bottom: 1px solid color-mix(in oklab, var(--card-bd) 80%, transparent);
+}
+
+.pattern-modal-title {
+  margin: 0;
+  font-size: var(--text-xl);
+}
+
+.pattern-modal-sub {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+
+.pattern-modal-close {
+  background: transparent;
+  border: none;
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--fg);
+}
+
+.pattern-modal-body {
+  padding: 0 var(--space-4) var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.pattern-modal-loading,
+.pattern-modal-error {
+  padding: var(--space-4);
+}
+
+.pattern-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding-top: var(--space-2);
+}
+
+/* divider between sections */
+.pattern-section + .pattern-section {
+  border-top: 1px solid color-mix(in oklab, var(--card-bd) 70%, transparent);
+  margin-top: var(--space-2);
+  padding-top: var(--space-3);
+}
+
+/* tighter follow-up sections when we group main + special */
+.pattern-section--tight {
+  padding-top: 0;
+  margin-top: calc(var(--space-2) * -0.25);
+}
+
+.pattern-inline-explain {
+  border-left: 2px solid color-mix(in oklab, var(--card-bd) 60%, transparent);
+  padding-left: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.pattern-inline-list {
+  list-style: disc;
+  margin: 0.25rem 0 0 1.1rem;
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+
+
+.pattern-section-title {
+  margin: 0;
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.pattern-muted {
+  color: var(--muted);
+  font-size: var(--text-sm);
+  line-height: 1.35;
+}
+
+.pattern-overdue-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
+  gap: 0.5rem;
+}
+
+.pattern-overdue-card {
+  background: color-mix(in oklab, var(--card) 70%, transparent);
+  border: 1px solid rgba(0, 0, 0, 0.02);
+  border-radius: 0.75rem;
+  padding: 0.5rem 0.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.pattern-overdue-card .num {
+  font-weight: 600;
+}
+
+.pattern-overdue-card .gap {
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+
+/* sub-blocks inside a section, used for “Main numbers” / “Special ball” */
+.pattern-subsection {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.4rem;
+}
+
+.pattern-subsection--special {
+  border-left: 2px solid color-mix(in oklab, var(--bubble-amber) 55%, transparent);
+  padding-left: 0.75rem;
+  gap: 0.5rem;
+}
+
+/* re-use global subtitle sizing, just tint it for special */
+.pattern-subtitle--special {
+  color: var(--bubble-amber);
+}
+
+/* special cards get a subtle amber tint and border using tokens */
+.pattern-overdue-card--special {
+  background: color-mix(in oklab, var(--bubble-amber) 12%, var(--card));
+  border-color: color-mix(in oklab, var(--bubble-amber) 45%, var(--card-bd));
+}
+
+/* k-of-N range / decade strip -------------------------------------- */
+.pattern-range-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.pattern-range-segment {
+  background: color-mix(in oklab, var(--card) 95%, transparent);
+  border: 1px solid color-mix(in oklab, var(--card-bd) 90%, transparent);
+  border-radius: 0.75rem;
+  min-width: 6.1rem;
+  padding: 0.45rem 0.6rem 0.4rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.pattern-range-label {
+  font-size: 0.68rem;
+  color: var(--muted);
+}
+
+.pattern-range-metric {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.pattern-range-ratio {
+  font-size: 0.65rem;
+  color: var(--muted);
+}
+
+/* reuse your heatmap tint language so it matches the rest */
+.pattern-range-segment.hot {
+  background: color-mix(in oklab, var(--bubble-red) 14%, var(--card));
+  border-color: color-mix(in oklab, var(--bubble-red) 45%, var(--card-bd));
+  color: var(--bubble-red);
+}
+
+.pattern-range-segment.warm {
+  background: color-mix(in oklab, var(--bubble-amber) 14%, var(--card));
+  border-color: color-mix(in oklab, var(--bubble-amber) 45%, var(--card-bd));
+  color: var(--bubble-amber);
+}
+
+.pattern-range-segment.cold {
+  background: color-mix(in oklab, var(--accent) 10%, var(--card));
+  border-color: color-mix(in oklab, var(--accent) 40%, var(--card-bd));
+  color: var(--accent);
+}
+
+/* legend sits just under the strip */
+.pattern-range-legend {
+  margin-top: var(--space-2);
+}
+
+/* recency histogram */
+.pattern-recency-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+/* special-ball recency chart sits right under main chart, so keep it compact */
+.pattern-recency-chart--special {
+  margin-top: var(--space-2);
+  background: transparent;
+}
+
+.pattern-recency-bar-row {
+  display: grid;
+  grid-template-columns: 80px 1fr auto;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.pattern-recency-label {
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+
+/* recency panel (bucket members) */
+.pattern-recency-panel {
+  margin-top: 0.5rem;
+  background: color-mix(in oklab, var(--card) 92%, transparent);
+  border: 1px solid color-mix(in oklab, var(--card-bd) 90%, transparent);
+  border-radius: 0.6rem;
+  padding: 0.6rem 0.6rem 0.4rem;
+}
+
+.pattern-recency-panel-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  align-items: baseline;
+}
+
+.pattern-recency-panel-title {
+  margin: 0;
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
+.pattern-recency-panel-hint {
+  margin: 0;
+  font-size: 0.6rem;
+  color: var(--muted);
+}
+
+.pattern-recency-panel-body {
+  margin-top: 0.45rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  max-height: 6rem;
+  overflow-y: auto;
+}
+
+/* allow special recency panel to match layout */
+.pattern-recency-panel--special {
+  margin-top: 0.5rem;
+}
+
+.pattern-muted-small {
+  font-size: 0.6rem;
+  line-height: 1.25;
+}
+
+.pattern-recency-bar-track {
+  background: rgba(148, 163, 184, 0.12);
+  border-radius: 9999px;
+  height: 8px;
+  position: relative;
+  overflow: hidden;
+}
+
+.pattern-recency-bar-fill {
+  height: 100%;
+  background: color-mix(in oklab, var(--accent) 70%, transparent);
+  border-radius: inherit;
+  transition: width 0.25s ease-out;
+}
+
+.pattern-recency-count {
+  font-size: 0.7rem;
+  text-align: right;
+  color: var(--fg);
+}
+
+.pattern-heatmap {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(38px, 1fr));
+  gap: 0.3rem;
+}
+
+/* specials are small, so let them sit nicely under the overdue cards */
+.pattern-heatmap-special {
+  margin-top: 1rem;
+}
+
+/* special heatmap tiles — use existing bubble-amber token so it matches themes */
+.pattern-heat--special {
+  background: color-mix(in oklab, var(--bubble-amber) 10%, var(--card));
+  border-color: color-mix(in oklab, var(--bubble-amber) 55%, var(--card-bd));
+}
+
+.pattern-heat {
+  border-radius: 0.35rem;
+  text-align: center;
+  font-size: 0.7rem;
+  padding: 0.45rem 0.35rem;
+  background: color-mix(in oklab, var(--card) 92%, transparent);
+  border: 1px solid color-mix(in oklab, var(--card-bd) 80%, transparent);
+  color: var(--fg);
+}
+
+/* neutral (default) stays close to card so it looks fine in light/dark/contrast */
+.pattern-heat.neutral {
+  background: color-mix(in oklab, var(--card) 94%, transparent);
+  border-color: color-mix(in oklab, var(--card-bd) 90%, transparent);
+}
+
+/* hot → use bubble red token so it’s theme-safe */
+.pattern-heat.hot {
+  background: color-mix(in oklab, var(--bubble-red) 14%, var(--card));
+  border: 1px solid color-mix(in oklab, var(--bubble-red) 50%, var(--card-bd));
+  color: var(--bubble-red);
+}
+
+/* warm → use amber token (also theme-safe and legible on dark) */
+.pattern-heat.warm {
+  background: color-mix(in oklab, var(--bubble-amber) 14%, var(--card));
+  border: 1px solid color-mix(in oklab, var(--bubble-amber) 45%, var(--card-bd));
+  color: var(--bubble-amber);
+}
+
+/* cold → use accent token so it adapts to theme */
+.pattern-heat.cold {
+  background: color-mix(in oklab, var(--accent) 12%, var(--card));
+  border: 1px solid color-mix(in oklab, var(--accent) 45%, var(--card-bd));
+  color: var(--accent);
+}
+
+/* legend right under heatmaps */
+.pattern-heat-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.6rem;
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+
+
+.pattern-heat-legend-item {
+  display: inline-flex;
+  gap: 0.25rem;
+  align-items: center;
+  font-size: 0.6rem;
+  border-radius: 9999px;
+  padding: 0.15rem 0.5rem;
+  background: color-mix(in oklab, var(--card) 88%, transparent);
+  border: 1px solid color-mix(in oklab, var(--card-bd) 90%, transparent);
+}
+
+.pattern-heat-legend-item.hot { color: var(--bubble-red); }
+.pattern-heat-legend-item.warm { color: var(--bubble-amber); }
+.pattern-heat-legend-item.cold { color: var(--accent); }
+.pattern-heat-legend-item.neutral { color: var(--muted); }
+
+.pattern-combo-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1rem;
+}
+
+.pattern-subtitle {
+  margin: 0 0 0.35rem 0;
+  font-size: 0.8rem;
+}
+
+.pattern-combo-item {
+  border-bottom: 1px solid rgba(0, 0, 0, 0.04);
+  padding: 0.25rem 0;
+}
+
+.pattern-combo-main {
+  font-weight: 500;
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.pattern-combo-dates {
+  font-size: 0.65rem;
+  color: var(--muted);
+}
+
+.pattern-badge {
+  background: rgba(5, 150, 105, 0.1);
+  color: #065f46;
+  border-radius: 9999px;
+  padding: 0.1rem 0.45rem;
+  font-size: 0.6rem;
+}
+
+.pattern-hotcold {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 1rem;
+}
+
+.pattern-hotcold ul {
+  list-style: none;
+  margin: 0.25rem 0 0;
+  padding: 0;
+}
+
+.pattern-hotcold li {
+  font-size: 0.7rem;
+}
+
+/* digit view --------------------------------------------------------- */
+.pattern-digit-pos-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+}
+
+.pattern-digit-pos-card {
+  background: color-mix(in oklab, var(--card) 90%, transparent);
+  border: 1px solid rgba(0, 0, 0, 0.02);
+  border-radius: 0.75rem;
+  padding: 0.5rem 0.6rem;
+}
+
+/* new: wrap to allow horizontal scroll for very wide digit matrices */
+.pattern-digit-matrix-wrap {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* digit per-position matrix ------------------------------------------ */
+.pattern-digit-matrix {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  border: 1px solid color-mix(in oklab, var(--card-bd) 85%, transparent);
+  border-radius: 0.75rem;
+  background: color-mix(in oklab, var(--card) 94%, transparent);
+  overflow: hidden;
+  /* make the grid as wide as it actually needs to be, so the parent can scroll it */
+  min-width: max-content;
+}
+
+.pattern-digit-matrix-row {
+  /* ensure rows follow the widened table */
+  min-width: max-content;
+}
+
+.pattern-digit-matrix-row {
+  display: grid;
+  grid-template-columns: 48px repeat(10, minmax(28px, 1fr));
+  gap: 0;
+  min-height: 30px;
+}
+
+.pattern-digit-matrix-row--header {
+  background: color-mix(in oklab, var(--card) 96%, transparent);
+}
+
+.pattern-digit-matrix-cell {
+  border-right: 1px solid color-mix(in oklab, var(--card-bd) 80%, transparent);
+  border-bottom: 1px solid color-mix(in oklab, var(--card-bd) 80%, transparent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.65rem;
+  line-height: 1.1;
+}
+
+.pattern-digit-matrix-cell:last-child {
+  border-right: none;
+}
+
+.pattern-digit-matrix-cell--corner {
+  background: transparent;
+  border-left: none;
+}
+
+.pattern-digit-matrix-cell--header {
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.pattern-digit-matrix-cell--pos {
+  font-weight: 500;
+  color: var(--muted);
+  background: color-mix(in oklab, var(--card) 98%, transparent);
+}
+
+.pattern-digit-matrix-cell--value {
+  /* background intensity derived from data-pct set in TSX */
+}
+/* we switched to discrete bands because attr(...) is not widely supported
+   and it made the heatmap look “flat” in some browsers. */
+.pattern-digit-matrix-cell--band-0 {
+  background: transparent;
+  color: var(--muted);
+}
+.pattern-digit-matrix-cell--band-1 {
+  background: color-mix(in oklab, var(--accent) 12%, var(--card));
+  color: var(--fg);
+}
+.pattern-digit-matrix-cell--band-2 {
+  background: color-mix(in oklab, var(--accent) 22%, var(--card));
+  color: var(--fg);
+}
+.pattern-digit-matrix-cell--band-3 {
+  background: color-mix(in oklab, var(--accent) 35%, var(--card));
+  color: var(--fg);
+}
+.pattern-digit-matrix-cell--band-4 {
+  background: color-mix(in oklab, var(--accent) 50%, var(--card));
+  color: var(--card);
+  font-weight: 600;
+}
+
+.pattern-digit-matrix-count {
+  font-variant-numeric: tabular-nums;
+}
+
+.pattern-digit-pos-fill {
+  height: 100%;
+  background: color-mix(in oklab, var(--accent) 70%, transparent);
+}
+
+.pattern-digit-count {
+  font-size: 0.65rem;
+}
+
+/* digit repeat patterns (upgraded) ------------------------------------ */
+.pattern-digit-patterns {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+/* fixed-height scroll window for lots of repeats */
+.pattern-digit-patterns-scroll {
+  max-height: 220px;
+  overflow-y: auto;
+  padding-right: var(--space-1);
+}
+
+.pattern-digit-pattern-item {
+  display: flex;
+  gap: var(--space-2);
+  align-items: flex-start;
+  background: color-mix(in oklab, var(--card) 95%, transparent);
+  border: 1px solid color-mix(in oklab, var(--card-bd) 92%, transparent);
+  border-radius: 0.75rem;
+  padding: 0.45rem 0.6rem 0.4rem;
+  /* cards themselves should not scroll */
+  overflow: visible;
+}
+
+.pattern-repeat-dot {
+  width: 0.65rem;
+  height: 0.65rem;
+  border-radius: 9999px;
+  background: var(--accent);
+  flex: 0 0 auto;
+  margin-top: 0.35rem;
+}
+
+.pattern-digit-pattern-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.pattern-digit-pattern-seq {
+  font-weight: 500;
+}
+
+.pattern-digit-pattern-meta {
+  font-size: 0.6rem;
+}
+
+/* the dates line is the only part that should scroll horizontally */
+.pattern-digit-pattern-dates {
+  display: block;
+  white-space: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  max-width: 100%;
+  -webkit-overflow-scrolling: touch;
+}
+.pattern-digit-pattern-dates::-webkit-scrollbar {
+  height: 4px;
+}
+
+/* stronger badge for repeat count, but still theme-safe */
+.pattern-badge-strong {
+  background: color-mix(in oklab, var(--accent) 16%, transparent);
+  color: inherit;
+}
+
+.pattern-digit-matrix-legend {
+  display: inline-flex;
+  gap: 0.35rem;
+  align-items: center;
+  margin-top: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.pattern-digit-matrix-legend-label {
+  font-size: 0.65rem;
+  color: var(--muted);
+}
+
+.pattern-digit-matrix-legend-swatch {
+  border-radius: 9999px;
+  padding: 0.1rem 0.5rem;
+  font-size: 0.6rem;
+}
+
+/* mobile-friendly horizontal scroll for long date strings in digit repeats */
+@media (--bp-mobile) {
+  .pattern-digit-pattern-content {
+    /* let the inner content grow so horizontal scroll actually appears */
+    min-width: max-content;
+  }
+  .pattern-digit-pattern-dates {
+    /* keep it scrollable horizontally on mobile too */
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+}
+
+.pattern-fb-list {
+  margin: 0;
+  padding-left: 1.1rem;
+  font-size: 0.7rem;
+}
+
+/* fixed-height scroll window for long repeated-combo lists */
+.pattern-combo-scroll {
+  max-height: 290px;
+  overflow-y: auto;
+  gap: 1rem;
+}
+
+.pattern-combo-column {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.pattern-combo-item {
+  border-bottom: 1px solid rgba(0, 0, 0, 0.04);
+  padding: 0.25rem 0;
+}
+
+@media (--bp-mobile) {
+  .pattern-modal {
+    height: 100%;
+  }
+  .pattern-recency-bar-row {
+    grid-template-columns: 60px 1fr auto;
+  }
+}
+} /* end @layer components */

@@ -125,6 +125,26 @@
   overflow: hidden;
 }
 
+/* Evaluate toggle caret (match HintLegend behavior) */
+.generator-evaluate-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.generator-evaluate-caret {
+  display: inline-block;
+  line-height: 1;
+  transform: rotate(0deg);
+  transition: transform 160ms ease;
+  margin-left: .125rem;
+}
+
+/* rotate when panel is open */
+.generator-evaluate-toggle[aria-expanded="true"] .generator-evaluate-caret {
+  transform: rotate(180deg);
+}
+
 .generator-results {
   margin-top: var(--space-4);
   display: grid;
