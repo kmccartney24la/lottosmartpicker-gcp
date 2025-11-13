@@ -8,10 +8,14 @@ import {
 } from './stats.js';
 
 /** Stats for Quick Draw (Keno-style, 20-from-80). */
+/** Stats for Quick Draw (Keno-style, 20-from-80). */
 export function computeQuickDrawStats(rows: QuickDrawRow[]) {
   const counts = new Map<number, number>();
   const lastSeen = new Map<number, number>();
-  for (let n=1;n<=80;n++){counts.set(n,0); lastSeen.set(n,Infinity);}
+  for (let n = 1; n <= 80; n++) {
+    counts.set(n, 0);
+    lastSeen.set(n, Infinity);
+  }
 
   // rows expected ascending; iterate newest→oldest without copying.
   // Skip malformed rows instead of bailing out entirely.
@@ -19,27 +23,47 @@ export function computeQuickDrawStats(rows: QuickDrawRow[]) {
   for (let i = rows.length - 1, idx = 0; i >= 0; i--, idx++) {
     const r = rows[i];
     if (!r) continue;
-    const v = (r.values||[]).filter(n=>Number.isFinite(n) && n>=1 && n<=80);
+    const v = (r.values || []).filter((n) => Number.isFinite(n) && n >= 1 && n <= 80);
     if (v.length !== 20) continue;
     validDraws++;
-    v.forEach(n => {
-      counts.set(n, (counts.get(n)||0) + 1);
-      lastSeen.set(n, Math.min(lastSeen.get(n)||Infinity, idx));
+    v.forEach((n) => {
+      counts.set(n, (counts.get(n) || 0) + 1);
+      lastSeen.set(n, Math.min(lastSeen.get(n) || Infinity, idx));
     });
   }
 
   const totalDraws = validDraws;
   // Guard against empty input after filtering
-  if (totalDraws === 0) return { counts, lastSeen, totalDraws: 0, z: new Map<number, number>() };
+  if (totalDraws === 0) {
+    return {
+      counts,
+      lastSeen,
+      totalDraws: 0,
+      z: new Map<number, number>(),
+      // 👇 add shape so UI can still render defensively
+      k: 20,
+      N: 80,
+    };
+  }
 
-  const expected = (totalDraws * 20) / 80;
-  const p = 20/80;
+  const p = 20 / 80;
+  const expected = totalDraws * p;
   const variance = totalDraws * p * (1 - p);
   const sd = Math.max(Math.sqrt(Math.max(variance, 1e-9)), 1e-6);
   const z = new Map<number, number>();
-  for (let n=1;n<=80;n++) z.set(n, ((counts.get(n)||0)-expected)/sd);
+  for (let n = 1; n <= 80; n++) {
+    z.set(n, ((counts.get(n) || 0) - expected) / sd);
+  }
 
-  return { counts, lastSeen, totalDraws, z };
+  return {
+    counts,
+    lastSeen,
+    totalDraws,
+    z,
+    // 👇 this is what your chart was missing
+    k: 20,
+    N: 80,
+  };
 }
 
 /** Weight builder for Quick Draw (hot/cold + alpha blend). */

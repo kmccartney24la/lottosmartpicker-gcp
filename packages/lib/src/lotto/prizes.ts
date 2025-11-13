@@ -2,9 +2,10 @@
 import type {
   GameKey,
   LogicalGameKey,
-  EraGame,
-  DigitRow,
 } from './types.js';
+import type{
+  EraKey,
+} from './era.js'
 import { resolveEraGame } from './era.js';
 
 /**
@@ -68,7 +69,7 @@ export type PrizeTier =
 /* 5/6-ball style prize tables, keyed by era game                      */
 /* ------------------------------------------------------------------ */
 
-const LOTTO_PRIZES: Record<EraGame, PrizeTier[]> = {
+const LOTTO_PRIZES: Partial<Record<EraKey, PrizeTier[]>> = {
   /* --------------------- MULTI-STATE --------------------- */
 
   // Powerball: 9 fixed tiers, Power Play multiplies non-jackpot prizes.
@@ -916,6 +917,90 @@ function digitPrizeTableFor(key: GameKey | LogicalGameKey): PrizeTier[] {
   ];
 }
 
+// Cash Pop: per-number prize is determined on the ticket, so we just expose a single bucket.
+const CASHPOP_PRIZES: PrizeTier[] = [
+  {
+    kind: 'digits',
+    code: 'HIT',
+    label: 'Matched drawn number',
+    notes: 'Actual payout depends on the wager/prize printed for that number.',
+  },
+];
+
+// Texas All or Nothing – symmetric prize structure: 12 or 0 is top, then 11/1, 10/2, 9/3, 8/4.
+const TX_ALL_OR_NOTHING_PRIZES: PrizeTier[] = [
+  {
+    kind: 'pool',
+    code: 'MATCH_12',
+    label: 'Matched 12 of 12',
+    matches: 12,
+    notes: 'Top prize; actual amount depends on game rules.',
+  },
+  {
+    kind: 'pool',
+    code: 'MATCH_0',
+    label: 'Matched 0 of 12',
+    matches: 0,
+    notes: 'Top prize (inverted match); actual amount depends on game rules.',
+  },
+  {
+    kind: 'pool',
+    code: 'MATCH_11',
+    label: 'Matched 11 of 12',
+    matches: 11,
+    notes: 'Second-level prize.',
+  },
+  {
+    kind: 'pool',
+    code: 'MATCH_1',
+    label: 'Matched 1 of 12',
+    matches: 1,
+    notes: 'Second-level prize (inverted).',
+  },
+  {
+    kind: 'pool',
+    code: 'MATCH_10',
+    label: 'Matched 10 of 12',
+    matches: 10,
+    notes: 'Mid-level prize.',
+  },
+  {
+    kind: 'pool',
+    code: 'MATCH_2',
+    label: 'Matched 2 of 12',
+    matches: 2,
+    notes: 'Mid-level prize (inverted).',
+  },
+  {
+    kind: 'pool',
+    code: 'MATCH_9',
+    label: 'Matched 9 of 12',
+    matches: 9,
+    notes: 'Lower-level prize.',
+  },
+  {
+    kind: 'pool',
+    code: 'MATCH_3',
+    label: 'Matched 3 of 12',
+    matches: 3,
+    notes: 'Lower-level prize (inverted).',
+  },
+  {
+    kind: 'pool',
+    code: 'MATCH_8',
+    label: 'Matched 8 of 12',
+    matches: 8,
+    notes: 'Lowest paying level.',
+  },
+  {
+    kind: 'pool',
+    code: 'MATCH_4',
+    label: 'Matched 4 of 12',
+    matches: 4,
+    notes: 'Lowest paying level (inverted).',
+  },
+];
+
 /* ------------------------------------------------------------------ */
 /* Pool / Keno-ish games (NY Pick 10, NY Quick Draw)                  */
 /* ------------------------------------------------------------------ */
@@ -961,6 +1046,14 @@ export function prizeTableFor(
   if (game === 'ny_quick_draw') {
     const spots = opts?.poolSpots ?? 10;
     return buildPoolTiers(spots);
+  }
+  // 2b) explicit single-number game
+  if (game === 'fl_cashpop') {
+    return CASHPOP_PRIZES;
+  }
+  // 2c) explicit all-or-nothing game
+  if (game === 'tx_all_or_nothing') {
+    return TX_ALL_OR_NOTHING_PRIZES;
   }
 
   // 3) fallback to era-based lotto games

@@ -90,23 +90,6 @@ export type Period =
    Game category/narrow unions
    =========================================================== */
 
-// Games with an *era* used by 5-ball analysis/generator.
-export type EraGame =
-  | 'multi_powerball'
-  | 'multi_megamillions'
-  | 'multi_cash4life'
-  | 'ga_fantasy5'
-  | 'ca_superlotto_plus'
-  | 'ca_fantasy5'
-  | 'ny_take5'
-  | 'ny_lotto'
-  | 'fl_fantasy5'
-  | 'fl_lotto'
-  | 'fl_jackpot_triple_play'
-  | 'tx_lotto_texas'
-  | 'tx_cash5'
-  | 'tx_texas_two_step';
-
 // Games backed by NY Open Data (Socrata)
 export type SocrataGame =
   | 'multi_powerball'
@@ -167,7 +150,7 @@ export type UnderlyingKey =
 
 export const FEATURES = {
   DIGIT_HINTS: (process.env.NEXT_PUBLIC_ENABLE_DIGIT_HINTS ?? '1') === '1',
-  PICK10:      (process.env.NEXT_PUBLIC_ENABLE_PICK10 ?? '0') === '1',
+  PICK10:      (process.env.NEXT_PUBLIC_ENABLE_PICK10 ?? '1') === '1',
 } as const;
 
 /* ===========================================================

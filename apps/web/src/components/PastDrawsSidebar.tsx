@@ -235,7 +235,7 @@ function PastDrawsSidebarInner({
         }
         case 'pick10': {
           for (const r of payload.rows) {
-            rows.push({ date: r.date, values: (r.values || []).slice(0, 10), label: 'Numbers' });
+            rows.push({ date: r.date, values: (r.values || []).slice(0, 20), label: 'Numbers' });
           }
           break;
         }

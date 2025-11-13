@@ -1,21 +1,22 @@
 // packages/lib/src/lotto/era.ts
 import type {
   EraConfig,
-  EraGame,
   GameKey,
   LogicalGameKey,
   LottoRow,
 } from './types.js';
 
+// ✅ eras can be defined for any game we surface in the UI
+export type EraKey = GameKey | LogicalGameKey;
+
 // Re-export types for convenience (as requested).
-export type { EraConfig, EraGame } from './types.js';
+export type { EraConfig } from './types.js';
 
 /* ---------------- Era definitions (CURRENT ERA ONLY) ----------------
    We always analyze/generate using the current matrices:
    - Powerball:    5/69 + 1/26 since 2015-10-07
-   - Mega Millions:5/70 + 1/24 since 2025-04-08
 -------------------------------------------------------------------*/
-export const CURRENT_ERA: Record<EraGame, EraConfig> = {
+export const CURRENT_ERA: Record<EraKey, EraConfig> = {
   multi_powerball: {
     start: '2015-10-07',
     mainMax: 69,
@@ -32,7 +33,7 @@ export const CURRENT_ERA: Record<EraGame, EraConfig> = {
     mainPick: 5,
     label: '5/70 + 1/24',
     description:
-      'Mega Millions’ current matrix took effect on Apr 8, 2025: 5 mains from 1–70 and Mega Ball 1–24 (reduced from 25).',
+      'Mega Millions’ current matrix took effect on Oct 10, 2017: 5 mains from 1–70 and Mega Ball 1–24 (reduced from 25 on Apr 8, 2025).',
   },
   multi_cash4life: {
     start: '2014-06-16',
@@ -70,6 +71,40 @@ export const CURRENT_ERA: Record<EraGame, EraConfig> = {
     description:
       'NY Lotto: 6 mains from 1–59 plus a Bonus ball (also 1–59). Jackpot odds = C(59,6); Bonus used for 2nd prize.',
   },
+  // NY digits
+  ny_numbers: {
+    start: '1980-09-02',
+    mainMax: 10,
+    specialMax: 0,
+    mainPick: 3,
+    label: '3 digits (0–9)',
+    description: 'NY Numbers: 3 digits 0–9.',
+  },
+  ny_win4: {
+    start: '1981-07-21',
+    mainMax: 10,
+    specialMax: 0,
+    mainPick: 4,
+    label: '4 digits (0–9)',
+    description: 'NY Win 4: 4 digits 0–9.',
+  },
+  // NY k-of-N
+  ny_pick10: {
+    start: '1987-01-01',
+    mainMax: 80,
+    specialMax: 0,
+    mainPick: 10,
+    label: '10/80 (Pick 10)',
+    description: 'NY Pick 10: 10 numbers drawn from 1–80.',
+  },
+  ny_quick_draw: {
+    start: '1995-09-02',
+    mainMax: 80,
+    specialMax: 0,
+    mainPick: 20,
+    label: '20/80 (Quick Draw)',
+    description: 'NY Quick Draw (keno-style): 20 numbers from 1–80.',
+  },
   fl_lotto: {
     start: '1999-10-24',
     mainMax: 53,
@@ -97,6 +132,47 @@ export const CURRENT_ERA: Record<EraGame, EraConfig> = {
     description:
       'Florida Fantasy 5: 5 mains from 1–36, no bonus ball. Midday & Evening draws; rows before 1999-04-25 are excluded.',
   },
+  // FL digits
+  fl_pick5: {
+    start: '2016-08-24',
+    mainMax: 10,
+    specialMax: 0,
+    mainPick: 5,
+    label: '5 digits (0–9)',
+    description: 'FL Pick 5: 5 digits 0–9.',
+  },
+  fl_pick4: {
+    start: '1991-07-04',
+    mainMax: 10,
+    specialMax: 0,
+    mainPick: 4,
+    label: '4 digits (0–9)',
+    description: 'FL Pick 4: 4 digits 0–9.',
+  },
+  fl_pick3: {
+    start: '1988-05-03',
+    mainMax: 10,
+    specialMax: 0,
+    mainPick: 3,
+    label: '3 digits (0–9)',
+    description: 'FL Pick 3: 3 digits 0–9.',
+  },
+  fl_pick2: {
+    start: '2016-08-24',
+    mainMax: 10,
+    specialMax: 0,
+    mainPick: 2,
+    label: '2 digits (0–9)',
+    description: 'FL Pick 2: 2 digits 0–9. Synthetic era for display.',
+  },
+  fl_cashpop: {
+    start: '2022-01-03',
+    mainMax: 15,
+    specialMax: 0,
+    mainPick: 1,
+    label: '1/15 (Cash Pop)',
+    description: 'FL Cash Pop: 1 number 1–15; 5 daily periods.',
+  },
   ca_superlotto_plus: {
     start: '2000-06-01',
     mainMax: 47,
@@ -114,6 +190,23 @@ export const CURRENT_ERA: Record<EraGame, EraConfig> = {
     label: '5/39 (no bonus)',
     description:
       'California Fantasy 5: 5 mains from 1–39, no bonus ball. Daily draws; entry closes at 6:30 p.m. PT.',
+  },
+  // synthetic CA digits
+  ca_daily3: {
+    start: '1985-01-01',
+    mainMax: 10,
+    specialMax: 0,
+    mainPick: 3,
+    label: '3 digits (0–9)',
+    description: 'CA Daily 3: 3 digits 0–9.',
+  },
+  ca_daily4: {
+    start: '2008-05-19',
+    mainMax: 10,
+    specialMax: 0,
+    mainPick: 4,
+    label: '4 digits (0–9)',
+    description: 'CA Daily 4: 4 digits 0–9.',
   },
   tx_lotto_texas: {
     start: '2006-04-19',
@@ -141,16 +234,41 @@ export const CURRENT_ERA: Record<EraGame, EraConfig> = {
       label: '4/35 + 1/35',
       description: 'Four mains from 1–35 plus a separate 1–35 Bonus Ball.',
     },
+    // TX 4x-daily families
+  tx_all_or_nothing: {
+    start: '2012-09-10',
+    mainMax: 24,
+    specialMax: 0,
+    mainPick: 12,
+    label: '12/24 (All or Nothing)',
+    description: 'TX All or Nothing: 12 numbers from 1–24.',
+  },
+  tx_pick3: {
+    start: '1993-10-25',
+    mainMax: 10,
+    specialMax: 0,
+    mainPick: 3,
+    label: '3 digits (0–9)',
+    description: 'TX Pick 3: 3 digits 0–9. Synthetic era for display.',
+  },
+  tx_daily4: {
+    start: '2007-10-01',
+    mainMax: 10,
+    specialMax: 0,
+    mainPick: 4,
+    label: '4 digits (0–9)',
+    description: 'TX Daily 4: 4 digits 0–9. Synthetic era for display.',
+  },
 };
 
 /** Map any canonical or logical key to the EraGame we use for analysis (generator, stats, labels). */
-export function resolveEraGame(game: GameKey | LogicalGameKey): EraGame {
+export function resolveEraGame(game: GameKey | LogicalGameKey): EraKey {
   const g = String(game);
   const eraTable = CURRENT_ERA as Record<string, EraConfig>;
 
   // 1) Exact match: canonical era-backed game
   if (eraTable[g]) {
-    return g as EraGame;
+    return g as EraKey;
   }
 
   const gl = g.toLowerCase();
@@ -188,7 +306,7 @@ export function resolveEraGame(game: GameKey | LogicalGameKey): EraGame {
 
   // 6) Multi-state logicals should already be in CURRENT_ERA, but keep a fallback
   if (gl.startsWith('multi_') && eraTable[g]) {
-    return g as EraGame;
+    return g as EraKey;
   }
 
   // 7) Final safety net
@@ -216,24 +334,44 @@ export function filterRowsForCurrentEra(
 export function eraTooltipFor(game: GameKey | LogicalGameKey): string {
   const eraKey = resolveEraGame(game);
   const era = CURRENT_ERA[eraKey];
-  const DISPLAY_NAME: Record<EraGame, string> = {
+  const DISPLAY_NAME: Record<EraKey, string> = {
+    // multi
     multi_powerball: 'Powerball',
     multi_megamillions: 'Mega Millions',
     multi_cash4life: 'Cash4Life',
+    // GA
     ga_fantasy5: 'Fantasy 5 (GA)',
+    // CA
     ca_superlotto_plus: 'SuperLotto Plus',
     ca_fantasy5: 'Fantasy 5 (CA)',
+    ca_daily3: 'Daily 3',
+    ca_daily4: 'Daily 4',
+    // NY
     ny_take5: 'Take 5',
     ny_lotto: 'New York LOTTO',
+    ny_numbers: 'Numbers',
+    ny_win4: 'Win 4',
+    ny_pick10: 'Pick 10',
+    ny_quick_draw: 'Quick Draw',
+    // FL
     fl_fantasy5: 'Fantasy 5 (FL)',
     fl_lotto: 'Florida LOTTO',
     fl_jackpot_triple_play: 'Jackpot Triple Play',
+    fl_pick5: 'Pick 5',
+    fl_pick4: 'Pick 4',
+    fl_pick3: 'Pick 3',
+    fl_pick2: 'Pick 2',
+    fl_cashpop: 'Cash Pop',
+    // TX
     tx_lotto_texas: 'Lotto Texas',
     tx_cash5: 'Cash Five',
     tx_texas_two_step: 'Texas Two Step',
+    tx_all_or_nothing: 'All or Nothing',
+    tx_pick3: 'Pick 3',
+    tx_daily4: 'Daily 4',
   };
 
-  const name = DISPLAY_NAME[eraKey];
+  const name = DISPLAY_NAME[eraKey] ?? eraKey;
   return [
     `${name} (current era: ${era.label})`,
     `Effective date: ${era.start}`,

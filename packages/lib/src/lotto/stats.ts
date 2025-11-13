@@ -48,7 +48,14 @@ export function computeStats(
     const d = rows[i];
     if (!d) continue;
 
-    const mains = [d.n1, d.n2, d.n3, d.n4, d.n5];
+    // Build mains defensively, using the current era’s pick count.
+    // Two Step draws 4 mains; some CSVs leave n5 undefined — never include it.
+    const mains: number[] = [];
+    // Push any present/finite mains from n1..n5 in order
+    const raw = [d.n1, d.n2, d.n3, d.n4, d.n5];
+    for (const m of raw) {
+      if (Number.isFinite(m)) mains.push(m as number);
+    }
 
     // Lotto-style 6-main games store the 6th main in `special` for CSV compatibility.
     // Treat that `special` as a MAIN for stats purposes (do NOT count it as a special).
@@ -58,11 +65,12 @@ export function computeStats(
        game === 'fl_jackpot_triple_play' ||
        game === 'tx_lotto_texas');
 
-    if ((overrideCfg?.mainPick ?? getCurrentEraConfig(game).mainPick) > 5
-        && isSixMainGame
-        && typeof d.special === 'number') {
-      mains.push(d.special);
+    const eraMainPick = (overrideCfg?.mainPick ?? getCurrentEraConfig(game).mainPick);
+    if (eraMainPick > 5 && isSixMainGame && Number.isFinite(d.special)) {
+      mains.push(d.special as number);
     }
+    // Final safety: only analyze exactly the current era’s mainPick
+    if (mains.length > eraMainPick) mains.length = eraMainPick;
 
     mains.forEach(m=>{
       countsMain.set(m,(countsMain.get(m)||0)+1);
@@ -70,9 +78,10 @@ export function computeStats(
     });
 
     // For 6-main games, do NOT count `special` in the special domain.
-    if (cfg.specialMax > 0 && typeof d.special === 'number' && !(isSixMainGame)) {
-      countsSpecial.set(d.special,(countsSpecial.get(d.special)||0)+1);
-      lastSeenSpecial.set(d.special, Math.min(lastSeenSpecial.get(d.special)||Infinity, idx));
+    if (cfg.specialMax > 0 && !isSixMainGame && typeof d.special === 'number' && Number.isFinite(d.special)) {
+      const sp: number = d.special; // ✓ now narrowed to number
+      countsSpecial.set(sp, (countsSpecial.get(sp) ?? 0) + 1);
+      lastSeenSpecial.set(sp, Math.min(lastSeenSpecial.get(sp) ?? Infinity, idx));
     }
   }
 

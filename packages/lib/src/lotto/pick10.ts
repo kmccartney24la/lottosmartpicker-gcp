@@ -40,7 +40,15 @@ export function computeKOfNStats<T extends KOfNRow>(
   const z = new Map<number, number>();
   for (let n = 1; n <= N; n++) z.set(n, ((counts.get(n) || 0) - expected) / sd);
 
-  return { counts, lastSeen, totalDraws, z };
+  // include k and N so UI/data layers can build derived charts without re-inferring
+  return {
+    counts,
+    lastSeen,
+    totalDraws,
+    z,
+    k,
+    N,
+  };
 }
 
 /** Weight builder for any k-of-N game (hot/cold + alpha blend). */
@@ -93,6 +101,218 @@ export function recommendKOfNFromStats(
   else rec = { mode: 'hot', alpha: 0.60 };
   if (stats) rec.alpha = clampAlphaGeneric(rec.alpha, stats.totalDraws || 0, N, 0.50, 0.70);
   return rec;
+}
+
+// small helper: get a clean number[] from a row
+function normalizedValues(r: KOfNRow | undefined): number[] {
+  if (!r) return [];
+  return (r.values || []).filter(
+    (n): n is number => Number.isFinite(n) && n >= 1
+  );
+}
+
+function maxValueFromRows<T extends KOfNRow>(rows: T[]): number {
+  let max = 0;
+  for (const r of rows) for (const v of normalizedValues(r)) if (v > max) max = v;
+  return max;
+}
+
+/* ============================================================================
+   Additional analysis helpers for k-of-N games (UI-neutral)
+   These mirror what the PatternInsightsModal was doing by hand.
+   ============================================================================ */
+
+/** Try to infer k and N from plain rows, newest/oldest order doesn't matter here. */
+export function inferKAndNFromKOfNRows<T extends KOfNRow>(rows: T[]): { k: number; N: number } | null {
+  if (!rows || rows.length === 0) return null;
+  const first = rows[0];
+  if (!first) return null;
+
+  const vals = normalizedValues(first);
+  const k = vals.length;
+  const N = maxValueFromRows(rows);
+  if (!k || !N) return null;
+  return { k, N };
+}
+
+/** Histogram of overlap between consecutive k-of-N draws. */
+export function computeKOfNOverlapHistogram<T extends KOfNRow>(
+  rows: T[]
+): { k: number; data: Array<{ overlap: number; count: number }>; draws: number } | null {
+  if (!rows || rows.length < 2) return null;
+  const inferred = inferKAndNFromKOfNRows(rows);
+  if (!inferred) return null;
+  const { k } = inferred;
+
+  const counts = Array.from({ length: k + 1 }, () => 0);
+
+  for (let i = 1; i < rows.length; i++) {
+    const prev = rows[i - 1];
+    const currRow = rows[i];
+    if (!prev || !currRow) continue;
+
+    const prevSet = new Set(normalizedValues(prev));
+    const curr = normalizedValues(currRow);
+    let overlap = 0;
+    for (const v of curr) {
+      if (prevSet.has(v)) overlap++;
+    }
+    // tighten the guard so TS knows index is valid
+    if (overlap >= 0 && overlap < counts.length) {
+      counts[overlap] = (counts[overlap] ?? 0) + 1;
+    }
+}
+
+  const data = counts.map((count, overlap) => ({ overlap, count }));
+  return { k, data, draws: rows.length - 1 };
+}
+
+/**
+ * Range / decade strip for k-of-N: group 1..N into segments and count hits per segment.
+ * This returns the data your UI was rendering directly.
+ */
+export function computeKOfNRangeStrip<T extends KOfNRow>(
+  rows: T[],
+  stats: ReturnType<typeof computeKOfNStats> | null,
+  opts?: { segmentSize?: number }
+): {
+  N: number;
+  k: number;
+  segmentSize: number;
+  data: Array<{ label: string; hits: number; expected: number; ratio: number }>;
+  totalDraws: number;
+} | null {
+  const inferred =
+    stats && typeof stats.k === 'number' && typeof stats.N === 'number'
+      ? { k: stats.k, N: stats.N }
+      : inferKAndNFromKOfNRows(rows);
+  if (!inferred) return null;
+  const { k, N } = inferred as { k: number; N: number };
+  if (!rows || rows.length === 0) return null;
+
+  let segmentSize: number;
+  if (opts?.segmentSize) {
+    segmentSize = opts.segmentSize;
+  } else if (N >= 80) {
+    segmentSize = 10;
+  } else if (N === 24) {
+    segmentSize = 6;
+  } else {
+    segmentSize = Math.ceil(N / 6);
+  }
+
+  const segments: Array<{ start: number; end: number; hits: number; expected: number }> = [];
+  for (let start = 1; start <= N; ) {
+    const end = Math.min(start + segmentSize - 1, N);
+    segments.push({ start, end, hits: 0, expected: 0 });
+    start = end + 1;
+  }
+
+  const totalDraws = rows.length;
+
+  for (const r of rows) {
+    if (!r) continue;
+    const vals = normalizedValues(r);
+    for (const v of vals) {
+      let idx = Math.floor((v - 1) / segmentSize);
+      if (idx < 0) idx = 0;
+      if (idx >= segments.length) idx = segments.length - 1;
+      segments[idx]!.hits += 1;
+    }
+  }
+
+  for (const seg of segments) {
+    const segSize = seg.end - seg.start + 1;
+    const prob = segSize / N;
+    seg.expected = totalDraws * (k * prob);
+  }
+
+  const data = segments.map((seg) => {
+    const ratio = seg.expected > 0 ? seg.hits / seg.expected : 1;
+    return {
+      label: `${seg.start}–${seg.end}`,
+      hits: seg.hits,
+      expected: seg.expected,
+      ratio,
+    };
+  });
+
+  return { N, k, segmentSize, data, totalDraws };
+}
+
+/**
+ * All-or-nothing specific: how many of the 12 landed in 1–12 vs 13–24.
+ * Returns null if the rows are not 12/24.
+ */
+export function computeAllOrNothingHalfBalance(rows: AllOrNothingRow[]) {
+  const inferred = inferKAndNFromKOfNRows(rows as any);
+  if (!inferred) return null;
+  const { k, N } = inferred as { k: number; N: number };
+  if (!(k === 12 && N === 24)) return null;
+
+  const counts = Array.from({ length: k + 1 }, () => 0);
+  // use indexed loop to make TS happy under strict mode
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
+    if (!r) continue;
+
+    const vals = normalizedValues(r);
+    let lowHits = 0;
+    for (const v of vals) {
+      if (v >= 1 && v <= 12) lowHits++;
+    }
+
+    if (lowHits >= 0 && lowHits < counts.length) {
+      counts[lowHits] = (counts[lowHits] ?? 0) + 1;
+    }
+  }
+  const data = counts.map((count, lowHits) => ({ lowHits, count }));
+  return { k, N, data, draws: rows.length };
+}
+
+/**
+ * Hot-set hits vs expected, in chronological order (oldest → newest).
+ * This is the data your LineChart was consuming.
+ */
+export function buildKOfNHotSetHitsSeries<T extends KOfNRow>(
+  rows: T[],
+  stats: ReturnType<typeof computeKOfNStats>,
+  opts?: { hotFraction?: number; maxPoints?: number }
+): { data: Array<{ idx: number; hits: number; expected: number }>; hotSize: number; expectedPerDraw: number; total: number } {
+  const hotFraction = opts?.hotFraction ?? 0.25;
+  const maxPoints = opts?.maxPoints ?? 60;
+  const k = typeof stats.k === 'number' ? stats.k : 0;
+  const N = typeof stats.N === 'number' ? stats.N : 0;
+  if (!k || !N) {
+    return { data: [], hotSize: 0, expectedPerDraw: 0, total: 0 };
+  }
+
+  // build hot set from z
+  const zEntries = Array.from(stats.z.entries()).map(([num, z]) => ({ num, z: z ?? 0 }));
+  const targetBySize = Math.floor(N * hotFraction);
+  const hotSize = Math.max(4, Math.min(20, targetBySize || 4));
+  const hotSet = new Set(
+    zEntries
+      .sort((a, b) => b.z - a.z)
+      .slice(0, hotSize)
+      .map((e) => e.num)
+  );
+
+  const expectedPerDraw = k * (hotSet.size / N);
+
+  const series: Array<{ idx: number; hits: number; expected: number }> = [];
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    const vals = normalizedValues(row);
+    let hits = 0;
+    for (const v of vals) {
+      if (hotSet.has(v)) hits++;
+    }
+    series.push({ idx: i + 1, hits, expected: expectedPerDraw });
+  }
+
+  const trimmed = series.length > maxPoints ? series.slice(series.length - maxPoints) : series;
+  return { data: trimmed, hotSize: hotSet.size, expectedPerDraw, total: series.length };
 }
 
 /** Basic stats for Pick 10 (10-from-80). */

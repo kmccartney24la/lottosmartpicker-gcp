@@ -422,6 +422,7 @@ export async function fetchLogicalRows(opts: {
     multi_powerball: 'multi_powerball',
     multi_megamillions: 'multi_megamillions',
     multi_cash4life: 'multi_cash4life',
+    tx_texas_two_step: 'tx_texas_two_step',
     // add others here if you introduce more 5/6-ball logicals
   };
   const rep: GameKey =
@@ -486,20 +487,31 @@ export async function fetchPick10RowsFor(
     keys.map(async (k) => {
       const url = apiPathForUnderlying(k as UnderlyingKey);
       const res = await fetch(url);
-      if (!res.ok) return [] as Pick10Row[];
+      if (!res.ok) {
+        console.warn('[pick10] failed to fetch', url, res.status);
+        return [] as Pick10Row[];
+      }
       const csv = await res.text();
       const flex = parseFlexibleCsv(csv); // ascending by date
       return flex
         .map(fr => {
-          const vals = (fr.values||[]).filter(n=>Number.isFinite(n) && n>=1 && n<=80).slice(0, 10);
-          return vals.length === 10 ? ({ date: fr.date, values: vals } as Pick10Row) : null;
+          // keep up to 20 drawn numbers
+          const vals = (fr.values || [])
+            .filter(n => Number.isFinite(n) && n >= 1 && n <= 80)
+            .slice(0, 20);
+          // accept 10 or more (10-only files, or full 20)
+          if (vals.length >= 10) {
+            return { date: fr.date, values: vals } as Pick10Row;
+          }
+          return null;
         })
         .filter(Boolean) as Pick10Row[];
     })
   );
   const merged = ([] as Pick10Row[]).concat(...parts);
-  return merged.sort((a,b)=>a.date.localeCompare(b.date));
+  return merged.sort((a, b) => a.date.localeCompare(b.date));
 }
+
 
 // Re-export Pick10 helpers (no implementations here)
 export { computePick10Stats, buildPick10Weights, generatePick10Ticket, ticketHintsPick10 };

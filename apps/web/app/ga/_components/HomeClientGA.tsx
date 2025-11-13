@@ -174,7 +174,7 @@ export default function HomeClient() {
                 <div><AnalyzeSidebar
                       title="Analysis (All Games)"
                       canonical={['multi_powerball','multi_megamillions','multi_cash4life','ga_fantasy5']}
-                      logical={[]}
+                      state="ga" 
                     /></div>
               </section>
             </div>

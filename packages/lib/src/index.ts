@@ -13,6 +13,7 @@ export * from './lotto/fetch.js';
 export * from './lotto/ny.js';
 export * from './lotto/parse.js';
 export * from './lotto/paths.js';
+export * from './lotto/patternUtils.js'
 export * from './lotto/pick10.js';
 export * from './lotto/prizes.js';
 export * from './lotto/quickdraw.js';

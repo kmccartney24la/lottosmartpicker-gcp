@@ -2,7 +2,7 @@
 'use client';
 import './AnalyzeSidebar.css';
 import { useEffect, useRef, useState } from 'react';
-import PatternInsightsModal from './PatternInsightsModal';
+import PatternInsightsModal from 'apps/web/src/components/PatternInsightsModal';
 import { ErrorBoundary } from 'apps/web/src/components/ErrorBoundary';
 import {
    fetchRowsWithCache, fetchLogicalRows,
@@ -12,6 +12,7 @@ import {
    fetchDigitRowsFor, computeDigitStatsAsync, recommendDigitsFromStats,
    // Pick 10
    fetchPick10RowsFor, computePick10StatsAsync, recommendPick10FromStats,
+   inferKAndNFromKOfNRows,
    // Quick Draw (Keno-style)
    fetchQuickDrawRowsFor, computeQuickDrawStatsAsync, recommendQuickDrawFromStats,
    // Cash Pop
@@ -22,9 +23,11 @@ import {
    computeAllOrNothingStatsAsync,
    // (no explicit recommend fn exported; we’ll surface the hot/cold alpha-like results)
    // Worker-offloaded analysis
-   analyzeGameAsync, LOGICAL_TO_UNDERLYING
+   analyzeGameAsync, LOGICAL_TO_UNDERLYING,
+   resolveEraGame,
+   getCurrentEraConfig,
  } from '@lsp/lib';
-import type { StateKey, GameKey, LogicalGameKey, EraGame } from '@lsp/lib';
+import type { StateKey, GameKey, LogicalGameKey,} from '@lsp/lib';
 import { DEFAULT_STATE } from '@lsp/lib';
 import {
   resolveGameMeta,
@@ -35,12 +38,13 @@ import {
   repForLogical,
   displayNameFor,
   digitsKFor,
+  sidebarModeFor,
 } from '@lsp/lib';
 
 // Canonical/era-backed draw games come from lib types
-type CanonicalDrawGame = EraGame;
+type CanonicalDrawGame = GameKey;
 // Canonical keys to consider (labels will come from registry.displayNameFor)
-const ORDER: EraGame[] = [
+const ORDER: GameKey[] = [
   'multi_powerball',
   'multi_megamillions',
   'multi_cash4life',
@@ -74,7 +78,7 @@ function logicalAllowedByState(st: StateKey): LogicalGameKey[] {
 }
 
 // Which canonical games are allowed per state page
-const CANON_BY_STATE: Record<StateKey, EraGame[]> = {
+const CANON_BY_STATE: Record<StateKey, GameKey[]> = {
   ga: ['ga_fantasy5','multi_powerball','multi_megamillions','multi_cash4life'],
   ca: ['ca_superlotto_plus','ca_fantasy5','multi_powerball','multi_megamillions'],
   ny: ['ny_take5','ny_lotto','multi_powerball','multi_megamillions','multi_cash4life'],
@@ -106,14 +110,20 @@ type Props = {
 function AnalyzeSidebarInner({ canonical, logical, title, period = 'both', state }: Props) {
   const st = state ?? DEFAULT_STATE;
 
-  const CANON_BASE: CanonicalDrawGame[] =
-    (canonical && canonical.length > 0) ? canonical : ORDER;
+  const CANON_BASE: GameKey[] =
+    canonical && canonical.length > 0 ? canonical : ORDER;
 
   const CANON_LIST = CANON_BASE
-    .filter(k => CANON_BY_STATE[st].includes(k))
-    .map(key => ({ key, label: displayNameFor(key) }));
-  // Filter logical by state
-  const LOGICAL_LIST = (logical ?? []).filter(lg => logicalAllowedByState(st).includes(lg)).slice();
+    .filter((k) => CANON_BY_STATE[st].includes(k))
+    .map((key) => ({ key, label: displayNameFor(key) }));
+  // Logical games:
+  // If the caller didn't pass any, fall back to "all logicals allowed for this state"
+  const allowedLogical = logicalAllowedByState(st);
+  const baseLogical =
+    logical && logical.length > 0
+      ? logical
+      : allowedLogical;
+  const LOGICAL_LIST = baseLogical.filter(lg => allowedLogical.includes(lg)).slice();
   // Store by string id so canonical and logical can coexist without collisions
   const [data5, setData5] = useState<Record<string, A | null>>({});
   const [dataDigits, setDataDigits] = useState<Record<string, DS | null>>({});
@@ -211,12 +221,13 @@ function AnalyzeSidebarInner({ canonical, logical, title, period = 'both', state
         const tasks: Promise<TaskResult>[] = [];
         // Canonical games
         for (const g of CANON_LIST) {
-           tasks.push((async () => {
-             const rows = await fetchRowsWithCache({ game: g.key})
-             const v = await analyzeGameAsync(rows, g.key, signal);
-             return [g.key, 'five', v] as const;
-           })());
-         }
+          tasks.push((async () => {
+            // g.key is already an EraKey
+            const rows = await fetchRowsWithCache({ game: g.key });
+            const v = await analyzeGameAsync(rows, g.key, signal);
+            return [g.key, 'five', v] as const;
+          })());
+        }
         // Logical loader (branch by game type)
         for (const lg of LOGICAL_LIST) {
           const meta = resolveGameMeta(undefined, lg);
@@ -240,7 +251,27 @@ function AnalyzeSidebarInner({ canonical, logical, title, period = 'both', state
           switch (meta.shape) {
             case 'pick10':
               tasks.push((async (): Promise<TaskResult> => {
-                const rows = await fetchPick10RowsFor('ny_pick10');
+                // use the actual underlying (still falls back to NY)
+                const underlyingList = LOGICAL_TO_UNDERLYING[lg]?.all ?? [];
+                const underlying = (underlyingList[0] ?? 'ny_pick10') as 'ny_pick10';
+                const rows = await fetchPick10RowsFor(underlying);
+
+                // some feeds deliver 20-of-80 (keno-style); detect it like the modal does
+                const inferred = inferKAndNFromKOfNRows(rows as any);
+
+                if (inferred?.k === 10 && inferred?.N === 80) {
+                  // true pick-10
+                  const v = await computePick10StatsAsync(rows, signal);
+                  return [lg, 'pick10', v] as const;
+                }
+
+                if (inferred?.k === 20 && inferred?.N === 80) {
+                  // this is really a quickdraw/keno feed – analyze as quickdraw
+                  const v = await computeQuickDrawStatsAsync(rows as any, signal);
+                  return [lg, 'quickdraw', v] as const;
+                }
+
+                // fallback: try pick-10 anyway so we don't silently drop it
                 const v = await computePick10StatsAsync(rows, signal);
                 return [lg, 'pick10', v] as const;
               })());
@@ -502,7 +533,7 @@ function AnalyzeSidebarInner({ canonical, logical, title, period = 'both', state
                         <span className="analyze-label">Jackpot odds:</span>
                         <span className="analyze-value mono">
                           {(() => {
-                            const o = jackpotOddsForLogical('ny_pick10');
+                            const o = jackpotOddsForLogical(lg);
                             return o ? `1 in ${o.toLocaleString()}` : 'n/a';
                           })()}
                         </span>
@@ -518,10 +549,12 @@ function AnalyzeSidebarInner({ canonical, logical, title, period = 'both', state
                       </div>
                       {/* No “hot/cold lists” here — ticket-level tags only */}
                     </div>
-                  ) : lg === 'ny_quick_draw' ? (
+                  ) : dataQD[lg] ? (
                     (() => {
                       const aqd = dataQD[lg];
                       if (!aqd) return <div className="analyze-unavailable">Unavailable.</div>;
+                      const mode = sidebarModeFor(meta);
+                      const isPick10Like = mode === 'pick10';
                       const rec = recommendQuickDrawFromStats(aqd);
                       return (
                         <div className="analyze-game-details card-content-text">
@@ -533,24 +566,33 @@ function AnalyzeSidebarInner({ canonical, logical, title, period = 'both', state
                             <span className="analyze-label">Number domain:</span>
                             <span className="analyze-value mono">1–80 · hits per draw: 20</span>
                           </div>
-                          <div className="analyze-detail">
-                            <span className="analyze-label">Spots:</span>
-                            <span className="analyze-value">
-                              <select
-                                aria-label="Quick Draw Spots"
-                                value={qdSpots}
-                                onChange={e => setQdSpots(Number(e.target.value) as any)}
-                              >
-                                {[1,2,3,4,5,6,7,8,9,10].map(s => (
-                                  <option key={s} value={s}>{s} spot{s>1?'s':''}</option>
-                                ))}
-                              </select>
-                            </span>
-                          </div>
+                          {/* NY Pick 10: do NOT show the spots picker */}
+                          {!isPick10Like && (
+                            <div className="analyze-detail">
+                              <span className="analyze-label">Spots:</span>
+                              <span className="analyze-value">
+                                <select
+                                  aria-label="Quick Draw Spots"
+                                  value={qdSpots}
+                                  onChange={e => setQdSpots(Number(e.target.value) as any)}
+                                >
+                                  {[1,2,3,4,5,6,7,8,9,10].map(s => (
+                                    <option key={s} value={s}>{s} spot{s>1?'s':''}</option>
+                                  ))}
+                                </select>
+                              </span>
+                            </div>
+                          )}
                           <div className="analyze-detail">
                             <span className="analyze-label">Jackpot odds:</span>
                             <span className="analyze-value mono">
-                              1 in {jackpotOddsQuickDraw(qdSpots).toLocaleString()}
+                              {isPick10Like
+                                ? (() => {
+                                    const o = jackpotOddsForLogical(lg);
+                                    return o ? `1 in ${o.toLocaleString()}` : 'n/a';
+                                  })()
+                                : `1 in ${jackpotOddsQuickDraw(qdSpots).toLocaleString()}`
+                              }
                             </span>
                           </div>
                           <div className="analyze-detail analyze-recommendation">
@@ -784,10 +826,12 @@ function AnalyzeSidebarInner({ canonical, logical, title, period = 'both', state
                         </span>
                       </div>
                     </div>
-                  ) : lg === 'ny_quick_draw' ? (
+                  ) : dataQD[lg] ? (
                     (() => {
                       const aqd = dataQD[lg];
                       if (!aqd) return <div className="analyze-unavailable">Unavailable.</div>;
+                      const mode = sidebarModeFor(meta);
+                      const isPick10Like = mode === 'pick10';
                       const rec = recommendQuickDrawFromStats(aqd);
                       return (
                         <div className="analyze-game-details card-content-text">
@@ -799,24 +843,33 @@ function AnalyzeSidebarInner({ canonical, logical, title, period = 'both', state
                             <span className="analyze-label">Number domain:</span>
                             <span className="analyze-value mono">1–80 · hits per draw: 20</span>
                           </div>
-                          <div className="analyze-detail">
-                            <span className="analyze-label">Spots:</span>
-                            <span className="analyze-value">
-                              <select
-                                aria-label="Quick Draw Spots"
-                                value={qdSpots}
-                                onChange={e => setQdSpots(Number(e.target.value) as any)}
-                              >
-                                {[1,2,3,4,5,6,7,8,9,10].map(s => (
-                                  <option key={s} value={s}>{s} spot{s>1?'s':''}</option>
-                                ))}
-                              </select>
-                            </span>
-                          </div>
+                          {/* NY Pick 10: do NOT show the spots picker */}
+                          {!isPick10Like && (
+                            <div className="analyze-detail">
+                              <span className="analyze-label">Spots:</span>
+                              <span className="analyze-value">
+                                <select
+                                  aria-label="Quick Draw Spots"
+                                  value={qdSpots}
+                                  onChange={e => setQdSpots(Number(e.target.value) as any)}
+                                >
+                                  {[1,2,3,4,5,6,7,8,9,10].map(s => (
+                                    <option key={s} value={s}>{s} spot{s>1?'s':''}</option>
+                                  ))}
+                                </select>
+                              </span>
+                            </div>
+                          )}
                           <div className="analyze-detail">
                             <span className="analyze-label">Jackpot odds:</span>
                             <span className="analyze-value mono">
-                              1 in {jackpotOddsQuickDraw(qdSpots).toLocaleString()}
+                              {isPick10Like
+                                ? (() => {
+                                    const o = jackpotOddsForLogical(lg);
+                                    return o ? `1 in ${o.toLocaleString()}` : 'n/a';
+                                  })()
+                                : `1 in ${jackpotOddsQuickDraw(qdSpots).toLocaleString()}`
+                              }
                             </span>
                           </div>
                           <div className="analyze-detail analyze-recommendation">
